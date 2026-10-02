@@ -1,0 +1,10 @@
+{
+  "name": "sdd-visual",
+  "private": true,
+  "description": "Only needed for `slides --pptx`. Install on demand: npm install --no-package-lock",
+  "type": "module",
+  "dependencies": {
+    "node-html-parser": "^9.0.1",
+    "pptxgenjs": "^4.0.1"
+  }
+}

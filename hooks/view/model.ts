@@ -1,0 +1,166 @@
+// What the view shows, worked out from one env.py view snapshot. No $ here: plain functions.
+import type { SddFlow, SddItem, SddProgress, SddStage } from '../../types'
+
+export type Mark = 'done' | 'active' | 'waiting' | 'blocked' | 'abandoned' | 'next' | 'later'
+
+export type StageRow = { stage: SddStage; mark: Mark }
+
+
+/** 'Phase 10 — Pull request' -> 'Phase 10'; 'Implement (task 3/7)' -> 'Implement'. As env.py phase_key. */
+export function phaseKey(flow: SddFlow, name: string | undefined): string | null {
+  const phase = (name ?? '').trim()
+  const bug = /^Phase\s+(\d+a?)\b/i.exec(phase)
+  if (bug) {
+    const key = `Phase ${bug[1].toLowerCase()}`
+    return flow.stages.some(s => s.key === key) ? key : null
+  }
+  const hit = flow.stages.find(s => phase.toLowerCase().startsWith(s.key.toLowerCase()))
+  return hit ? hit.key : null
+}
+
+export function stageRows(flow: SddFlow, item: SddItem): StageRow[] {
+  const p = item.progress
+  if (p?.status === 'done' && phaseKey(flow, p.phase) === null) {
+    return flow.stages.map(stage => ({ stage, mark: 'done' as Mark }))
+  }
+  const cur = flow.stages.findIndex(s => s.key === phaseKey(flow, p?.phase))
+  return flow.stages.map((stage, i) => {
+    if (cur < 0) return { stage, mark: i === 0 ? 'next' : 'later' }
+    if (i < cur) return { stage, mark: 'done' }
+    if (i === cur) return { stage, mark: (p?.status ?? 'active') as Mark }
+    return { stage, mark: i === cur + 1 ? 'next' : 'later' }
+  })
+}
+
+
+/** The history rows of one stage, newest first. */
+export function stageHistory(flow: SddFlow, item: SddItem, key: string): SddProgress[] {
+  return (item.history ?? []).filter(h => phaseKey(flow, h.phase) === key).reverse()
+}
+
+const DOCS: Record<string, string[]> = {
+  Specify: ['requirements.md', 'questions.md', 'impact.md'],
+  Design: ['design.md', 'questions.md'],
+  Decompose: ['tasks.md'],
+  Implement: ['tasks.md'],
+  Verify: ['tasks.md', 'design.md'],
+  'Phase 0': ['requirements.md'],
+  'Phase 2': ['requirements.md', 'questions.md'],
+  'Phase 4': ['design.md'],
+}
+
+/** The spec documents a stage reads, those that exist. */
+export function stageDocs(item: SddItem, key: string): string[] {
+  const have = item.spec?.files ?? []
+  return (DOCS[key] ?? []).filter(d => have.includes(d))
+}
+
+/** 2026-10-01T13:56:47Z -> 10-01 13:56 (UTC, as env.py writes it). */
+export function when(at: string | undefined): string {
+  return at ? at.slice(5, 16).replace('T', ' ') : ''
+}
+
+/** An absolute Windows or POSIX path as a file:/// URL. */
+export function fileUrl(path: string): string {
+  const p = path.replace(/\\/g, '/')
+  return encodeURI(`file://${p.startsWith('/') ? '' : '/'}${p}`).replace(/#/g, '%23').replace(/\?/g, '%3F')
+}
+
+function join(base: string, rel: string): string {
+  return `${base.replace(/[\\/]+$/, '')}/${rel.replace(/^[\\/]+/, '')}`
+}
+
+/** A progress ref as a markdown link: `ado`, a spec file, a path under the work item folder, or absolute. */
+export function refLink(item: SddItem, ref: string): string | null {
+  if (ref === 'ado') return item.url ? `[ADO ${item.id}](${item.url})` : null
+  const [, path, lines] = /^(.*?)(?::(\d+(?:-\d+)?))?$/.exec(ref) ?? [ref, ref, undefined]
+  const label = `${path.split(/[\\/]/).pop()}${lines ? `:${lines}` : ''}`
+  let abs: string | null = null
+  if (/^([A-Za-z]:)?[\\/]/.test(path)) abs = path
+  else if (/^src[\\/]/.test(path) && item.folder) abs = join(item.folder, path)
+  else if (item.spec) abs = join(item.spec.path, path)
+  return abs ? `[${label}](${fileUrl(abs)}${lines ? `#L${lines.split('-')[0]}` : ''})` : `\`${ref}\``
+}
+
+/** A file: link the view drew -> the path on this computer and the line to open at, if any. */
+export function fileTarget(href: string): { path: string; line?: number } | null {
+  const m = /^file:\/\/\/?([^#]*)(?:#L(\d+))?$/.exec(href)
+  if (!m) return null
+  const path = decodeURI(m[1]).replace(/%23/g, '#').replace(/%3F/g, '?')
+  return { path: /^[A-Za-z]:/.test(path) ? path : `/${path}`, line: m[2] ? Number(m[2]) : undefined }
+}
+
+/** The file: links in a piece of markdown, so a Markdown element answers only those itself. */
+export function fileLinks(markdown: string): string[] {
+  return [...markdown.matchAll(/\]\((file:[^)\s]+)\)/g)].map(x => x[1])
+}
+
+export function statusWord(item: SddItem): string {
+  const p = item.progress
+  if (!p) return 'not started'
+  if (p.status === 'waiting') return 'waiting on you'
+  return p.status
+}
+
+export function phaseLabel(flow: SddFlow | undefined, item: SddItem): string {
+  const p = item.progress
+  if (!p) return ''
+  if (!flow) return p.phase
+  const key = phaseKey(flow, p.phase)
+  const stage = flow.stages.find(s => s.key === key)
+  if (!stage) return p.status === 'done' ? 'Done' : p.phase
+  return stage.key === stage.label ? stage.label : `${stage.key} · ${stage.label}`
+}
+
+
+export type StoryEvent = { at: string; kind: 'asked' | 'passed' | 'revoked'; text: string; refs: string[] }
+
+/** One gate as a decision, oldest first: each question asked before it passed, the pass with its
+ *  note (the answer), and every revoke with why. A waiting row belongs to the gate the next pass passes. */
+export function gateStory(item: SddItem, gate: string): StoryEvent[] {
+  const out: StoryEvent[] = []
+  let asks: SddProgress[] = []
+  for (const h of item.history ?? []) {
+    if (h.status === 'waiting') asks.push(h)
+    const passed = h.gates?.passed ?? []
+    if (passed.includes(gate)) {
+      for (const a of asks) out.push({ at: a.at, kind: 'asked', text: [a.gate, a.note].filter(Boolean).join('. '), refs: a.refs ?? [] })
+      out.push({ at: h.at, kind: 'passed', text: h.note ?? '', refs: h.refs ?? [] })
+    }
+    if ((h.gates?.revoked ?? []).includes(gate)) out.push({ at: h.at, kind: 'revoked', text: h.note ?? '', refs: [] })
+    if (passed.length) asks = []
+  }
+  return out.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+}
+
+/** A stage's row: how many log entries it has, its latest note, and when it last moved. */
+export function stageSummary(flow: SddFlow, item: SddItem, key: string): { count: number; note: string; lastAt?: string } {
+  const rows = stageHistory(flow, item, key)  // newest first
+  return { count: rows.length, note: rows.find(r => r.note)?.note ?? '', lastAt: rows[0]?.at }
+}
+
+/** The gates a stage records that a person decides (not read from disk), in flow order. */
+export function decidedGates(stage: SddStage, derived: string[]): string[] {
+  return stage.passes.filter(g => !derived.includes(g))
+}
+
+/** 2026-10-01T12:41:15Z -> 10/01/2026 12h41, in this computer's time zone: the stamp a row's label carries. */
+export function stamp(at: string | undefined): string {
+  if (!at) return ''
+  const d = new Date(at)
+  if (Number.isNaN(d.getTime())) return ''
+  const two = (n: number) => String(n).padStart(2, '0')
+  return `${two(d.getMonth() + 1)}/${two(d.getDate())}/${d.getFullYear()} ${two(d.getHours())}h${two(d.getMinutes())}`
+}
+
+/** `/sdd 92012`, `/sdd spec 92012`, `/sdd 92012 feedback …` -> 92012; `/sdd help`, `/sdd sync` -> null. */
+export function idFromArgs(args: string): number | null {
+  const m = /^\s*(?:(?:bug|spec|status|done|abandon|impact)\s+)?(\d+)\b/i.exec(args)
+  return m ? Number(m[1]) : null
+}
+
+/** The work item an env.py / spec.py run names with --id. */
+export function idFromScript(cmd: string): number | null {
+  const m = /scripts[\\/]+(?:env|spec)\.py["']?\s+\w+[^\n]*?--id\s+(\d+)/.exec(cmd)
+  return m ? Number(m[1]) : null
+}

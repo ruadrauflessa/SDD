@@ -1,0 +1,14 @@
+{
+  "name": "sdd",
+  "owner": { "name": "ruadrauflessa" },
+  "metadata": {
+    "description": "Spec-driven development on Azure DevOps work items, as one Claude Code plugin."
+  },
+  "plugins": [
+    {
+      "name": "sdd",
+      "source": "./",
+      "description": "Spec and bug flows on ADO work items, the ADO spec mirror, impact analysis, visual pages, the question guard and the sdd view pane."
+    }
+  ]
+}

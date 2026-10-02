@@ -1,0 +1,47 @@
+---
+ado_id: {ado-id}
+---
+
+# {ado-id} — Design
+
+<!-- Repo-owned. ADO has no opinion on this file. -->
+
+## Approach
+
+{Two or three paragraphs: the shape of the solution and why this one. Written after reading the
+code it touches, describing what the codebase actually looks like today.}
+
+## Affected components
+
+| Component | Change | Notes |
+| --- | --- | --- |
+| `{path or project}` | {new / modified / removed} | {what and why} |
+
+## Contracts and data
+
+- Endpoints: `{METHOD /route}` — {request/response shape, versioning impact}
+- Events / messages: `{topic or type}` — {payload, consumers}
+- Database: `{table}` — {columns, migration name}
+- Config / feature flags: `{key}` — {default, owner}
+
+<!-- These are the anchors overlap detection compares across active spec branches.
+     Name them precisely or the gate has nothing to match on. -->
+
+## Parent design
+
+<!-- Story specs only. Link, never copy. -->
+Inherits {../requirements.md sibling design path} — {what this story changes about it, if anything}.
+
+## Risks
+
+- {specific risk} — {what it would cost, what makes it less likely}
+
+## Rejected alternatives
+
+- **{alternative}** — rejected because {reason}.
+
+## Tech stories
+
+<!-- Output of the Design-stage gate. See references/tech-stories.md.
+     Record the ADO id once the proposal is approved and created. -->
+- {created id or "proposed"}: {title} — {what forced it}

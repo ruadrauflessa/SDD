@@ -1,0 +1,25 @@
+# Tech story proposal — {short title}
+
+<!-- Proposal only. Nothing is created in ADO until a human approves.
+     See references/tech-stories.md for the coverage search that must precede this. -->
+
+**Parent:** {feature-id} — {feature title}
+**Type:** Tech Story
+**Area path:** {Area\Path}
+
+## Why
+
+{The design decision that forced this, with a link to the design.md section. Written so a PM
+scanning the board can tell what it is for.}
+
+## Acceptance criteria
+
+- [ ] Given {state}, when {action}, then {observable outcome}
+- [ ] ...
+
+## Coverage search
+
+<!-- Evidence that nothing on the board already covers this. Without it, this is a duplicate. -->
+- Query: {WIQL or terms used}
+- Searched: children of {feature-id}, linked bugs
+- Hits: {none | ids considered and why they don't cover it}
