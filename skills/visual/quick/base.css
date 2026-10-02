@@ -1,0 +1,221 @@
+:root {
+  color-scheme: light;
+  --bg: #f4f1e9;
+  --surface: #fffdf7;
+  --surface-2: #ebe7dc;
+  --border: #c8c1b1;
+  --text: #252a2a;
+  --text-dim: #636b68;
+  --accent: #ad4f32;
+  --positive: #35745c;
+  --warning: #a36d14;
+  --danger: #a33c3c;
+  --info: #356c8c;
+  --shadow: 0 16px 40px rgba(48, 43, 33, 0.09);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151a19;
+    --surface: #202624;
+    --surface-2: #29302d;
+    --border: #424b47;
+    --text: #f1eee6;
+    --text-dim: #b0b8b3;
+    --accent: #e28564;
+    --positive: #76b99a;
+    --warning: #e3ad55;
+    --danger: #e37a75;
+    --info: #72acd0;
+    --shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #151a19;
+  --surface: #202624;
+  --surface-2: #29302d;
+  --border: #424b47;
+  --text: #f1eee6;
+  --text-dim: #b0b8b3;
+  --accent: #e28564;
+  --positive: #76b99a;
+  --warning: #e3ad55;
+  --danger: #e37a75;
+  --info: #72acd0;
+  --shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--border) 25%, transparent) 1px, transparent 1px) 0 0 / 32px 32px,
+    linear-gradient(color-mix(in srgb, var(--border) 25%, transparent) 1px, transparent 1px) 0 0 / 32px 32px,
+    var(--bg);
+  color: var(--text);
+  font-family: "Avenir Next", "Trebuchet MS", sans-serif;
+  line-height: 1.55;
+}
+
+main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 52px 0 80px; }
+header { max-width: 800px; margin-bottom: 34px; }
+/* Every block wraps its text: long code tokens, paths and URLs break instead of spilling out. */
+body { overflow-wrap: anywhere; }
+:where(.grid, .evidence, .risks, .files, .steps, .callouts, .flow, .diagram-wrap) > * { min-width: 0; }
+code { white-space: normal; overflow-wrap: anywhere; }
+h1 { margin: 0; font-size: clamp(2.25rem, 7vw, 4.8rem); line-height: .98; letter-spacing: -.055em; text-wrap: balance; }
+h2 { margin: 0; font-size: clamp(1.35rem, 3vw, 2rem); letter-spacing: -.025em; text-wrap: balance; }
+h3 { margin: 0; font-size: 1rem; }
+.subtitle { margin: 15px 0 0; color: var(--accent); font: 500 .78rem/1.5 "Iosevka", "Cascadia Code", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.summary { max-width: 72ch; margin: 18px 0 0; color: var(--text-dim); font-size: 1.08rem; }
+
+.sections { display: grid; gap: 18px; }
+.section {
+  min-width: 0;
+  padding: clamp(20px, 4vw, 34px);
+  border: 1px solid var(--border);
+  border-top: 4px solid var(--tone, var(--accent));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  box-shadow: var(--shadow);
+}
+.section[data-tone="positive"] { --tone: var(--positive); }
+.section[data-tone="warning"] { --tone: var(--warning); }
+.section[data-tone="danger"] { --tone: var(--danger); }
+.section[data-tone="info"] { --tone: var(--info); }
+.section[data-tone="neutral"] { --tone: var(--border); }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.section-kicker { flex: none; color: var(--tone, var(--accent)); font: 500 .7rem/1 "Iosevka", "Cascadia Code", monospace; letter-spacing: .12em; }
+.section-summary, .section-subtitle { color: var(--text-dim); }
+.section-subtitle { margin: 5px 0 0; }
+.section-summary { max-width: 76ch; margin: 0 0 20px; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 12px; }
+.card, .risk, .callout, .evidence-item {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-2);
+}
+.card[data-tone="positive"], .callout[data-tone="positive"] { border-left: 4px solid var(--positive); }
+.card[data-tone="warning"], .callout[data-tone="warning"] { border-left: 4px solid var(--warning); }
+.card[data-tone="danger"], .callout[data-tone="danger"] { border-left: 4px solid var(--danger); }
+.card[data-tone="info"], .callout[data-tone="info"] { border-left: 4px solid var(--info); }
+.card p, .risk p, .callout p { margin: 7px 0 0; color: var(--text-dim); }
+.meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.chip, .status { padding: 3px 7px; border: 1px solid var(--border); border-radius: 3px; font: 500 .68rem/1.35 "Iosevka", "Cascadia Code", monospace; }
+
+.table-wrap { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: 4px; }
+table { width: 100%; min-width: 520px; border-collapse: collapse; background: var(--surface); }
+caption { padding: 12px 14px; color: var(--text-dim); text-align: left; }
+th, td { padding: 11px 14px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+th { background: var(--surface-2); font: 600 .73rem/1.4 "Iosevka", "Cascadia Code", monospace; letter-spacing: .04em; }
+tr:last-child td { border-bottom: 0; }
+
+.risks, .files, .steps, .callouts, .evidence { display: grid; gap: 10px; }
+.risk { display: grid; grid-template-columns: auto 1fr; gap: 12px; }
+.severity { align-self: start; min-width: 68px; padding: 4px 7px; border-radius: 3px; color: var(--surface); background: var(--warning); font: 600 .68rem/1.35 "Iosevka", "Cascadia Code", monospace; text-align: center; text-transform: uppercase; }
+.risk[data-severity="high"] .severity, .risk[data-severity="critical"] .severity { background: var(--danger); }
+.risk[data-severity="low"] .severity { background: var(--positive); }
+.file, .step { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.file:last-child, .step:last-child { border-bottom: 0; }
+.file code { overflow-wrap: anywhere; white-space: normal; }
+.file p, .step p { margin: 3px 0 0; color: var(--text-dim); }
+.index { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--tone, var(--accent)); border-radius: 50%; color: var(--tone, var(--accent)); font: 600 .7rem/1 "Iosevka", "Cascadia Code", monospace; }
+
+.flow { display: grid; gap: 12px; }
+.flow-node { position: relative; min-width: 0; padding: 14px 16px; border: 1px solid var(--border); border-left: 5px solid var(--tone, var(--accent)); border-radius: 4px; background: var(--surface-2); }
+.flow-node p { margin: 4px 0 0; color: var(--text-dim); }
+.flow-edges { display: flex; flex-wrap: wrap; gap: 8px; }
+.flow-edge { color: var(--text-dim); font: 500 .72rem/1.4 "Iosevka", "Cascadia Code", monospace; }
+.flow-edge::before { content: "↳ "; color: var(--accent); }
+.callout { border-left: 4px solid var(--tone, var(--accent)); }
+.evidence { grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); }
+.evidence-value { margin-top: 5px; font-weight: 700; font-size: 1rem; }
+.evidence-source { margin-top: 8px; color: var(--text-dim); font: 400 .68rem/1.4 "Iosevka", "Cascadia Code", monospace; }
+
+@media (max-width: 620px) {
+  main { width: min(100% - 20px, 1120px); padding-top: 30px; }
+  .section-head { align-items: flex-start; flex-direction: column-reverse; gap: 8px; }
+  .risk { grid-template-columns: 1fr; }
+  .severity { justify-self: start; }
+}
+
+/* Static SVG diagrams (diagram.mjs). Natural size; a wide one scrolls sideways inside its box. */
+.diagram-wrap { display: grid; gap: 8px; margin: 0; }
+.diagram.draggable { cursor: grab; }
+.diagram.draggable .ve-svg { user-select: none; -webkit-user-select: none; }
+.diagram.dragging { cursor: grabbing; }
+.diagram-hint { display: none; color: var(--text-dim); font-size: .8rem; }
+@media (max-width: 700px) {
+  .diagram { padding: 6px; }
+  .diagram-wrap:has(.ve-svg[data-wide]) .diagram-hint { display: block; }
+}
+.diagram { overflow-x: auto; padding: 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
+.ve-svg { display: block; margin: 0 auto; max-width: none; font-family: inherit; }
+.ve-svg [data-tone="accent"] { --t: var(--accent); }
+.ve-svg [data-tone="positive"] { --t: var(--positive); }
+.ve-svg [data-tone="warning"] { --t: var(--warning); }
+.ve-svg [data-tone="danger"] { --t: var(--danger); }
+.ve-svg [data-tone="info"] { --t: var(--info); }
+.ve-box { fill: var(--surface-2); stroke: var(--t, var(--border)); stroke-width: 1.5; }
+.ve-box[data-tone] { stroke-width: 2.5; }
+.ve-inner { fill: none; stroke-width: 1; }
+.ve-edge { fill: none; stroke: var(--t, var(--text-dim)); stroke-width: 1.6; }
+.ve-edge[data-tone] { stroke-width: 2.2; }
+.ve-reply { stroke-dasharray: 5 4; }
+.ve-head { fill: var(--t, var(--text-dim)); }
+.ve-band { fill: var(--t); opacity: .16; }
+.ve-life { stroke: var(--border); stroke-dasharray: 3 4; }
+.ve-dot { fill: var(--text-dim); }
+.ve-lbg { fill: var(--surface); }
+.ve-t { fill: var(--text); font-size: 13px; font-weight: 600; }
+.ve-d { fill: var(--text-dim); font-size: 12px; }
+.ve-l { fill: var(--text); font-size: 12.5px; }
+.ve-num circle { fill: var(--accent); }
+.ve-num text { fill: var(--surface); font-size: 10px; font-weight: 700; }
+.diagram-caption { color: var(--text-dim); font-size: .85rem; }
+
+/* TL;DR: the first thing on the page, 1-3 lines, readable without scrolling. */
+.tldr { margin: 22px 0 0; padding: 16px 20px; border: 1px solid var(--accent); border-left: 6px solid var(--accent); border-radius: 5px; background: var(--surface); box-shadow: var(--shadow); }
+.tldr h2 { margin: 0 0 6px; color: var(--accent); font: 700 .78rem/1.3 "Iosevka", "Cascadia Code", monospace; letter-spacing: .12em; }
+.tldr ul { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; }
+.tldr li { font-size: 1.1rem; font-weight: 600; }
+
+/* File status icons: fixed 24px, coloured by status, never stretched by the row. */
+.file { align-items: start; }
+.file-icon { display: inline-grid; place-items: center; width: 24px; height: 24px; margin-top: 1px; color: var(--text-dim); flex: none; }
+.file-icon svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.file-icon .ring { fill: color-mix(in srgb, currentColor 14%, transparent); stroke-width: 1.5; }
+.file-icon[data-status="planned"] circle:not(.ring) { fill: currentColor; stroke: none; }
+.file-icon[data-status="added"] { color: var(--positive); }
+.file-icon[data-status="modified"] { color: var(--warning); }
+.file-icon[data-status="deleted"] { color: var(--danger); }
+.file-icon[data-status="reviewed"] { color: var(--info); }
+.file-icon[data-status="planned"] { color: var(--accent); }
+.file-legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 0 0 6px; color: var(--text-dim); font-size: .8rem; }
+.file-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.file-legend .file-icon, .file-legend .file-icon svg { width: 16px; height: 16px; margin: 0; }
+
+/* TL;DR spans the full content width, like the sections below it. */
+.tldr { margin: 0 0 18px; }
+/* layout "stack": one block per row, for sequential results such as verification checks. */
+.section[data-layout="stack"] .grid, .section[data-layout="stack"] .evidence { grid-template-columns: 1fr; }
+
+/* Links: directly under the TL;DR, same width. Fixed-width kind tags keep the list aligned. */
+.links { margin: 0 0 18px; padding: 14px 20px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); }
+.links h2 { margin: 0 0 8px; color: var(--text-dim); font: 700 .78rem/1.3 "Iosevka", "Cascadia Code", monospace; letter-spacing: .12em; text-transform: uppercase; }
+.links ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.links li { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: 10px; align-items: baseline; }
+.link-kind { color: var(--text-dim); font: 600 .72rem/1.4 "Iosevka", "Cascadia Code", monospace; text-transform: uppercase; letter-spacing: .06em; }
+.links a { color: var(--accent); overflow-wrap: anywhere; }
+.links a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* In-text references linked from the Links box: look like text, underline shows they click. */
+a.ref { color: inherit; text-decoration: underline; text-decoration-color: var(--accent); text-decoration-thickness: 1.5px; text-underline-offset: 2px; }
+a.ref:hover, a.ref:focus-visible { color: var(--accent); }
