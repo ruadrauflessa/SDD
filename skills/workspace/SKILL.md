@@ -121,3 +121,22 @@ Both stay silent unless an sdd flow is running: this turn ran an sdd script (oth
 Only a real run counts — `python …/scripts/env.py <command>` as the program. A `grep` or `cat` that names
 the script does not. Installing the plugin installs the hooks.
 Self-check: `python ${CLAUDE_PLUGIN_ROOT}/hooks/test_question_guard.py`.
+
+## The sdd view
+
+In a workspace with `.claude/sdd.json` the view (`/sdd-view`) opens by itself once per session: the one
+item in progress, or the list when there are several. `"view": { "autoOpen": false }` turns that off.
+
+### Colours
+
+`/sdd-view` reads its colours from `env.py view`, which takes them from `.claude/sdd.json` over the
+defaults in `scripts/sddlib.py`. Set only the ones to change; a value is a CSS colour (`#4f8fd6`).
+
+```json
+"view": { "colors": { "now": "#c98a12", "hoverText": "#ffffff" } }
+```
+
+Keys: `done` (stage done, gate passed), `now` (waiting on you), `work` (working, the stage log icon),
+`revoked` (revoked, blocked), `gate` (a gate at rest), `dim` (quiet text), `line` (borders),
+`hoverText` (the text of the line under the pointer; its icon turns a lighter shade of its own colour). The view picks a change up on its next refresh.
+

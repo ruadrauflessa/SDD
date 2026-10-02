@@ -32,6 +32,34 @@ def main():
     assert v(None, {"progress": {"status": "active", "phase": "P10"}}, merged).startswith("PRs merged")
     assert v(None, {"progress": {"status": "done"}, "removed": "x"}, []) == "completed — folder cleaned up"
     assert v(None, {"progress": {"status": "abandoned"}, "removed": "x"}, []) == "abandoned"
+    # reopen: back to a done stage, or to the current one while it waits; later recorded gates fall
+    item = {"id": 5, "flow": "spec", "gates": {"Claimed": "t", "Requirements agreed": "t", "Design agreed": "t", "Ready to PR": "t"},
+            "progress": {"flow": "spec", "phase": "Verify", "status": "waiting"}}
+    ok, why, revoke = env.reopen_plan(item, "Design")
+    assert ok and revoke == ["Design agreed", "Ready to PR"], (why, revoke)
+    assert env.reopen_plan(item, "Specify")[2] == ["Requirements agreed", "Design agreed", "Ready to PR"]
+    assert env.reopen_plan(item, "Verify")[:2] == (True, [])
+    working = {**item, "progress": {"flow": "spec", "phase": "Verify", "status": "active"}}
+    assert not env.reopen_plan(working, "Verify")[0] and env.reopen_plan(working, "Design")[0]
+    early = {**item, "progress": {"flow": "spec", "phase": "Design", "status": "waiting"}}
+    assert "has not started" in env.reopen_plan(early, "Implement")[1][0]
+    assert not env.reopen_plan({**item, "progress": {**item["progress"], "status": "done"}}, "Design")[0]
+    bug = {"id": 6, "flow": "bug", "gates": {"Claimed": "t", "Approval": "t", "Red test": "t"},
+           "progress": {"flow": "bug", "phase": "Phase 7 — Apply fix", "status": "blocked"}}
+    assert env.reopen_plan(bug, "Phase 4")[2] == ["Approval", "Red test"]
+    assert not env.reopen_plan(bug, "Phase 7")[0]
+    # review stages: wait on the PR once it is raised; a rejected PR goes back to the reworkTo stage
+    assert env.PHASE_NEEDS["spec"]["Review"] == ["PR raised"] and env.PHASE_NEEDS["bug"]["Phase 13"] == ["PR raised"]
+    assert env.phase_key("bug", "Phase 13 — PR review") == "Phase 13"
+    review = {"id": 7, "flow": "spec", "gates": {"Requirements agreed": "t", "Design agreed": "t", "Ready to PR": "t"},
+              "progress": {"flow": "spec", "phase": "Review", "status": "waiting"}}
+    assert env.reopen_plan(review, "Implement")[2] == ["Ready to PR"]
+    passed = {**review, "gates": {**review["gates"], "PR approved": "t"}}
+    assert env.reopen_plan(passed, "Implement")[2] == ["Ready to PR", "PR approved"]
+    bugrev = {"id": 8, "flow": "bug", "gates": {"Approval": "t", "Red test": "t", "Verified": "t", "Manual verification": "t"},
+              "progress": {"flow": "bug", "phase": "Phase 13", "status": "waiting"}}
+    assert env.reopen_plan(bugrev, "Phase 7")[2] == ["Verified", "Manual verification"]
+    assert {s["key"]: s.get("reworkTo") for s in env.FLOWS["flows"]["spec"]["stages"]}["Review"] == "Implement"
     # a waiting gate needs an .html sdd-visual ref, or --no-visual with a reason
     import argparse, contextlib, io
 

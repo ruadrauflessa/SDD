@@ -113,7 +113,7 @@ Shape every gate the same way:
 | Design agreed | End of Design — asked again after any requested changes are incorporated | "Approve — start Decompose" / "Needs changes" |
 | Tech story creation | Design, tech story gate | One option per proposal, `multiSelect: true` — the user picks which, if any, get created |
 | Ready to PR | End of Verify, after the automated checks pass | "Raise the PR" / "Make changes" |
-| PR status | Verify, right after the PR is opened, and whenever this work item is picked back up while it's still open | "Not yet approved" / "Approved, not merged" / "Merged" |
+| PR approved | Review, right after the PR is opened, and whenever this work item is picked back up while it's still open | "Not yet approved" / "Approved" / "Merged" / "Rejected" |
 
 ## Repo layout
 
@@ -242,6 +242,10 @@ exists), `PR raised` (a PR is recorded), `Tasks written` / `Tasks done` (checkbo
 - `design.md` changes materially after approval → `--revoke "Design agreed" --revoke "Ready to PR"`.
 - Code changes after "Raise the PR" was chosen but before the PR is open → `--revoke "Ready to PR"`.
 ### Resuming
+
+**After a feedback reopen** (`/sdd <id> feedback <stage>: <text>`, the latest history note starts
+with `Reopened from`) do not ask "Resume / Start over" — the user already chose the stage. Re-check
+the cheap facts (step 2 below), work the feedback into that stage, and stop at its gate again.
 
 When this flow starts and `env.py status --id <id> --json` shows recorded progress, first run
 `env.py can --id <id> --op resume` — if it is not allowed (done, abandoned, nothing recorded), tell
@@ -376,20 +380,35 @@ the user why and stop. Otherwise:
    in `references/ado-sync.md`. Never write the work item as `#12345` anywhere in the PR text,
    and never add a Claude attribution line to the title, description or a comment — the
    developer owns the PR. `references/branching.md` has both rules and why.
-8. **Stop and ask.** The PR is open — show its clickable ADO link first (ground rule 12), then
-   run the "PR status" gate with `AskUserQuestion`: "Not yet
-   approved" / "Approved, not merged" / "Merged". Don't assume the answer, and don't silently
-   poll ADO for it; ask directly, whenever you next pick this work item back up.
-9. **"Approved, not merged" or "Merged"** — set `Custom.BoardColumnTitle` to `Dev Completed`,
-   move `System.State` to `Resolved`, and tag the work item with the version segment the branch
-   carries (the `team/{version}` it was branched from). Field names and the write path in
+8. Start **Review** at once: `env.py progress --id <id> --flow spec --phase Review --status waiting
+   --gate "PR status: not yet approved / approved / merged / rejected" --ref ado --no-visual "PR status
+   is a plain choice"`. Verify is done; the wait for the reviewers is Review's.
+
+### Mode: Review
+
+The PR is open and waits on its reviewers. The user answers in the chat, or with the **Approved**,
+**Merged** and **Rejected** buttons of the sdd view, which post the answer as the user's own message
+`sdd review for <id>: approved` / `: merged` / `: rejected: <why>`. Treat both the same.
+
+1. **Stop and ask** (when the answer did not come from the view): show the PR's clickable ADO link
+   first (ground rule 12), then ask with `AskUserQuestion`: "Not yet approved" / "Approved" /
+   "Merged" / "Rejected". Don't assume the answer, and don't silently poll ADO for it; ask directly,
+   whenever you next pick this work item back up.
+2. **"Not yet approved"** — nothing changes; Review keeps waiting.
+3. **"Approved" or "Merged"** — `env.py progress --id <id> --flow spec --phase Review --status done
+   --passed "PR approved"`. Then set `Custom.BoardColumnTitle` to `Dev Completed`, move
+   `System.State` to `Resolved`, and tag the work item with the version segment the branch carries
+   (the `team/{version}` it was branched from). Field names and the write path in
    `references/ado-sync.md`.
-10. **"Merged" only** — `env.py remove --id <id>` (dry run, shown to the user), then `--yes`,
-    then archive this session:
-    `mcp__ccd_session_mgmt__archive_session`, `session_id: "self"`, `reason` naming the merged
-    PR. This is cleanup, done together, no separate question — step 8's "Merged" answer is
-    already the explicit human confirmation the archive step needs. "Not yet approved" or
-    "Approved, not merged" does neither and asks again later.
+4. **"Merged" only** — `env.py remove --id <id>` (dry run, shown to the user), then `--yes`, then
+   archive this session: `mcp__ccd_session_mgmt__archive_session`, `session_id: "self"`, `reason`
+   naming the merged PR. This is cleanup, done together, no separate question — the "Merged" answer
+   is already the explicit human confirmation the archive step needs.
+5. **"Rejected"** — the reason is the feedback. Go back to Implement through the feedback route:
+   `env.py reopen --id <id> --phase Implement --note "PR rejected: <why>"` (it revokes Ready to PR and
+   PR approved), read the PR's review comments, fix in `src/{Repo}/`, and come back through Verify's
+   "Ready to PR" gate. The open PR takes the new commits; `env.py pr` is not run again for it.
+   No reason given → ask for it first; never guess what the reviewers want.
 
 ### Mode: Sync check
 

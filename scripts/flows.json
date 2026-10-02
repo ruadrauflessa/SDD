@@ -1,0 +1,249 @@
+{
+  "_": "The stages of each sdd flow, in order. env.py reads it for its state guards and the view draws it. key = what progress --phase starts with; needs = gates that must be met before the stage may start; passes = gates the stage records; stop = the flow stops here for the user. reworkTo = on a review stage, the stage a rejected PR goes back to.",
+  "derived": [
+    "Worktree",
+    "PR raised",
+    "Tasks written",
+    "Tasks done"
+  ],
+  "flows": {
+    "spec": {
+      "label": "Spec flow",
+      "prGates": [
+        "Requirements agreed",
+        "Ready to PR"
+      ],
+      "stages": [
+        {
+          "key": "Specify",
+          "label": "Specify",
+          "needs": [],
+          "passes": [
+            "Claimed",
+            "Requirements agreed"
+          ],
+          "stop": true
+        },
+        {
+          "key": "Design",
+          "label": "Design",
+          "needs": [
+            "Claimed",
+            "Requirements agreed"
+          ],
+          "passes": [
+            "Worktree",
+            "Design agreed"
+          ],
+          "stop": true
+        },
+        {
+          "key": "Decompose",
+          "label": "Decompose",
+          "needs": [
+            "Requirements agreed",
+            "Design agreed",
+            "Worktree"
+          ],
+          "passes": [
+            "Tasks written"
+          ],
+          "stop": true
+        },
+        {
+          "key": "Implement",
+          "label": "Implement",
+          "needs": [
+            "Requirements agreed",
+            "Design agreed",
+            "Tasks written",
+            "Worktree"
+          ],
+          "passes": [
+            "Tasks done"
+          ]
+        },
+        {
+          "key": "Verify",
+          "label": "Verify",
+          "needs": [
+            "Tasks done"
+          ],
+          "passes": [
+            "Ready to PR",
+            "PR raised"
+          ],
+          "stop": true
+        },
+        {
+          "key": "Review",
+          "label": "Review",
+          "needs": [
+            "PR raised"
+          ],
+          "passes": [
+            "PR approved"
+          ],
+          "stop": true,
+          "reworkTo": "Implement"
+        }
+      ]
+    },
+    "bug": {
+      "label": "Bug flow",
+      "prGates": [
+        "Approval",
+        "Verified",
+        "Manual verification"
+      ],
+      "stages": [
+        {
+          "key": "Phase 0",
+          "label": "Load + claim",
+          "needs": [],
+          "passes": [
+            "Claimed"
+          ]
+        },
+        {
+          "key": "Phase 1",
+          "label": "Branch + worktree",
+          "needs": [
+            "Claimed"
+          ],
+          "passes": [
+            "Worktree"
+          ]
+        },
+        {
+          "key": "Phase 2",
+          "label": "Validate against story",
+          "needs": [
+            "Claimed",
+            "Worktree"
+          ],
+          "passes": []
+        },
+        {
+          "key": "Phase 3",
+          "label": "Reproduce and locate",
+          "needs": [
+            "Claimed",
+            "Worktree"
+          ],
+          "passes": []
+        },
+        {
+          "key": "Phase 4",
+          "label": "Prove root cause",
+          "needs": [
+            "Claimed",
+            "Worktree"
+          ],
+          "passes": []
+        },
+        {
+          "key": "Phase 5",
+          "label": "Approval gate",
+          "needs": [
+            "Claimed",
+            "Worktree"
+          ],
+          "passes": [
+            "Approval"
+          ],
+          "stop": true
+        },
+        {
+          "key": "Phase 6",
+          "label": "Failing regression test",
+          "needs": [
+            "Approval"
+          ],
+          "passes": [
+            "Red test"
+          ]
+        },
+        {
+          "key": "Phase 7",
+          "label": "Apply fix",
+          "needs": [
+            "Approval",
+            "Red test"
+          ],
+          "passes": []
+        },
+        {
+          "key": "Phase 8",
+          "label": "Verify",
+          "needs": [
+            "Approval",
+            "Red test"
+          ],
+          "passes": [
+            "Verified"
+          ]
+        },
+        {
+          "key": "Phase 9",
+          "label": "Commit and push",
+          "needs": [
+            "Approval",
+            "Verified"
+          ],
+          "passes": []
+        },
+        {
+          "key": "Phase 9a",
+          "label": "Manual verification",
+          "needs": [
+            "Approval",
+            "Verified"
+          ],
+          "passes": [
+            "Manual verification"
+          ],
+          "stop": true
+        },
+        {
+          "key": "Phase 10",
+          "label": "Pull request",
+          "needs": [
+            "Approval",
+            "Verified",
+            "Manual verification"
+          ],
+          "passes": [
+            "PR raised"
+          ]
+        },
+        {
+          "key": "Phase 11",
+          "label": "Write back to ADO",
+          "needs": [
+            "PR raised"
+          ],
+          "passes": []
+        },
+        {
+          "key": "Phase 12",
+          "label": "Record learnings",
+          "needs": [],
+          "passes": []
+        },
+        {
+          "key": "Phase 13",
+          "label": "PR review",
+          "needs": [
+            "PR raised"
+          ],
+          "passes": [
+            "PR approved"
+          ],
+          "stop": true,
+          "reworkTo": "Phase 7"
+        }
+      ]
+    }
+  }
+}

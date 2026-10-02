@@ -163,7 +163,7 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/env.py progress --id <id> --flow bug \
 
 | When | `--status` | Also pass |
 | --- | --- | --- |
-| Starting a phase (Phase 0 … Phase 12) | `active` | `--note` with anything decided so far |
+| Starting a phase (Phase 0 … Phase 13) | `active` | `--note` with anything decided so far |
 | Just before asking a gate question | `waiting` | `--gate` (the question), `--next` (what happens on "yes"), `--ref visuals/<mode>.html` (or `--no-visual "<reason>"`) |
 | Stuck on something outside the flow | `blocked` | `--note` (what blocks it) |
 | Abandoned | `abandoned` | `--note` (what was cleaned up and what was left) |
@@ -203,6 +203,10 @@ exists), `PR raised` (a PR is recorded), `Tasks written` / `Tasks done` (checkbo
 - Any code change after Phase 8 → `--revoke Verified` (and `--revoke "Manual verification"` if 9a had passed).
 ### Resuming
 
+**After a feedback reopen** (`/sdd <id> feedback <stage>: <text>`, the latest history note starts
+with `Reopened from`) do not ask "Resume / Start over" — the user already chose the stage. Re-check
+the cheap facts (step 2 below), work the feedback into that stage, and stop at its gate again.
+
 When this flow starts and `env.py status --id <id> --json` shows recorded progress, first run
 `env.py can --id <id> --op resume` — if it is not allowed (done, abandoned, nothing recorded), tell
 the user why and stop. Otherwise:
@@ -221,7 +225,32 @@ the user why and stop. Otherwise:
 
 ### 0a — Load  *(read-only)*
 
-**First, read the workspace facts.** Look for a `## Claude skills — workspace facts` heading in the
+**First, read the workspace facts.** Look for a `## Phase 13 — PR review
+
+The PR is open and waits on its reviewers. Record the wait as soon as Phase 12 is done:
+`env.py progress --id <id> --flow bug --phase "Phase 13" --status waiting --gate "PR status: not yet
+approved / approved / merged / rejected" --ref ado --no-visual "PR status is a plain choice"`.
+
+The user answers in the chat, or with the **Approved**, **Merged** and **Rejected** buttons of the sdd
+view, which post the answer as the user's own message `sdd review for <id>: approved` / `: merged` /
+`: rejected: <why>`. Treat both the same. When the answer did not come from the view, show the PR's
+clickable ADO link, then ask with `AskUserQuestion`: "Not yet approved" / "Approved" / "Merged" /
+"Rejected". Never assume it, and never poll ADO for it silently.
+
+1. **"Not yet approved"** — nothing changes; Phase 13 keeps waiting.
+2. **"Approved"** — `env.py progress --id <id> --flow bug --phase "Phase 13" --status done --passed
+   "PR approved"`. Phase 11 already handed it to QA; nothing more in ADO.
+3. **"Merged"** — the same `--passed "PR approved"`, then `env.py remove --id <id>` (dry run), show
+   the user what it lists, and run it with `--yes` only after they agree. It refuses while any PR is
+   not `completed` — see `references/branch-and-pr.md`.
+4. **"Rejected"** — the reason is the feedback. `env.py reopen --id <id> --phase "Phase 7" --note
+   "PR rejected: <why>"` (Red test stays; Verified, Manual verification and PR approved fall). Read
+   the PR's review comments, fix in `src/{Repo}/`, and come back through Phase 8 and Phase 9a. The open
+   PR takes the new commits; `env.py pr` is not run again for it. Ask before moving
+   `Custom.BoardColumnTitle` back from `Dev Completed`, since QA may already have it. No reason given →
+   ask for it first; never guess what the reviewers want.
+
+## Claude skills — workspace facts` heading in the
 workspace root `CLAUDE.md`. A previous run records the durable, expensive-to-derive facts there —
 test projects per repo, the run-stack script, which ADO project owns which repo. Treat it as a
 **starting point, not a truth**: anything cheap to check, check anyway. Phase 12 writes it back.
@@ -755,9 +784,8 @@ no `#<id>` in it** — name sibling bugs and the linked CR as `ADO 80455` and `C
 a `Mentioned in` comment onto each of their boards too.
 
 **Leave the work item folder in place.** It is still needed for review fixups. Mention to the user
-that it is still on disk so it doesn't become an orphan. Once every PR has merged, run
-`env.py remove --id <id>` (dry run), show the user what it lists, and run it with `--yes` only after
-they agree. It refuses while any PR is not `completed` — see `references/branch-and-pr.md`.
+that it is still on disk so it doesn't become an orphan. Removing it is Phase 13's, once the PR has
+merged.
 
 ## Phase 12 — Record what you learned about the workspace
 

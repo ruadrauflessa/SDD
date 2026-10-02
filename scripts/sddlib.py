@@ -26,6 +26,17 @@ DEFAULTS = {
     "branchTemplate": "dev/{developer}/{version}/{type}/{id}-{slug}",
     "doneStates": ["Resolved", "Closed", "Done"],  # ADO states that mean the flow's close-out ran
     "embeddings": {"provider": "ollama", "url": "http://localhost:11434", "model": "nomic-embed-text"},
+    # the sdd view's colours (/sdd-view); a workspace overrides any of them in .claude/sdd.json "view.colors"
+    "view": {"autoOpen": True, "colors": {
+        "done": "#3f9a63",       # a stage done, a gate passed
+        "now": "#c98a12",        # waiting on you
+        "work": "#4a7fc4",       # working, the stage log icon
+        "revoked": "#c0503f",    # revoked, blocked
+        "gate": "#8a73c9",       # a gate's icon at rest
+        "dim": "#7b8794",        # quiet text, a gate not asked yet
+        "line": "#5c6670",       # borders
+        "hoverText": "#ffffff",  # the text of the line under the pointer (its icon turns a lighter shade)
+    }},
 }
 
 TYPE_SEGMENT = {
@@ -64,6 +75,8 @@ def load_config(root):
     merged = {**DEFAULTS, **cfg}
     merged["ado"] = {**DEFAULTS["ado"], **cfg.get("ado", {})}
     merged["embeddings"] = {**DEFAULTS["embeddings"], **cfg.get("embeddings", {})}
+    view = cfg.get("view", {})
+    merged["view"] = {**DEFAULTS["view"], **view, "colors": {**DEFAULTS["view"]["colors"], **view.get("colors", {})}}
     return merged
 
 

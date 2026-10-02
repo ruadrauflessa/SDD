@@ -17,9 +17,11 @@ LINK = re.compile(r"\]\(([^)\s]+)\)")
 # first argument is .../scripts/env.py or spec.py. A grep or cat that only names the file is not a run.
 SEGMENT = re.compile(r"&&|\|\||[;|\n]")
 SCRIPT = re.compile(r"""^\s*(?:&\s*)?(?:uv\s+run\s+)?"""
-                    r"""(?:"(?:[^"]*[\\/])?|'(?:[^']*[\\/])?|(?:[^\s"']*[\\/])?)(?:python3?|py)(?:\.exe)?["']?"""
+                    # a quoted program closes right after its name: "C:/Program Files/python.exe"
+                    r"""(?:"(?:[^"]*[\\/])?(?:python3?|py)(?:\.exe)?"|'(?:[^']*[\\/])?(?:python3?|py)(?:\.exe)?'"""
+                    r"""|(?:[^\s"']*[\\/])?(?:python3?|py)(?:\.exe)?)"""
                     r"""(?:\s+-\S+)*\s+(?:"(?:[^"]*[\\/])?|'(?:[^']*[\\/])?|(?:[^\s"']*[\\/])?)scripts[\\/]+(env|spec)\.py["']?\s+(\w+)""")
-EXEMPT = {"doctor", "init", "type"}
+EXEMPT = {"doctor", "init", "type", "view"}  # read-only: they never mean a flow is running
 ENV_PY = (Path(__file__).resolve().parent.parent / "scripts" / "env.py").as_posix()
 HOW = (f"Run `python {ENV_PY} refs --id <id> --ref <spec file or "
        "code path:line> ...` (or the `--status waiting` checkpoint with `--ref`), paste its Links block "
@@ -55,8 +57,14 @@ def turn_text(turn):
                      for b in blocks(r) if isinstance(b, dict) and b.get("type") == "text")
 
 
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?^\s*\2\s*$", re.S | re.M)
+HERESTRING = re.compile(r"@(['\"])\r?\n.*?^\1@", re.S | re.M)
+
+
 def sdd_calls(cmd):
-    """(script, command, segment) for each real sdd script run in a shell command line."""
+    """(script, command, segment) for each real sdd script run in a shell command line. The body of a
+    heredoc or a PowerShell here-string is data (a file being written), never a run."""
+    cmd = HERESTRING.sub("", HEREDOC.sub("", cmd))
     for seg in SEGMENT.split(re.sub(r"[\\`]\r?\n", " ", cmd)):
         m = SCRIPT.match(seg)
         if m:

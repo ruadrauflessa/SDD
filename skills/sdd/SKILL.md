@@ -1,6 +1,6 @@
 ---
 name: sdd
-description: Entry point for the spec-driven development workflows on Azure DevOps work items in a multi-repo workspace. `/sdd help` gives a quick tour; `/sdd init` checks and (per item, with permission) installs or configures everything the workflows need, including the workspace CLAUDE.md block. `/sdd <id>` reads the work item type and routes Bug/Issue to the bug flow and story/tech story/change request/feature/epic to the spec flow; `/sdd bug <id>`, `/sdd spec <id>`, `/sdd sync [<id>|all]`, `/sdd impact <id>` (or `/sdd impact all` for the whole spec, after a token-cost warning), `/sdd status <id>` reports where an item stands (so work started in one chat can resume in another), `/sdd done <id>` cleans up and `/sdd abandon <id>` stops an item — each refuses and explains when the item's state does not allow it. Use whenever the user types /sdd or asks to "sdd" a work item.
+description: 'Entry point for the spec-driven development workflows on Azure DevOps work items in a multi-repo workspace. `/sdd help` gives a quick tour; `/sdd init` checks and (per item, with permission) installs or configures everything the workflows need, including the workspace CLAUDE.md block. `/sdd <id>` reads the work item type and routes Bug/Issue to the bug flow and story/tech story/change request/feature/epic to the spec flow; `/sdd bug <id>`, `/sdd spec <id>`, `/sdd sync [<id>|all]`, `/sdd impact <id>` (or `/sdd impact all` for the whole spec, after a token-cost warning), `/sdd status <id>` reports where an item stands (so work started in one chat can resume in another), `/sdd done <id>` cleans up, `/sdd abandon <id>` stops an item, and `/sdd <id> feedback <stage>: <text>` (or the sdd view''s message "sdd feedback for <id>, stage <stage>: <text>") sends an item back to a stage with the user''s feedback — each refuses and explains when the item''s state does not allow it. Use whenever the user types /sdd or asks to "sdd" a work item.'
 ---
 
 # /sdd — one entry point for every sdd workflow
@@ -18,6 +18,8 @@ description: Entry point for the spec-driven development workflows on Azure DevO
 | `/sdd status <id>` | this skill | Where the item stands: ADO state, recorded progress, spec files and tasks, repos, live PRs, and a one-line verdict |
 | `/sdd done <id>` | this skill | Clean up once every PR is merged and the close-out is written to ADO — refuses and explains otherwise |
 | `/sdd abandon <id>` | the item's flow skill | Stop the item and clean up what the flow created — refuses and explains if it cannot |
+| `/sdd <id> feedback <stage>: <text>` | this skill, then the item's flow skill | Back to a done or waiting stage with the user's feedback; its gates and later ones are revoked |
+| `sdd review for <id>: approved` / `merged` / `rejected: <why>` | the item's flow skill | The PR's review result, from the sdd view's review buttons |
 
 Scripts are in `${CLAUDE_PLUGIN_ROOT}/scripts/`; `${CLAUDE_PLUGIN_ROOT}/skills/workspace/SKILL.md` documents them.
 
@@ -158,6 +160,33 @@ or "wait for the PR to merge"). Never work around a refusal by calling the under
    "Abandon" section (it covers the ADO claim, pushed branches and PRs, each behind a question).
    No recorded flow → use `sdd:spec`'s section for a story, `sdd:bug`'s for a Bug or Issue.
 3. It ends with `env.py remove --id <id> --abandon` (dry run, then `--yes` on a yes).
+
+## `/sdd <id> feedback <stage>: <text>` — go back to a stage with the user's feedback
+
+Typed by the user, or sent by the feedback box in the sdd view (`/sdd-view`) as the user's own
+message `sdd feedback for <id>, stage <stage>: <text>` — treat both the same. `<stage>` is a stage
+key from `${CLAUDE_PLUGIN_ROOT}/scripts/flows.json` (`Design`, `Phase 4`, …); `<text>` is the user's
+own words.
+
+1. `env.py can --id <id> --op reopen --phase "<stage>"`. Not allowed → say why in one line and stop.
+   Feedback is only taken on a stage that is done, or on the current stage while it waits on the
+   user. The note lists the gates the reopen revokes.
+2. `env.py reopen --id <id> --phase "<stage>" --note "<text>"`. The phase goes back to that stage,
+   status `active`, and the gates that stage and later stages pass are revoked. Claimed and the facts
+   on disk (worktree, tasks, PR) stay. The history keeps the row, so the view shows the reopen.
+3. Hand over to the item's flow skill (`progress.flow`) at that stage, as in its "Resuming" section.
+   Read the stage's documents and the feedback, change what the feedback asks for — the spec files,
+   the design, the tasks or the code in `src/{Repo}/` — and say what changed.
+4. Stop at that stage's gate again with its visual page and the question. Gates pass only on the
+   user's answer in the chat, never on the feedback text itself. Later stages are redone in order,
+   each through its own gate.
+
+## `sdd review for <id>: approved | merged | rejected: <why>` — the PR's review result
+
+Posted as the user's own message by the review buttons of the sdd view. It is the user's answer to
+the PR review gate — spec flow `Review`, bug flow `Phase 13`. Hand over to the item's flow skill
+(`progress.flow`) with that answer: `sdd:spec` "Mode: Review", or `sdd:bug` "Phase 13 — PR review".
+The view only sends it while the item waits at that stage.
 
 ## Step 3 — an item already in progress
 

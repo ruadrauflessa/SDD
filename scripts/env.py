@@ -31,6 +31,7 @@ import re
 import shutil
 import stat
 import subprocess
+import urllib.parse
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -550,6 +551,57 @@ def cmd_status(a):
     for h in out["history"][:-1]:
         print(f"  earlier:  {h['at']} {h['phase']} / {h['status']}")
 
+
+# ---------------------------------------------------------------- view
+
+def view_item(root, cfg, data, env_dir, full):
+    wid = data["id"]
+    sp = spec_state(root, cfg, wid)
+    if sp:
+        sp["path"] = str((root / sp["folder"]).resolve())
+    project = data.get("project") or (cfg["ado"]["projects"] or [""])[0]
+    out = {k: data.get(k) for k in ("id", "type", "title", "state", "project", "flow", "slug", "created",
+                                     "removed", "repos", "gates", "progress")}
+    out.update(folder=str(env_dir) if env_dir else None, spec=sp,
+               met=sorted(gates_met(root, cfg, wid, data, env_dir)) if env_dir else sorted(data.get("gates") or {}),
+               url=f"{org_url(cfg)}/{urllib.parse.quote(project)}/_workitems/edit/{wid}" if cfg["ado"]["org"] else None)
+    if full:
+        out["history"] = data.get("history") or []
+    flow = (data.get("progress") or {}).get("flow") or data.get("flow")
+    out["feedback"] = {}  # stage -> gates a reopen there revokes; only stages that take feedback now
+    for s in FLOWS["flows"].get(flow, {}).get("stages", []) if env_dir else []:
+        ok, _, revoke = reopen_plan(data, s["key"])
+        if ok:
+            out["feedback"][s["key"]] = revoke
+    return out
+
+
+def cmd_view(a):
+    """Read-only snapshot for the sdd view: every item in progress, recent done records, the flows
+    table, and with --id one item's full history. Local files only — no ADO call, no writes."""
+    root = require_root()
+    cfg = load_config(root)
+    base = wt_root(root, cfg)
+    items, done = [], []
+    for d in sorted(base.iterdir() if base.is_dir() else []):
+        if d.is_dir() and d.name != ".done" and (d / "workitem.json").is_file():
+            try:
+                data = read_env(d)
+                items.append(view_item(root, cfg, data, d, full=a.id == data.get("id")))
+            except (OSError, ValueError, KeyError):
+                continue
+    recs = sorted(done_dir(root, cfg).glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for rec in recs:
+        try:
+            data = json.loads(rec.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if len(done) < 8 or a.id == data.get("id"):
+            done.append(view_item(root, cfg, data, None, full=a.id == data.get("id")))
+    print(json.dumps({"root": str(root), "specRoot": str((root / cfg["specRoot"]).resolve()), "colors": cfg["view"]["colors"], "autoOpen": bool(cfg["view"].get("autoOpen", True)),
+                      "flows": FLOWS["flows"], "derived": FLOWS["derived"], "items": items, "done": done},
+                     indent=None if a.compact else 2))
+
 def build_graph(env_dir):
     src, out = env_dir / "src", env_dir / "graph"
     exe = shutil.which("graphify")
@@ -634,33 +686,17 @@ def _force(func, path, _):
     func(path)
 
 
-OPS = ("start", "resume", "phase", "pr", "done", "abandon")
+OPS = ("start", "resume", "phase", "pr", "done", "abandon", "reopen")
 
-# What each phase needs before it may start. Recorded gates are passed with `progress --passed`
-# only after the user said yes; the DERIVED ones are read from the facts on disk.
-PHASE_NEEDS = {
-    "bug": {
-        "Phase 1": ["Claimed"],
-        "Phase 2": ["Claimed", "Worktree"], "Phase 3": ["Claimed", "Worktree"], "Phase 4": ["Claimed", "Worktree"],
-        "Phase 5": ["Claimed", "Worktree"],
-        "Phase 6": ["Approval"],
-        "Phase 7": ["Approval", "Red test"],
-        "Phase 8": ["Approval", "Red test"],
-        "Phase 9": ["Approval", "Verified"],
-        "Phase 9a": ["Approval", "Verified"],
-        "Phase 10": ["Approval", "Verified", "Manual verification"],
-        "Phase 11": ["PR raised"],
-    },
-    "spec": {
-        "Design": ["Claimed", "Requirements agreed"],
-        "Decompose": ["Requirements agreed", "Design agreed", "Worktree"],
-        "Implement": ["Requirements agreed", "Design agreed", "Tasks written", "Worktree"],
-        "Verify": ["Tasks done"],
-    },
-}
-PR_GATE = {"bug": ["Approval", "Verified", "Manual verification"], "spec": ["Requirements agreed", "Ready to PR"]}
-DERIVED = ("Worktree", "PR raised", "Tasks written", "Tasks done")
-BUG_PHASES = [f"Phase {i}" for i in range(13)] + ["Phase 9a"]
+# The stages of each flow live in flows.json, which the view draws too. What each phase needs before
+# it may start: recorded gates are passed with `progress --passed` only after the user said yes; the
+# DERIVED ones are read from the facts on disk.
+FLOWS = json.loads((Path(__file__).with_name("flows.json")).read_text(encoding="utf-8"))
+PHASE_NEEDS = {f: {s["key"]: s["needs"] for s in v["stages"] if s["needs"]} for f, v in FLOWS["flows"].items()}
+PR_GATE = {f: v["prGates"] for f, v in FLOWS["flows"].items()}
+DERIVED = tuple(FLOWS["derived"])
+BUG_PHASES = [s["key"] for s in FLOWS["flows"]["bug"]["stages"]]
+SPEC_PHASES = [s["key"] for s in FLOWS["flows"]["spec"]["stages"]]
 
 
 def phase_key(flow, phase):
@@ -669,7 +705,7 @@ def phase_key(flow, phase):
         m = re.match(r"\s*Phase\s+(\d+a?)\b", phase or "", re.I)
         key = f"Phase {m.group(1).lower()}" if m else None
         return key if key in BUG_PHASES else None
-    for k in ("Specify", "Design", "Decompose", "Implement", "Verify"):
+    for k in SPEC_PHASES:
         if (phase or "").strip().lower().startswith(k.lower()):
             return k
     return None
@@ -690,6 +726,33 @@ def gates_met(root, cfg, wid, data, env_dir):
     return met
 
 
+def reopen_plan(data, phase):
+    """May the item go back to `phase` for the person's feedback? -> (ok, reasons, gates to revoke).
+    Allowed for a stage already done, or the current stage while it waits on the person (an approval
+    or a go-ahead). Going back revokes every recorded gate that stage or a later one passes; Claimed
+    and the facts on disk (worktree, tasks, PR) stay."""
+    if not data:
+        return False, ["no work item folder — nothing has been started"], []
+    prog = data.get("progress") or {}
+    flow = prog.get("flow") or data.get("flow")
+    if data.get("removed") or prog.get("status") in ("done", "abandoned"):
+        return False, [f"the flow is {prog.get('status') or 'removed'}; start it again with /sdd {data.get('id')}"], []
+    stages = [s["key"] for s in FLOWS["flows"].get(flow, {}).get("stages", [])]
+    target, cur = phase_key(flow, phase), phase_key(flow, prog.get("phase"))
+    if target is None:
+        return False, [f"unknown {flow} stage '{phase}'"], []
+    if cur is None:
+        return False, ["no current stage is recorded"], []
+    t, c = stages.index(target), stages.index(cur)
+    if t > c:
+        return False, [f"{target} has not started yet (the item is at {cur})"], []
+    if t == c and prog.get("status") != "waiting":
+        return False, [f"{target} is still {prog.get('status')}; feedback opens once it waits on you"], []
+    later = FLOWS["flows"][flow]["stages"][t:]
+    passes = [g for s in later for g in s["passes"] if g != "Claimed" and g not in DERIVED]
+    return True, [], [g for g in passes if g in (data.get("gates") or {})]
+
+
 def check_op(root, cfg, wid, op, flow=None, phase=None):
     """Is `op` allowed for this work item right now? -> (ok, reasons, notes). The single source of
     truth for state guards: /sdd refuses and explains instead of running an operation out of turn."""
@@ -701,6 +764,10 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
     prog = (data or {}).get("progress") or {}
     status, cur_phase = prog.get("status"), prog.get("phase", "")
     reasons, notes = [], []
+
+    if op == "reopen":
+        ok, why, revoke = reopen_plan(data if env_dir else None, phase or "")
+        return ok, why, [f"revokes: {', '.join(revoke)}"] if ok and revoke else []
 
     if data and data.get("removed"):
         when = data["removed"][:10]
@@ -803,6 +870,8 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
 def cmd_can(a):
     root = require_root()
     cfg = load_config(root)
+    if a.op == "reopen" and not a.phase:
+        die("--op reopen needs --phase: the stage to go back to")
     if a.op == "phase" and not a.phase:
         die("--op phase needs --phase (and --flow when nothing is recorded yet)")
     ok, reasons, notes = check_op(root, cfg, a.id, a.op, a.flow, a.phase)
@@ -815,6 +884,30 @@ def cmd_can(a):
         for x in notes:
             print(f"  note:    {x}")
     sys.exit(0 if ok else 3)
+
+
+def cmd_reopen(a):
+    """Send the item back to a stage for the person's feedback: phase = that stage, status active,
+    the gates it and later stages pass revoked, one history row that says so."""
+    root = require_root()
+    cfg = load_config(root)
+    env_dir = env_or_die(root, cfg, a.id)
+    data = read_env(env_dir)
+    ok, why, revoke = reopen_plan(data, a.phase)
+    if not ok:
+        die("not reopening:\n  " + "\n  ".join(why))
+    prog = data.get("progress") or {}
+    flow = prog.get("flow") or data.get("flow")
+    key = phase_key(flow, a.phase)
+    entry = {"at": now(), "flow": flow, "phase": key, "status": "active", "gate": "", "next": "",
+             "note": f"Reopened from {prog.get('phase')} for feedback: {a.note}", "refs": [],
+             "gates": {"passed": [], "revoked": revoke}}
+    for g in revoke:
+        data["gates"].pop(g, None)
+    data["progress"] = entry
+    data["history"] = (data.get("history") or [])[-49:] + [entry]
+    write_env(env_dir, data)
+    print(f"{a.id}: back to {flow} / {key} / active" + (f"; revoked {', '.join(revoke)}" if revoke else ""))
 
 
 def cmd_remove(a):
@@ -902,14 +995,22 @@ def main():
     s.add_argument("--id", type=int, required=True)
     s.add_argument("--op", required=True, choices=OPS)
     s.add_argument("--flow", choices=["bug", "spec"])
-    s.add_argument("--phase", help="with --op phase: the phase about to start")
+    s.add_argument("--phase", help="with --op phase: the phase about to start; with --op reopen: the stage to go back to")
     s.add_argument("--json", action="store_true")
+    s = sp.add_parser("reopen", help="back to a done or waiting stage for the person's feedback")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--phase", required=True, help="the stage to go back to (Design, Phase 4, ...)")
+    s.add_argument("--note", required=True, help="the person's feedback, as they wrote it")
+    s = sp.add_parser("view")
+    s.add_argument("--id", type=int, help="also the full history of this item")
+    s.add_argument("--json", action="store_true", help="always json; accepted for symmetry")
+    s.add_argument("--compact", action="store_true")
     s = sp.add_parser("remove")
     s.add_argument("--id", type=int, required=True)
     s.add_argument("--abandon", action="store_true")
     s.add_argument("--yes", action="store_true")
     a = ap.parse_args()
-    {"init": cmd_init, "doctor": cmd_doctor, "progress": cmd_progress, "refs": cmd_refs, "can": cmd_can, "type": cmd_type, "new": cmd_new, "status": cmd_status, "graph": cmd_graph,
+    {"init": cmd_init, "doctor": cmd_doctor, "progress": cmd_progress, "refs": cmd_refs, "can": cmd_can, "type": cmd_type, "new": cmd_new, "status": cmd_status, "view": cmd_view, "reopen": cmd_reopen, "graph": cmd_graph,
      "pr": cmd_pr, "remove": cmd_remove}[a.cmd](a)
 
 

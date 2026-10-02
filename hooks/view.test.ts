@@ -1,0 +1,117 @@
+import { expect, test } from 'claude-code/testing'
+
+import type { SddItem, SddSnapshot } from '../types'
+import { fileLinks, fileTarget, gateStory, idFromArgs, idFromScript, stamp, phaseKey, refLink, stageRows, stageSummary } from './view/model'
+
+const SPEC = {
+  label: 'Spec flow',
+  prGates: ['Requirements agreed', 'Ready to PR'],
+  stages: [
+    { key: 'Specify', label: 'Specify', needs: [], passes: ['Claimed', 'Requirements agreed'], stop: true },
+    { key: 'Design', label: 'Design', needs: ['Claimed', 'Requirements agreed'], passes: ['Worktree', 'Design agreed'], stop: true },
+    { key: 'Decompose', label: 'Decompose', needs: [], passes: ['Tasks written'], stop: true },
+    { key: 'Implement', label: 'Implement', needs: [], passes: ['Tasks done'] },
+    { key: 'Verify', label: 'Verify', needs: ['Tasks done'], passes: ['Ready to PR', 'PR raised'], stop: true },
+  ],
+}
+const BUG = {
+  label: 'Bug flow',
+  prGates: ['Approval'],
+  stages: ['0', '1', '5', '9', '9a', '10'].map(n => ({ key: `Phase ${n}`, label: `step ${n}`, needs: [], passes: n === '5' ? ['Approval'] : [] })),
+}
+
+const ITEM: SddItem = {
+  id: 92012, type: 'User Story', title: 'Author and normalise free-text tags', state: 'Active',
+  project: 'Internal_DevOps', flow: 'spec', slug: 'author', created: '2026-10-01T08:50:08Z',
+  repos: { Repo: { base: 'team/0.0.1', branch: 'dev/x/92012-author', path: 'src/Repo', pr: { id: 34479, url: 'https://dev.azure.com/o/p/_git/Repo/pullrequest/34479' } } },
+  gates: { Claimed: '2026-10-01T08:50:08Z', 'Requirements agreed': '2026-10-01T12:41:15Z', 'Design agreed': '2026-10-01T12:41:15Z', 'Ready to PR': '2026-10-01T13:55:23Z' },
+  progress: { at: '2026-10-01T13:56:47Z', flow: 'spec', phase: 'Verify', status: 'waiting', gate: 'PR status', next: 'Dev Completed', note: 'PR 34479 open', refs: ['ado'] },
+  folder: 'C:/ws/.claude/worktrees/92012-author',
+  spec: { folder: 'docs/spec/92012-US-author', path: 'C:/ws/docs/spec/92012-US-author', files: ['design.md', 'requirements.md', 'tasks.md'], tasks_done: 20, tasks_total: 20 },
+  met: ['Claimed', 'Design agreed', 'PR raised', 'Ready to PR', 'Requirements agreed', 'Tasks done', 'Tasks written', 'Worktree'],
+  url: 'https://dev.azure.com/o/Internal_DevOps/_workitems/edit/92012',
+  history: [
+    { at: '2026-10-01T10:41:54Z', flow: 'spec', phase: 'Specify', status: 'waiting', gate: 'Requirements agreed?', refs: ['visuals/requirements.html'] },
+    { at: '2026-10-01T12:24:36Z', flow: 'spec', phase: 'Specify', status: 'done', gates: { passed: ['Requirements agreed'], revoked: [] } },
+    { at: '2026-10-01T12:35:44Z', flow: 'spec', phase: 'Design', status: 'active', gates: { passed: [], revoked: ['Requirements agreed'] } },
+    { at: '2026-10-01T12:41:15Z', flow: 'spec', phase: 'Decompose', status: 'active', gates: { passed: ['Requirements agreed', 'Design agreed'], revoked: [] } },
+  ],
+}
+
+const SNAP: SddSnapshot = {
+  root: 'C:/ws', specRoot: 'C:/ws/docs/spec', flows: { spec: SPEC, bug: BUG },
+  derived: ['Worktree', 'PR raised', 'Tasks written', 'Tasks done'], items: [ITEM], done: [],
+}
+
+test('phase keys match env.py', () => {
+  expect(phaseKey(BUG, 'Phase 9a — Manual verification')).toBe('Phase 9a')
+  expect(phaseKey(BUG, 'Phase 10')).toBe('Phase 10')
+  expect(phaseKey(BUG, 'Phase 1')).toBe('Phase 1')
+  expect(phaseKey(SPEC, 'Implement (task 3/7)')).toBe('Implement')
+  expect(phaseKey(SPEC, 'removed')).toBe(null)
+})
+
+test('stages: done before the current one, the current one waiting', () => {
+  expect(stageRows(SPEC, ITEM).map(r => r.mark)).toEqual(['done', 'done', 'done', 'done', 'waiting'])
+  const done = { ...ITEM, progress: { ...ITEM.progress!, phase: 'removed', status: 'done' as const } }
+  expect(stageRows(SPEC, done).every(r => r.mark === 'done')).toBe(true)
+})
+
+
+test('refs become links', () => {
+  expect(refLink(ITEM, 'ado')).toBe(`[ADO 92012](${ITEM.url})`)
+  expect(refLink(ITEM, 'visuals/design.html')).toBe('[design.html](file:///C:/ws/docs/spec/92012-US-author/visuals/design.html)')
+  expect(refLink(ITEM, 'src/Repo/A b.cs:43-82')).toBe('[A b.cs:43-82](file:///C:/ws/.claude/worktrees/92012-author/src/Repo/A%20b.cs#L43)')
+})
+
+
+// The pane itself is checked live: this build's `claude plugin test` gives the plugin no $.state
+// (the kit's own pane example fails the same way), while a real session does.
+
+
+test('a gate reads as one decision: in time order', () => {
+  const item = { ...ITEM, history: [
+    { at: '2026-10-01T10:41:54Z', flow: 'spec', phase: 'Specify', status: 'waiting' as const, gate: 'Requirements agreed?', refs: ['visuals/requirements.html'] },
+    { at: '2026-10-01T12:24:36Z', flow: 'spec', phase: 'Specify', status: 'done' as const, note: 'AC 4-6 added', gates: { passed: ['Requirements agreed'], revoked: [] } },
+    { at: '2026-10-01T12:29:10Z', flow: 'spec', phase: 'Design', status: 'waiting' as const, gate: 'Design agreed?' },
+    { at: '2026-10-01T12:35:44Z', flow: 'spec', phase: 'Design', status: 'active' as const, note: 'tags moved', gates: { passed: [], revoked: ['Requirements agreed'] } },
+    { at: '2026-10-01T12:38:01Z', flow: 'spec', phase: 'Design', status: 'waiting' as const, gate: 'Re-approve rev 2' },
+    { at: '2026-10-01T12:41:15Z', flow: 'spec', phase: 'Decompose', status: 'active' as const, note: 'D1=B', gates: { passed: ['Requirements agreed', 'Design agreed'], revoked: [] } },
+  ] }
+  expect(gateStory(item, 'Requirements agreed').map(x => `${x.kind} ${x.text}`)).toEqual([
+    'asked Requirements agreed?', 'passed AC 4-6 added', 'asked Design agreed?',
+    'revoked tags moved', 'asked Re-approve rev 2', 'passed D1=B'])
+  expect(gateStory(item, 'Design agreed').map(x => x.kind)).toEqual(['asked', 'asked', 'passed'])
+  expect(gateStory(item, 'Ready to PR')).toEqual([])
+})
+
+test('a stage row counts its entries and shows its latest note', () => {
+  expect(stageSummary(SPEC, ITEM, 'Specify')).toEqual({ count: 2, note: '', lastAt: '2026-10-01T12:24:36Z' })
+  const withNote = { ...ITEM, history: [...ITEM.history!, { at: '2026-10-01T12:50:00Z', flow: 'spec', phase: 'Decompose', status: 'active' as const, note: '20 tasks' }] }
+  expect(stageSummary(SPEC, withNote, 'Decompose')).toEqual({ count: 2, note: '20 tasks', lastAt: '2026-10-01T12:50:00Z' })
+})
+
+test('a file link comes back as a path and a line', () => {
+  const md = `${refLink(ITEM, 'src/Repo/A b.cs:43-82')}   ${refLink(ITEM, 'visuals/design.html')}   ${refLink(ITEM, 'ado')}`
+  const files = fileLinks(md)
+  expect(files.length).toBe(2)
+  expect(fileTarget(files[0])).toEqual({ path: 'C:/ws/.claude/worktrees/92012-author/src/Repo/A b.cs', line: 43 })
+  expect(fileTarget(files[1])).toEqual({ path: 'C:/ws/docs/spec/92012-US-author/visuals/design.html', line: undefined })
+  expect(fileTarget('https://dev.azure.com/x')).toBe(null)
+})
+
+test('a row shows the time of its last activity as MM/DD/YYYY HHhMM', () => {
+  expect(stamp('2026-10-01T12:41:15')).toBe('10/01/2026 12h41')
+  expect(stamp(undefined)).toBe('')
+})
+
+test("the chat's work item comes from /sdd and from sdd script runs", () => {
+  expect(idFromArgs('92012')).toBe(92012)
+  expect(idFromArgs('spec 92012')).toBe(92012)
+  expect(idFromArgs('92012 feedback Design: more')).toBe(92012)
+  expect(idFromArgs('help')).toBe(null)
+  expect(idFromArgs('sync all')).toBe(null)
+  expect(idFromScript('python C:/p/scripts/env.py progress --flow spec --id 92012 --status waiting')).toBe(92012)
+  expect(idFromScript('python "C:/x y/scripts/spec.py" sync --id 5')).toBe(5)
+  expect(idFromScript('python C:/p/scripts/env.py doctor --json')).toBe(null)
+})

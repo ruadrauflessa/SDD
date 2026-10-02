@@ -45,6 +45,8 @@ def main():
         assert run("stop", [user("hi"), say("Shall I?")], cwd) == 0
         # init/doctor alone is not a flow
         assert run("stop", [user("x"), tool("python .../scripts/env.py doctor"), say("Ok?")], cwd) == 0
+        # the view's snapshot is read-only too
+        assert run("stop", [user("x"), tool("python C:/plugins/sdd/scripts/env.py view --id 5 --json"), say("Ok?")], cwd) == 0
         # sdd flow: a question without links is blocked, with links it passes
         flow = [user("go"), tool(SDD)]
         assert run("pre", flow + [say("Here is the design.")], cwd, **ask) == 2
@@ -74,14 +76,19 @@ def main():
         for named in ['grep -rn "x" ~/.claude/skills/sdd-workspace/scripts/env.py sdd-workspace/scripts/env.py new',
                       'cat C:/plugins/sdd/scripts/env.py progress',
                       'Select-String -Path C:/plugins/sdd/scripts/spec.py -Pattern "sync"',
-                      'git log -- scripts/env.py new --id 5']:
+                      'git log -- scripts/env.py new --id 5',
+                      "        'python3 -u ~/x/scripts/env.py new --id 5',   # a quoted string in code, not a run",
+                      "cat > t.py <<'EOF'\ncd x && python C:/p/scripts/env.py status --id 5\nEOF",
+                      "python - <<EOF\npython C:/p/scripts/env.py new --id 5\nEOF\necho done",
+                      "$s = @'\npython C:/p/scripts/env.py new --id 5\n'@"]:
             assert run("pre", [user("q"), tool(named), say("Which one?")], cwd, **ask) == 0, named
             assert run("stop", [user("q"), tool(named), say("Which one?")], cwd) == 0, named
         # real runs in other shapes still count
         for real in ['cd x && python "C:/Program Files/sdd/scripts/env.py" status --id 5',
                      r'& "C:/Program Files/Python312/python.exe" C:\plugins\sdd\scripts\spec.py sync --id 5',
                      'python3 -u ~/.claude/skills/sdd-workspace/scripts/env.py new --id 5',
-                     'uv run python scripts/env.py can --id 5 --op pr']:
+                     'uv run python scripts/env.py can --id 5 --op pr',
+                     "cat > a.md <<'EOF'\nnotes\nEOF\npython C:/p/scripts/env.py new --id 5"]:
             assert run("stop", [user("q"), tool(real), say("Approve?")], cwd) == 2, real
         # a waiting checkpoint split over lines (bash \ or PowerShell `) still prints the Links block
         for cont in ["\\\n", "`\n"]:
