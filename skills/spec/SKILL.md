@@ -106,12 +106,17 @@ Shape every gate the same way:
 - **A correction goes back into the current mode**, revised, and the gate is asked again once the
   revision is ready. Never guess at the fix and silently re-ask the same question with different
   content.
+- **Use the go-ahead labels in the table below as written.** The sdd view's **Approve** button
+  (shown at the Specify, Design, Decompose and Verify stops) picks the option with that label in an
+  open question, or posts `sdd approve for <id>, stage <stage>` as the user's own message when the
+  dialog has closed. Treat either as the user's choice of that option.
 
 | Gate | Mode | Options |
 | --- | --- | --- |
 | Requirements agreed | End of Specify | "Approve — start Design" / "Needs changes" |
 | Design agreed | End of Design — asked again after any requested changes are incorporated | "Approve — start Decompose" / "Needs changes" |
 | Tech story creation | Design, tech story gate | One option per proposal, `multiSelect: true` — the user picks which, if any, get created |
+| Tasks agreed | End of Decompose | "Approve — start Implement" / "Needs changes" |
 | Ready to PR | End of Verify, after the automated checks pass | "Raise the PR" / "Make changes" |
 | PR approved | Review, right after the PR is opened, and whenever this work item is picked back up while it's still open | "Not yet approved" / "Approved" / "Merged" / "Rejected" |
 
@@ -361,6 +366,10 @@ the user why and stop. Otherwise:
    are in `references/ado-sync.md`.
 5. **Show the plan.** Build the `sdd:visual` **tasks** page (`visuals/tasks.html`) and send it, with no
    recap in chat. Re-render it with live statuses when the user asks where Implement stands.
+6. **Stop and ask.** Run the "Tasks agreed" gate with `AskUserQuestion` (`--status waiting`,
+   `--ref visuals/tasks.html`). It passes no recorded gate — `Tasks written` is read from disk —
+   but Implement starts only on "Approve — start Implement". On "Needs changes", rework `tasks.md`
+   and ask again.
 
 ### Mode: Implement
 

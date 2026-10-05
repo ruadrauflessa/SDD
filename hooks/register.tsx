@@ -6,7 +6,7 @@ import { update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { SddAsk, SddColors, SddDoc, SddItem, SddQuestion, SddSnapshot, SddStage } from '../types'
-import { answerMessage, answersFor, decidedGates, fileLinks, flowFinished, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, fileTarget, gateStory, phaseKey, phaseLabel, refLink, stageDocs, stageHistory, stageRows, stageSummary, statusWord, when } from './view/model'
+import { answerMessage, answersFor, approveAnswers, approveFor, approveMessage,decidedGates, fileLinks, flowFinished, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, fileTarget, gateStory, phaseKey, phaseLabel, refLink, stageDocs, stageHistory, stageRows, stageSummary, statusWord, when } from './view/model'
 import type { Mark } from './view/model'
 
 const PANE = 'sdd-view'
@@ -368,6 +368,37 @@ export const register: Register = on => {
       await $.state.set(doc, null)
       await $.state.set(feedback, null)
     })()
+    // posted as the person's own message, so it shows in the chat; the flow skill takes it from there
+    const post = (text: string, done: string) => void (async () => {
+      await $.state.set(feedback, null)
+      try {
+        const sent = await $.prompt.submit({ text, asUser: true })
+        if ('drop' in sent && sent.drop) throw new Error(String(sent.drop))
+        $.ui.toast(done)
+      } catch (err) {
+        await $.prompt.fill({ text })
+        $.ui.toast(`Not sent (${String(err).slice(0, 160)}). It is in the prompt box instead.`)
+      }
+    })()
+    // the go-ahead at a spec flow stop: into the open dialog's call when it asks for it, else as the
+    // person's own message "sdd approve for <id>, stage <stage>"
+    const go = flow ? approveFor(flow, item) : null
+    const approve = () => {
+      if (!go) return
+      if (ask?.isOpen) {
+        const answers = approveAnswers(ask.questions, go.option)
+        const resolve = answering.get(ask.toolUseId)
+        if (!answers || !resolve) {
+          $.ui.toast('Claude asked something else in the chat. Answer it there.')
+          return
+        }
+        void $.state.set(picks, {})
+        resolve(answers)
+        $.ui.toast(`Approved: ${go.key}. Claude goes on.`)
+        return
+      }
+      post(approveMessage(item.id, go.key), `Approved: ${go.key}. Claude goes on.`)
+    }
     const refsLine = (refs: string[]) => refs.map(r => refLink(item, r)).filter(Boolean).join('   ')
     // pages and documents open in Claude Code as the app opens any link; only a code link with a line
     // is answered here, to open VS Code at that line, which the app cannot do
@@ -397,6 +428,11 @@ export const register: Register = on => {
             <Text bold color={C.now} wrap="wrap">{`Your turn: ${p.gate || 'a decision'}`}</Text>
             {p.next && <Text wrap="wrap">{`Then: ${p.next}`}</Text>}
             {p.note && <Text dimColor wrap="wrap">{p.note}</Text>}
+            {go && (
+              <Box marginTop={1}>
+                <Button key={`approve-${go.key}`} variant="primary" label={go.label} onPress={approve} />
+              </Box>
+            )}
           </Box>
         )}
         {p && !isWaiting && (
@@ -574,18 +610,7 @@ export const register: Register = on => {
       const showAsk = !!ask && waitKey === key && !isReview
       const takesInput = !!revokes || showAsk
       if (!docs.length && !takesInput && !isReview) return null
-      const answer = (text: string, done: string) => void (async () => {
-        // posted as the person's own answer, so it shows in the chat; the flow skill takes it from there
-        await $.state.set(feedback, null)
-        try {
-          const sent = await $.prompt.submit({ text, asUser: true })
-          if ('drop' in sent && sent.drop) throw new Error(String(sent.drop))
-          $.ui.toast(done)
-        } catch (err) {
-          await $.prompt.fill({ text })
-          $.ui.toast(`Not sent (${String(err).slice(0, 160)}). It is in the prompt box instead.`)
-        }
-      })()
+      const answer = post
       return (
         <Box flexDirection="column" marginLeft={2} marginTop={1} gap={1}>
           {isReview && (
