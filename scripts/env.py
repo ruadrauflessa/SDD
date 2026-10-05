@@ -472,8 +472,11 @@ def verdict(ado_state, data, repos):
         return "abandoned"
     if data.get("removed"):
         return "completed — folder cleaned up"
+    # the folder is still on disk here: "completed" only once /sdd done has removed it
     if prs and all(p["status"] == "completed" for p in prs):
-        return "PRs merged — run /sdd done to clean up" if prog.get("status") != "done" else "completed"
+        return "PRs merged — run /sdd done to clean up"
+    if prog.get("status") == "done":
+        return "closed out — run /sdd done to clean up"
     if prog.get("status") == "waiting":
         return f"waiting on you: {prog.get('gate') or prog.get('phase')}"
     if prog.get("status") == "blocked":
@@ -827,7 +830,8 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
                 notes.append(f"{n}: PR {r['pr']['url']} left as it is (closing it is the user's call)")
         return not reasons, reasons, notes
 
-    if status in ("done", "abandoned"):
+    # close-out writes status "done" before /sdd done runs, so only an abandoned flow blocks "done"
+    if status == "abandoned" or (status == "done" and op != "done"):
         reasons.append(f"the flow is {status}")
     if op == "pr":
         for g in PR_GATE.get(prog.get("flow") or data.get("flow"), []):
