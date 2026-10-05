@@ -224,3 +224,39 @@ export function idFromScript(cmd: string): number | null {
   const m = /scripts[\\/]+(?:env|spec)\.py["']?\s+\w+[^\n]*?--id\s+(\d+)/.exec(cmd)
   return m ? Number(m[1]) : null
 }
+
+/** The spec flow stops the view approves with one button: the button's label, and the go-ahead
+ *  option each one's gate question offers, as the spec skill's gate table names it. */
+const APPROVE: Record<string, { label: string; option: string }> = {
+  Specify: { label: 'Approve Spec', option: 'Approve — start Design' },
+  Design: { label: 'Approve Design', option: 'Approve — start Decompose' },
+  Decompose: { label: 'Approve Task List', option: 'Approve — start Implement' },
+  Verify: { label: 'Raise PR', option: 'Raise the PR' },
+}
+
+/** The go-ahead the Approve button gives: the stage it approves, its label and the option it picks.
+ *  Null unless the item is in the spec flow and waits on the person at one of those stops. */
+export function approveFor(flow: SddFlow, item: SddItem): { key: string; label: string; option: string } | null {
+  const p = item.progress
+  if (item.flow !== 'spec' || p?.status !== 'waiting') return null
+  const key = phaseKey(flow, p.phase)
+  return key && APPROVE[key] ? { key, ...APPROVE[key] } : null
+}
+
+/** The go-ahead as answers to an open question: per question, the option named `option`, else the
+ *  one that starts with "Approve". Null when a question has neither: Claude asked something else. */
+export function approveAnswers(questions: SddQuestion[], option: string): Record<string, string> | null {
+  const out: Record<string, string> = {}
+  for (const q of questions) {
+    const hit = q.options.find(o => o.label === option) ?? q.options.find(o => /^approve\b/i.test(o.label))
+    if (!hit) return null
+    out[q.question] = hit.label
+  }
+  return out
+}
+
+/** The go-ahead as the person's own message. The sdd skill reads "sdd approve for <id>, stage <stage>"
+ *  as the go-ahead option of that stage's gate question. */
+export function approveMessage(id: number, key: string): string {
+  return `sdd approve for ${id}, stage ${key}`
+}

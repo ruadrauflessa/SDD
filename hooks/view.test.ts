@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { SddItem, SddSnapshot } from '../types'
-import { answerMessage, answersFor, fileLinks, flowFinished, fileTarget, gateStory, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, phaseKey, refLink, stageRows, stageSummary } from './view/model'
+import { answerMessage, answersFor, approveAnswers, approveFor, approveMessage, fileLinks, flowFinished, fileTarget, gateStory, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, phaseKey, refLink, stageRows, stageSummary } from './view/model'
 
 const SPEC = {
   label: 'Spec flow',
@@ -176,4 +176,23 @@ test('answers read as the chat dialog gives them', () => {
   expect(answersFor(qs, { 'Design agreed?': ['Gone'] }, '')).toBe(null)
   expect(answerMessage(92012, 'Design', qs, { 'Design agreed?': 'Approve', 'Which tests?': 'Unit' }))
     .toBe('sdd answer for 92012, stage Design: "Design agreed?" = "Approve"; "Which tests?" = "Unit"')
+})
+
+test('the Approve button shows at the four spec stops and picks the go-ahead', () => {
+  const at = (phase: string, status: 'waiting' | 'active' = 'waiting'): SddItem => ({ ...ITEM, progress: { ...ITEM.progress!, phase, status } })
+  expect(approveFor(SPEC, at('Specify'))).toEqual({ key: 'Specify', label: 'Approve Spec', option: 'Approve — start Design' })
+  expect(approveFor(SPEC, at('Design'))).toEqual({ key: 'Design', label: 'Approve Design', option: 'Approve — start Decompose' })
+  expect(approveFor(SPEC, at('Decompose'))).toEqual({ key: 'Decompose', label: 'Approve Task List', option: 'Approve — start Implement' })
+  expect(approveFor(SPEC, at('Verify'))).toEqual({ key: 'Verify', label: 'Raise PR', option: 'Raise the PR' })
+  expect(approveFor(SPEC, at('Implement (task 3/7)'))).toBe(null)
+  expect(approveFor(SPEC, at('Design', 'active'))).toBe(null)
+  expect(approveFor(BUG, { ...at('Phase 5'), flow: 'bug' })).toBe(null)
+
+  const gate = [{ question: 'Ready?', options: [{ label: 'Raise the PR' }, { label: 'Make changes' }] }]
+  expect(approveAnswers(gate, 'Raise the PR')).toEqual({ 'Ready?': 'Raise the PR' })
+  const loose = [{ question: 'Design agreed?', options: [{ label: 'Needs changes' }, { label: 'Approve' }] }]
+  expect(approveAnswers(loose, 'Approve — start Decompose')).toEqual({ 'Design agreed?': 'Approve' })
+  const other = [{ question: 'Which tech stories?', multiSelect: true, options: [{ label: 'TS-1' }, { label: 'TS-2' }] }]
+  expect(approveAnswers(other, 'Approve — start Decompose')).toBe(null)
+  expect(approveMessage(92012, 'Decompose')).toBe('sdd approve for 92012, stage Decompose')
 })
