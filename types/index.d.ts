@@ -69,6 +69,24 @@ export type SddSnapshot = {
 
 export type SddDoc = { name: string; text: string; isCut: boolean }
 
+/** One question of an AskUserQuestion call, as the tool takes it. */
+export type SddQuestion = {
+  question: string
+  header?: string
+  multiSelect?: boolean
+  options: { label: string; description?: string }[]
+}
+
+/** The questions Claude last asked about this chat's work item with AskUserQuestion. */
+export type SddAsk = {
+  id: number
+  at: string
+  toolUseId: string
+  questions: SddQuestion[]
+  /** The dialog is still open in the chat: an answer from the view answers it. */
+  isOpen: boolean
+}
+
 declare module 'claude-code' {
   interface PluginState {
     sdd: {
@@ -87,6 +105,10 @@ declare module 'claude-code' {
       opened: boolean
       /** This chat's work item: the one it last ran /sdd or an sdd script for. */
       mine: number | null
+      /** The questions Claude asked at the gate this chat's item waits on, or null. */
+      asked: SddAsk | null
+      /** The options picked in the view so far, per question text. */
+      picks: Record<string, string[]>
     }
   }
 }

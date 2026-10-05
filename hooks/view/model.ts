@@ -1,5 +1,5 @@
 // What the view shows, worked out from one env.py view snapshot. No $ here: plain functions.
-import type { SddFlow, SddItem, SddProgress, SddStage } from '../../types'
+import type { SddFlow, SddItem, SddProgress, SddQuestion, SddStage } from '../../types'
 
 export type Mark = 'done' | 'active' | 'waiting' | 'blocked' | 'abandoned' | 'next' | 'later'
 
@@ -116,21 +116,66 @@ export function phaseLabel(flow: SddFlow | undefined, item: SddItem): string {
 export type StoryEvent = { at: string; kind: 'asked' | 'passed' | 'revoked'; text: string; refs: string[] }
 
 /** One gate as a decision, oldest first: each question asked before it passed, the pass with its
- *  note (the answer), and every revoke with why. A waiting row belongs to the gate the next pass passes. */
-export function gateStory(item: SddItem, gate: string): StoryEvent[] {
+ *  note (the answer), and every revoke with why. A waiting row belongs to the gate the next pass passes.
+ *  `open` names the stage of a gate still waiting on the person: its questions asked since the last
+ *  pass are in the story too, so the gate shows what it waits on. */
+export function gateStory(item: SddItem, gate: string, open?: { flow: SddFlow; key: string }): StoryEvent[] {
   const out: StoryEvent[] = []
+  const asked = (a: SddProgress): StoryEvent => ({ at: a.at, kind: 'asked', text: [a.gate, a.note].filter(Boolean).join('. '), refs: a.refs ?? [] })
   let asks: SddProgress[] = []
   for (const h of item.history ?? []) {
     if (h.status === 'waiting') asks.push(h)
     const passed = h.gates?.passed ?? []
     if (passed.includes(gate)) {
-      for (const a of asks) out.push({ at: a.at, kind: 'asked', text: [a.gate, a.note].filter(Boolean).join('. '), refs: a.refs ?? [] })
+      for (const a of asks) out.push(asked(a))
       out.push({ at: h.at, kind: 'passed', text: h.note ?? '', refs: h.refs ?? [] })
     }
     if ((h.gates?.revoked ?? []).includes(gate)) out.push({ at: h.at, kind: 'revoked', text: h.note ?? '', refs: [] })
     if (passed.length) asks = []
   }
+  if (open) {
+    for (const a of asks) if (phaseKey(open.flow, a.phase) === open.key) out.push(asked(a))
+  }
   return out.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+}
+
+/** The gate the item waits on the person for: the first gate its waiting stage passes that is not
+ *  passed yet. Null when it waits on nothing, or on a go-ahead that passes no gate. */
+export function pendingGate(flow: SddFlow, item: SddItem, derived: string[]): { gate: string; key: string } | null {
+  const p = item.progress
+  if (p?.status !== 'waiting') return null
+  const stage = flow.stages.find(s => s.key === phaseKey(flow, p.phase))
+  const gate = stage ? decidedGates(stage, derived).find(g => !item.gates?.[g]) : undefined
+  return stage && gate ? { gate, key: stage.key } : null
+}
+
+/** What to read before answering the question the item waits on, as markdown links: the refs Claude
+ *  gave with the question first, then the stage's spec documents not among them. */
+export function reviewLinks(item: SddItem, key: string): string[] {
+  const refs = item.progress?.status === 'waiting' ? item.progress.refs ?? [] : []
+  const named = new Set(refs.map(r => r.replace(/:\d[\d-]*$/, '').split(/[\\/]/).pop()))
+  const docs = stageDocs(item, key).filter(d => !named.has(d))
+  return [...refs, ...docs].map(r => refLink(item, r)).filter((x): x is string => !!x)
+}
+
+/** The answers AskUserQuestion returns, per question text: the picked labels (comma-joined, as the
+ *  chat's dialog joins a multi-select) or else the typed text, as under "Other". Null while a
+ *  question has neither. */
+export function answersFor(questions: SddQuestion[], picks: Record<string, string[]>, other: string): Record<string, string> | null {
+  const out: Record<string, string> = {}
+  for (const q of questions) {
+    const picked = (picks[q.question] ?? []).filter(l => q.options.some(o => o.label === l))
+    const text = picked.length ? picked.join(', ') : other.trim()
+    if (!text) return null
+    out[q.question] = text
+  }
+  return out
+}
+
+/** The answers as the person's own message, for when the chat's dialog is no longer open. The sdd
+ *  skill reads "sdd answer for <id>, stage <stage>: …" as the answer to the gate question. */
+export function answerMessage(id: number, key: string, questions: SddQuestion[], answers: Record<string, string>): string {
+  return `sdd answer for ${id}, stage ${key}: ` + questions.map(q => `"${q.question}" = "${answers[q.question]}"`).join('; ')
 }
 
 /** A stage's row: how many log entries it has, its latest note, and when it last moved. */

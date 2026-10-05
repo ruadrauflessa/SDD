@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { SddItem, SddSnapshot } from '../types'
-import { fileLinks, fileTarget, gateStory, idFromArgs, idFromScript, stamp, phaseKey, refLink, stageRows, stageSummary } from './view/model'
+import { answerMessage, answersFor, fileLinks, fileTarget, gateStory, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, phaseKey, refLink, stageRows, stageSummary } from './view/model'
 
 const SPEC = {
   label: 'Spec flow',
@@ -114,4 +114,52 @@ test("the chat's work item comes from /sdd and from sdd script runs", () => {
   expect(idFromScript('python C:/p/scripts/env.py progress --flow spec --id 92012 --status waiting')).toBe(92012)
   expect(idFromScript('python "C:/x y/scripts/spec.py" sync --id 5')).toBe(5)
   expect(idFromScript('python C:/p/scripts/env.py doctor --json')).toBe(null)
+})
+
+// An item waiting at Design: Claude asked "Design agreed?" with the design page and design.md.
+const AT_DESIGN: SddItem = {
+  ...ITEM,
+  gates: { Claimed: '2026-10-01T08:50:08Z', 'Requirements agreed': '2026-10-01T12:24:36Z' },
+  progress: { at: '2026-10-01T12:29:10Z', flow: 'spec', phase: 'Design', status: 'waiting', gate: 'Design agreed?', refs: ['visuals/design.html', 'design.md', 'src/Repo/A.cs:43-82'] },
+  history: [
+    { at: '2026-10-01T12:24:36Z', flow: 'spec', phase: 'Specify', status: 'done', gates: { passed: ['Requirements agreed'], revoked: [] } },
+    { at: '2026-10-01T12:29:10Z', flow: 'spec', phase: 'Design', status: 'waiting', gate: 'Design agreed?', refs: ['visuals/design.html', 'design.md', 'src/Repo/A.cs:43-82'] },
+  ],
+  spec: { ...ITEM.spec!, files: ['design.md', 'questions.md', 'requirements.md'] },
+}
+
+test('the gate an item waits on is the first one its waiting stage has not passed', () => {
+  expect(pendingGate(SPEC, AT_DESIGN, SNAP.derived)).toEqual({ gate: 'Design agreed', key: 'Design' })
+  expect(pendingGate(SPEC, ITEM, SNAP.derived)).toBe(null)  // Verify: Ready to PR passed, PR raised is derived
+})
+
+test('a pending gate shows the question it waits on', () => {
+  expect(gateStory(AT_DESIGN, 'Design agreed')).toEqual([])
+  const story = gateStory(AT_DESIGN, 'Design agreed', { flow: SPEC, key: 'Design' })
+  expect(story.map(x => `${x.kind} ${x.text}`)).toEqual(['asked Design agreed?'])
+})
+
+test('the reading list: the refs given with the question, then the stage docs not among them', () => {
+  expect(reviewLinks(AT_DESIGN, 'Design')).toEqual([
+    '[design.html](file:///C:/ws/docs/spec/92012-US-author/visuals/design.html)',
+    '[design.md](file:///C:/ws/docs/spec/92012-US-author/design.md)',
+    '[A.cs:43-82](file:///C:/ws/.claude/worktrees/92012-author/src/Repo/A.cs#L43)',
+    '[questions.md](file:///C:/ws/docs/spec/92012-US-author/questions.md)',
+  ])
+  expect(reviewLinks({ ...AT_DESIGN, progress: { ...AT_DESIGN.progress!, status: 'active' } }, 'Design'))
+    .toEqual(['[design.md](file:///C:/ws/docs/spec/92012-US-author/design.md)', '[questions.md](file:///C:/ws/docs/spec/92012-US-author/questions.md)'])
+})
+
+test('answers read as the chat dialog gives them', () => {
+  const qs = [
+    { question: 'Design agreed?', header: 'Design gate', options: [{ label: 'Approve' }, { label: 'Needs changes' }] },
+    { question: 'Which tests?', multiSelect: true, options: [{ label: 'Unit' }, { label: 'Integration' }] },
+  ]
+  expect(answersFor(qs, { 'Design agreed?': ['Approve'] }, '')).toBe(null)
+  expect(answersFor(qs, { 'Design agreed?': ['Approve'], 'Which tests?': ['Unit', 'Integration'] }, ''))
+    .toEqual({ 'Design agreed?': 'Approve', 'Which tests?': 'Unit, Integration' })
+  expect(answersFor(qs, { 'Design agreed?': ['Approve'] }, ' only smoke ')).toEqual({ 'Design agreed?': 'Approve', 'Which tests?': 'only smoke' })
+  expect(answersFor(qs, { 'Design agreed?': ['Gone'] }, '')).toBe(null)
+  expect(answerMessage(92012, 'Design', qs, { 'Design agreed?': 'Approve', 'Which tests?': 'Unit' }))
+    .toBe('sdd answer for 92012, stage Design: "Design agreed?" = "Approve"; "Which tests?" = "Unit"')
 })

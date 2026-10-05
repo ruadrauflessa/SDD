@@ -1,6 +1,6 @@
 ---
 name: sdd
-description: 'Entry point for the spec-driven development workflows on Azure DevOps work items in a multi-repo workspace. `/sdd help` gives a quick tour; `/sdd init` checks and (per item, with permission) installs or configures everything the workflows need, including the workspace CLAUDE.md block. `/sdd <id>` reads the work item type and routes Bug/Issue to the bug flow and story/tech story/change request/feature/epic to the spec flow; `/sdd bug <id>`, `/sdd spec <id>`, `/sdd sync [<id>|all]`, `/sdd impact <id>` (or `/sdd impact all` for the whole spec, after a token-cost warning), `/sdd status <id>` reports where an item stands (so work started in one chat can resume in another), `/sdd done <id>` cleans up, `/sdd abandon <id>` stops an item, and `/sdd <id> feedback <stage>: <text>` (or the sdd view''s message "sdd feedback for <id>, stage <stage>: <text>") sends an item back to a stage with the user''s feedback — each refuses and explains when the item''s state does not allow it. Use whenever the user types /sdd or asks to "sdd" a work item.'
+description: 'Entry point for the spec-driven development workflows on Azure DevOps work items in a multi-repo workspace. `/sdd help` gives a quick tour; `/sdd init` checks and (per item, with permission) installs or configures everything the workflows need, including the workspace CLAUDE.md block. `/sdd <id>` reads the work item type and routes Bug/Issue to the bug flow and story/tech story/change request/feature/epic to the spec flow; `/sdd bug <id>`, `/sdd spec <id>`, `/sdd sync [<id>|all]`, `/sdd impact <id>` (or `/sdd impact all` for the whole spec, after a token-cost warning), `/sdd status <id>` reports where an item stands (so work started in one chat can resume in another), `/sdd done <id>` cleans up, `/sdd abandon <id>` stops an item, and `/sdd <id> feedback <stage>: <text>` (or the sdd view''s message "sdd feedback for <id>, stage <stage>: <text>") sends an item back to a stage with the user''s feedback, and the view''s "sdd answer for <id>, stage <stage>: …" is the user''s answer to a gate question — each refuses and explains when the item''s state does not allow it. Use whenever the user types /sdd or asks to "sdd" a work item.'
 ---
 
 # /sdd — one entry point for every sdd workflow
@@ -20,6 +20,7 @@ description: 'Entry point for the spec-driven development workflows on Azure Dev
 | `/sdd abandon <id>` | the item's flow skill | Stop the item and clean up what the flow created — refuses and explains if it cannot |
 | `/sdd <id> feedback <stage>: <text>` | this skill, then the item's flow skill | Back to a done or waiting stage with the user's feedback; its gates and later ones are revoked |
 | `sdd review for <id>: approved` / `merged` / `rejected: <why>` | the item's flow skill | The PR's review result, from the sdd view's review buttons |
+| `sdd answer for <id>, stage <stage>: "<question>" = "<answer>"` | the item's flow skill | The user's answer to your gate question, from the sdd view |
 
 Scripts are in `${CLAUDE_PLUGIN_ROOT}/scripts/`; `${CLAUDE_PLUGIN_ROOT}/skills/workspace/SKILL.md` documents them.
 
@@ -187,6 +188,16 @@ Posted as the user's own message by the review buttons of the sdd view. It is th
 the PR review gate — spec flow `Review`, bug flow `Phase 13`. Hand over to the item's flow skill
 (`progress.flow`) with that answer: `sdd:spec` "Mode: Review", or `sdd:bug` "Phase 13 — PR review".
 The view only sends it while the item waits at that stage.
+
+## `sdd answer for <id>, stage <stage>: "<question>" = "<answer>"; …` — an answer from the view
+
+Posted as the user's own message by the sdd view when the user answers your gate question there
+after the chat's question dialog closed (the view answers an open dialog directly, so you get that
+answer as the AskUserQuestion result). It is the user's real answer to the question you asked at
+`<stage>`, one `"<question>" = "<answer>"` pair per question; an answer that is not one of your
+option labels is free text, as typed under "Other". Hand over to the item's flow skill
+(`progress.flow`) and treat it exactly as if the user picked it in the dialog — the gate may pass
+on it. If the item no longer waits at `<stage>`, say so in one line and ask again.
 
 ## Step 3 — an item already in progress
 
