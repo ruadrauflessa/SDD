@@ -174,6 +174,41 @@ def main():
         assert env.check_op(root, cfg, 5, "phase", None, "Phase 7")[0]
         assert not env.check_op(root, cfg, 5, "phase", None, "Phase 3")[0]         # derived Worktree missing
         assert not env.check_op(root, cfg, 5, "phase", None, "Phase 99")[0]        # unknown phase
+
+        # /sdd done after close-out: status "done" must not block the clean-up (ADO and PRs faked)
+        import argparse as _ap, contextlib, io
+        pr_state = {"status": "completed"}
+        env.pr_live = lambda cfg, r: dict(pr_state)
+        env.live_item = lambda cfg, wid: {"state": "Resolved", "board": "Dev Completed"}
+        ddir = root / ".claude/worktrees/6-closed"
+        ddir.mkdir(parents=True)
+        drec = {"id": 6, "flow": "bug", "gates": {"Claimed": "t"},
+                "repos": {"app": {"path": "app", "source": "app", "branch": "bug/6", "base": "main", "pr": {"id": 1, "url": "pr/1"}}},
+                "progress": {"flow": "bug", "phase": "Phase 11 — Write back to the work item", "status": "done"}}
+        (ddir / "workitem.json").write_text(json.dumps(drec))
+        ok, why, _ = env.check_op(root, cfg, 6, "done")
+        assert ok, why
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            env.cmd_remove(_ap.Namespace(id=6, abandon=False, yes=False))
+        assert "will remove" in out.getvalue() and ddir.name in out.getvalue() and "dry run" in out.getvalue() and ddir.is_dir(), out.getvalue()
+        assert not env.check_op(root, cfg, 6, "resume")[0]                          # resume still refused
+        assert not env.check_op(root, cfg, 6, "phase", None, "Phase 7")[0]          # phase still refused
+        assert v(None, drec, [{"pr_live": pr_state}]) == "PRs merged — run /sdd done to clean up"
+        assert v(None, drec, []) == "closed out — run /sdd done to clean up"
+        pr_state["status"] = "active"
+        ok, why, _ = env.check_op(root, cfg, 6, "done")
+        assert not ok and any("not merged yet" in w for w in why) and not any("the flow is" in w for w in why), why
+        (ddir / "workitem.json").write_text(json.dumps({**drec, "progress": {**drec["progress"], "status": "abandoned"}}))
+        pr_state["status"] = "completed"
+        ok, why, _ = env.check_op(root, cfg, 6, "done")
+        assert not ok and "the flow is abandoned" in why, why
+        # a real remove: folder gone, record kept, verdict now "completed"
+        (ddir / "workitem.json").write_text(json.dumps({**drec, "repos": {}}))
+        with contextlib.redirect_stdout(io.StringIO()):
+            env.cmd_remove(_ap.Namespace(id=6, abandon=False, yes=True))
+        kept = json.loads((env.done_dir(root, cfg) / "6.json").read_text(encoding="utf-8"))
+        assert not ddir.exists() and v(None, kept, []).startswith("completed")
         os.chdir(Path(__file__).parent)
     print("ok")
 

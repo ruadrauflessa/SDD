@@ -117,7 +117,8 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/env.py status --id <id>
 Read-only. It works whether the item was never started, is in progress, or was cleaned up (a
 record is kept in `.claude/worktrees/.done/<id>.json`). Relay the verdict first, then the rest in
 plain words. The verdict is one of: not started · in progress at <phase> · waiting on you: <gate>
-· blocked · PRs merged, run `/sdd done` · completed · abandoned. If it is waiting or in progress,
+· blocked · PRs merged, run `/sdd done` · closed out, run `/sdd done` · completed (only once the
+folder is removed) · abandoned. If it is waiting or in progress,
 end with: "Resume with `/sdd <id>`."
 
 ## State guards — never run an operation out of turn
