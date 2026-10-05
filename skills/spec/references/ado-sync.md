@@ -121,8 +121,13 @@ aggregate; it gets a warning and nothing more.
 
 ## Write path
 
-Reads may go through any MCP server. **Writes may not.** Every write asserts the revision it
-expects, via a JSON Patch test operation:
+**Reads of a work item go through the sync, not an MCP server.** `spec.py sync --id <id>` refreshes
+the local copy; `spec.py query show --id <id>` then gives `rev`, state, tags and assignee, and
+`requirements.md` gives the text. Never call `wit_work_item action=get` or `action=get_batch` for
+an item the sync covers. The one MCP read left is `action=get_type` (a type's field list).
+
+**Writes are stricter.** Every write asserts the revision it expects, via a JSON
+Patch test operation:
 
 ```json
 [
@@ -137,8 +142,8 @@ item independently.
 
 Stock ADO MCP servers do not do this — Microsoft's `azure-devops-mcp` has an open request for an
 `expectedRev` parameter that is not planned. So writes route through a thin wrapper that always
-prepends the rev test, classifies 412 as a conflict, and retries by re-reading and replaying a
-bounded number of times. A conflict that survives retry surfaces to a human: two writers
+prepends the rev test, classifies 412 as a conflict, and retries by re-reading (`spec.py sync --id
+<id>`, then `spec.py query show --id <id>`) and replaying a bounded number of times. A conflict that survives retry surfaces to a human: two writers
 disagreeing about acceptance criteria is not a merge problem. `pm-ado` is working prior art for
 this shape and is worth reading before building it.
 
@@ -157,9 +162,9 @@ rev-tested patch above.
 | Assigned To | `System.AssignedTo` | identity | Write the email; resolve ambiguous names with `core_get_identity_ids`. |
 | Board Column Title | `Custom.BoardColumnTitle` | picklist | The team's real workflow position. **Not the same field as `System.BoardColumn`** — that's a standard, board-managed field that looks similar but is unrelated; it mirrors board state and is never written by this skill. Confirmed on this project's process; write `Custom.BoardColumnTitle`. |
 | Status | `System.State` | state | Always written in the same call as `Custom.BoardColumnTitle` — the two move together, never one without the other. |
-| Tags | `System.Tags` | string | A PATCH replaces the whole field. Read the current value first, append the new tag, write the full semicolon-separated string back — never a bare `add` with just the new tag. |
+| Tags | `System.Tags` | string | A PATCH replaces the whole field. Read the current value first (`spec.py query show --id <id>`, after a sync), append the new tag, write the full semicolon-separated string back — never a bare `add` with just the new tag. |
 
-**Specify, before anything else is read:** `Custom.BoardColumnTitle` and `System.State` move
+**Specify, right after the sync and before the requirement is read:** `Custom.BoardColumnTitle` and `System.State` move
 together — `Dev In Progress` pairs with `Active`, the same pairing Verify writes at close-out
 (`Dev Completed` with `Resolved`). Setting one without the other leaves the two signals
 disagreeing about whether work has actually started.

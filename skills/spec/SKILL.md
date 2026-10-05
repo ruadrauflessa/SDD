@@ -1,6 +1,6 @@
 ---
 name: spec
-description: Spec flow of the /sdd workflow — invoked by the `sdd` skill for `/sdd spec <id>` or `/sdd <id>` on a story, tech story, change request, feature or epic. Claims the work item, mirrors it and its tree into `{specRoot}` with `spec.py sync`, raises gaps in `questions.md` and blast-radius gaps via `sdd:impact`, then designs against real code in the work item's own worktree folder (`env.py new`, graphify graph), proposes tech stories, decomposes into tasks, implements one task at a time, verifies with a drift and overlap check, raises the PR with `env.py pr`, and closes out the ADO fields and the folder once merged — every decision behind an approval gate. Do not trigger on general spec/ADO requests while the older claude-sdd skill exists; only via /sdd.
+description: Spec flow of the /sdd workflow — invoked by the `sdd` skill for `/sdd spec <id>` or `/sdd <id>` on a story, tech story, change request, feature or epic. Mirrors the work item and its tree into `{specRoot}` with `spec.py sync`, claims it, reads it only from that local mirror (never `wit_work_item` get; a refresh goes through the sync), raises gaps in `questions.md` and blast-radius gaps via `sdd:impact`, then designs against real code in the work item's own worktree folder (`env.py new`, graphify graph), proposes tech stories, decomposes into tasks, implements one task at a time, verifies with a drift and overlap check, raises the PR with `env.py pr`, and closes out the ADO fields and the folder once merged — every decision behind an approval gate. Do not trigger on general spec/ADO requests while the older claude-sdd skill exists; only via /sdd.
 ---
 
 # sdd:spec — spec flow of /sdd
@@ -38,9 +38,10 @@ full command table. This file calls them `env.py` and `spec.py`, short for
 5. **The spec drifts like code.** Close it fast: a spec open three days carries almost no
    interaction risk; one open six weeks carries it regardless of tooling.
 6. **Claim before you touch anything.** Assign the work item to yourself, move its board column
-   to `Dev In Progress`, and move its status to `Active` — all three, before reading past the
-   title — otherwise two people can start the same item unnoticed. Detail in
-   `references/ado-sync.md`.
+   to `Dev In Progress`, and move its status to `Active` — all three, before you read the
+   requirement — otherwise two people can start the same item unnoticed. The claim takes its
+   `rev` from the sync (ground rule 13), so the sync runs first and the claim comes right after it.
+   Detail in `references/ado-sync.md`.
 7. **The main checkout is never edited.** Every change to a repo's tracked files — code, tests,
    anything under `projects/*/` — happens inside `src\{Repo}` of the work item's folder,
    `<workspace>\.claude\worktrees\{id}-{slug}\`, and that folder is removed only once its PRs
@@ -65,6 +66,13 @@ full command table. This file calls them `env.py` and `spec.py`, short for
 12. **Always present a PR as a clickable link to it on ADO — never a bare PR number.** Whenever
     a PR is mentioned to the user (just opened, at a gate, in a report), give the full ADO URL as
     a markdown link. URL shape in `references/branching.md`.
+13. **Read the work item from the local mirror, never from ADO.** `spec.py sync` already gives a
+    local copy: the text is in `requirements.md`, and `rev`, state, tags and assignee are in the
+    index (`spec.py query show --id <id>`). Never call `wit_work_item` with `action=get` or
+    `action=get_batch` for the item, its parents or its links. When the local copy can be stale
+    (before a write, after a 412 conflict, on resume), refresh it through the sync —
+    `spec.py sync --id <id>`, the same script `/sdd:sync` runs — then read it again. The only ADO
+    read left is `action=get_type`, for a type's field list, not the item.
 
 ## Abandon — the user can call this off at any point
 
@@ -298,14 +306,15 @@ the user why and stop. Otherwise:
 
 ### Mode: Specify
 
-1. **Claim the work item first, before anything else.** Assign it to yourself
-   (`System.AssignedTo`), set the board column (`Custom.BoardColumnTitle`) to
-   `Dev In Progress`, and set the status (`System.State`) to `Active`. This happens before the
-   work item text is even read — see `references/ado-sync.md` for the field names and the
-   write path.
-2. **Mirror it:** `spec.py sync --id <id>`. It pulls the item, everything under it, its parents
+1. **Mirror it:** `spec.py sync --id <id>`. It pulls the item, everything under it, its parents
    and one hop of links out of that tree, and writes each `requirements.md` into place under
    `{specRoot}`. Never write or edit `requirements.md` yourself — the next sync overwrites it.
+   Don't read the requirement yet.
+2. **Claim the work item, before you read it.** Take `rev` from `spec.py query show --id <id>`
+   — no `wit_work_item` get (ground rule 13). Assign it to yourself (`System.AssignedTo`), set
+   the board column (`Custom.BoardColumnTitle`) to `Dev In Progress`, and set the status
+   (`System.State`) to `Active`, in one rev-tested write. See `references/ado-sync.md` for the
+   field names and the write path.
 3. **Read the mirrored file** — resolve it by glob, `{specRoot}/**/<id>-*/requirements.md` — and
    its parent's. Put every gap and open question in `questions.md` next to it, never in
    `requirements.md`.
@@ -426,8 +435,9 @@ The PR is open and waits on its reviewers. The user answers in the chat, or with
 3. **"Approved" or "Merged"** — `env.py progress --id <id> --flow spec --phase Review --status done
    --passed "PR approved"`. Then set `Custom.BoardColumnTitle` to `Dev Completed`, move
    `System.State` to `Resolved`, and tag the work item with the version segment the branch carries
-   (the `team/{version}` it was branched from). Field names and the write path in
-   `references/ado-sync.md`.
+   (the `team/{version}` it was branched from). Get the current `rev` and tags with
+   `spec.py sync --id <id>`, then `spec.py query show --id <id>` — not from ADO (ground rule 13).
+   Field names and the write path in `references/ado-sync.md`.
 4. **"Merged" only** — `env.py remove --id <id>` (dry run, shown to the user), then `--yes`, then
    archive this session: `mcp__ccd_session_mgmt__archive_session`, `session_id: "self"`, `reason`
    naming the merged PR. This is cleanup, done together, no separate question — the "Merged" answer
