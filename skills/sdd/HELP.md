@@ -34,6 +34,12 @@ make the decisions.
 **Help**
 - `/sdd help` — this page.
 
+**Update sdd**
+Get the newest version from a chat. Type each line with a `!` in front, so it runs as a shell command:
+1. `!claude plugin marketplace update sdd` — pulls the newest marketplace list.
+2. `!claude plugin update sdd@sdd` — updates the plugin.
+3. Run `/reload-plugins`, or start a new chat, so the new version loads.
+
 ## Where things live
 
 Work item folder: `.claude/worktrees/<id>-<slug>/`
