@@ -11,20 +11,21 @@ Verified against project `Spesnet.Lumina` (org `EvolveMedical`) on 2026-08-17.
 **Mirror it first.** `python <plugin root>/scripts/spec.py sync --id <id>` writes the
 item, its tree, its parents and one hop of links to `{specRoot}/**/{id}-{TYPE}-{slug}/requirements.md`
 (`specRoot` is in `<workspace>/.claude/sdd.json`; Lumina uses `documents/spec`). Read the
-requirement there. `spec.py impact --id <bug id>` finds likely governing items nobody linked. The
-mechanics below still apply — use them to check the mirror, and as the fallback when the sync
-cannot run.
+requirement there. `spec.py impact --id <bug id>` finds likely governing items nobody linked.
+**Never read these items with `wit_work_item` get or get_batch.** The sync is the only read path;
+when it cannot run, stop and ask the user to fix it with `/sdd init`.
 
-`expand=Relations` on the work item returns a `relations` array. Two link types carry requirements in
-this project — both are in active use, so check for both:
+The `## Links` list in `requirements.md` (and `spec.py query links --id <id>`) holds the item's
+links. Two link types carry requirements in this project — both are in active use, so check for both:
 
-| `rel` | Meaning |
+| Link | Meaning |
 | --- | --- |
 | `System.LinkTypes.Hierarchy-Reverse` | **Parent** — the bug sits under a Story/Feature |
 | `System.LinkTypes.Related` | **Related** — a sibling Story, CR, or another defect |
 
-`AttachedFile` relations are screenshots, not requirements. A work item with only `AttachedFile`
-entries has **no linked requirement** — a common and legitimate state.
+`AttachedFile` relations are screenshots, not requirements. The mirror counts them under "Not
+specs, counted only". A work item with only those has **no linked requirement** — a common and
+legitimate state.
 
 Follow parents upward: `Bug` → `User Story` → `Feature` → `Epic`. To sweep for links across many
 items at once:
@@ -46,12 +47,8 @@ Results are `workItemRelations`, where entries with `rel: null` are the source i
 | **Change Request** | `System.Description` (HTML) | Overview → Business Objective → numbered **Functional Requirements**. **No AcceptanceCriteria field.** |
 | **Feature** | — | Title only in practice. Don't expect a spec; go to the Story or CR. |
 
-Fetch acceptance criteria explicitly — it is not in the default field set:
-
-```
-wit_work_item action=get_batch ids=[<story ids>] project=<the ADO project that owns this repo>
-  fields=["System.WorkItemType","System.State","System.Title","Microsoft.VSTS.Common.AcceptanceCriteria"]
-```
+The sync mirrors the acceptance criteria into the story's `requirements.md`, under
+`## Acceptance criteria`. Read them there — no ADO call.
 
 ## ⚠ Struck-through criteria are withdrawn
 
@@ -67,8 +64,10 @@ example from User Story 60184 (*Chat Management – Archived Screen Option*):
 
 Flatten that HTML and it reads as an active requirement. A bug reporting "empty threads appear in the
 Archive section" is then reported against a criterion the team **deliberately removed** — verdict
-**Withdrawn**, not a defect. Read the raw HTML and look for `<strike>`, `<s>`, and `text-decoration:
-line-through` before treating any criterion as binding.
+**Withdrawn**, not a defect. With pandoc installed, the sync keeps struck text as `~~…~~` in
+`requirements.md`. Look for `~~` before treating any criterion as binding. Without pandoc the sync
+strips the tags: ask the user to install pandoc and run `/sdd sync <id>` again. Never read the raw
+field from ADO instead.
 
 ## The verdicts, with real cases
 

@@ -2,7 +2,8 @@
 name: bug
 description: >-
   Bug/Issue flow of the /sdd workflow — invoked by the `sdd` skill for `/sdd bug <id>` or `/sdd <id>`
-  on a Bug or Issue. Pulls the Azure DevOps work item and claims it first, asks which team version to
+  on a Bug or Issue. Mirrors the Azure DevOps work item with `spec.py sync` (the flow reads it only from
+  that local copy, never with `wit_work_item` get) and claims it first, asks which team version to
   base on, then creates the work item's folder with `scripts/env.py new` (a git
   worktree per repo plus a code graph) so every check runs against the real code, validates the bug
   against the linked User Story or Change Request mirrored by `spec.py sync` (a bug that contradicts
@@ -274,18 +275,28 @@ workspace root `CLAUDE.md`. A previous run records the durable, expensive-to-der
 test projects per repo, the run-stack script, which ADO project owns which repo. Treat it as a
 **starting point, not a truth**: anything cheap to check, check anyway. Phase 12 writes it back.
 
-Then fetch the work item, before assuming anything about it:
+Then mirror the work item, before assuming anything about it:
 
-```
-wit_work_item action=get id=<id> project=<the ADO project that owns this repo> expand=Relations
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/spec.py sync --id <id>
+python ${CLAUDE_PLUGIN_ROOT}/scripts/spec.py query show --id <id>
 ```
 
-Record: `System.WorkItemType` (**Bug** vs **Issue** changes the write-back obligation),
-`System.State`, `System.AssignedTo`, `System.Title`, `System.Description`,
-`Microsoft.VSTS.TCM.ReproSteps`, `Microsoft.VSTS.Common.Severity`, `System.Tags`,
-`System.AreaPath`, `System.IterationPath`, and the `relations` array. Also
-`wit_work_item action=list_comments` — repro detail and environment traces usually live in the
-comments, not the description.
+The sync writes the item, its parents and one hop of links to
+`{specRoot}/**/{id}-{TYPE}-{slug}/requirements.md`. **Read the work item only from that local copy.
+Never call `wit_work_item` with `action=get` or `action=get_batch`** for the bug or for any item the
+sync pulled. When the copy can be stale (on resume, before a write that needs the current value),
+refresh it with the same sync — the script `/sdd:sync` runs — and read it again. The sync can't run
+(no `az login`, no `.claude/sdd.json`)? Stop and tell the user to fix that with `/sdd init`. Don't
+fall back to an ADO read.
+
+Record from `query show`: `type` (**Bug** vs **Issue** changes the write-back obligation), `state`,
+`assigned` (an empty value means unassigned), `title`, `tags`, `area`, `iteration`. From
+`requirements.md`: the Description, the Repro steps and the `## Links` list. Also
+`wit_work_item action=list_comments` — the sync does not mirror comments, and repro detail and
+environment traces usually live there. Severity is not in the mirror; the flow never changes it.
+The only other ADO reads left are `get_type` (a type's field list) and searches for items that are
+not linked yet.
 
 **Repos do not all live in the same ADO project.** Confirm which project owns the repo you are
 fixing, and pass that `project` on every call.
@@ -307,8 +318,8 @@ still gets claimed: you looked at it, you are the one who decided that, so the b
 Do this claiming pass for the whole batch before Phase 1, not as an afterthought once the fix for
 one of them is already pushed.
 
-Decide from `System.AssignedTo`. **An unassigned item omits the field entirely** — it is absent from
-the response, not an empty string, so test for *absence* rather than for a blank value.
+Decide from `assigned` in `spec.py query show --id <id>`. **An unassigned item has an empty
+`assigned`** — ADO omits the field, and the index stores it as an empty string.
 
 | `System.AssignedTo` | Action |
 | --- | --- |
@@ -359,12 +370,12 @@ how a stale reproduction or a since-fixed line gets reported as still-broken.
 
 This is not a violation of "no code changes before approval" (non-negotiable 3). Creating a worktree
 touches nothing in the main checkout and commits nothing; it is a read-only vantage point for
-Phases 2–4, exactly like fetching the work item was in Phase 0. The first *edit*, test, or commit
+Phases 2–4, exactly like mirroring the work item was in Phase 0. The first *edit*, test, or commit
 still waits for Phase 5.
 
 ### Identify the repo(s) to start from
 
-Use whatever Phase 0 already gave you — `System.AreaPath`, the title, a repo named outright in the
+Use whatever Phase 0 already gave you — the `area`, the title, a repo named outright in the
 description, or a similar prior ticket. Say which repo(s) you're starting from and why.
 
 **A symptom can live one repo over from where it shows** — Phase 3 (Reproduce and locate) may turn
@@ -448,10 +459,10 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/spec.py impact --id <bug id>     # optional
 `{specRoot}/**/{id}-{TYPE}-{slug}/requirements.md` (`specRoot` comes from `<workspace>/.claude/sdd.json`;
 in Lumina it is `documents/spec`). Read the requirement from that file. `impact` lists items that
 link to the bug, share its key terms, or are close in meaning — a quick way to find a governing
-story nobody linked. If the sync is not possible (no `az login`, no `sdd.json`), fall back to reading
-the items from ADO as below.
+story nobody linked. If the sync is not possible (no `az login`, no `sdd.json`), stop and ask the
+user to fix it with `/sdd init` — never read the items from ADO instead.
 
-Walk the `relations` from Phase 0 for linked requirements — `System.LinkTypes.Hierarchy-Reverse`
+Walk the `## Links` list in the bug's `requirements.md` for linked requirements — `System.LinkTypes.Hierarchy-Reverse`
 (parent) and `System.LinkTypes.Related` are both in use here. Follow parents up the tree; the spec
 usually lives on a **User Story** (`Microsoft.VSTS.Common.AcceptanceCriteria`, Given/When/Then) or a
 **Change Request** (`System.Description`, numbered Functional Requirements). Features in this project
@@ -477,8 +488,9 @@ by a code change. Never resolve one by quietly picking whichever the ticket happ
 **Struck-through acceptance criteria mean withdrawn.** Real stories here carry `<strike>` around
 descoped criteria. Naïvely stripping HTML erases that and turns a withdrawn requirement into an
 active one — read the raw HTML, not a flattened version. The `spec.py` mirror keeps them as `~~…~~`
-only when pandoc is installed; without it the sync strips tags. So when a criterion looks odd, or
-the mirror has no `~~` where you expect one, check the raw field in ADO.
+only when pandoc is installed; without it the sync strips tags. So the strike check needs pandoc.
+Not installed (`env.py doctor` says so)? Ask the user to install it, then run `/sdd sync <id>`
+again. Never read the raw field from ADO instead.
 
 Mechanics, field-by-type mapping, and worked examples of each verdict are in
 `references/requirement-alignment.md`.
