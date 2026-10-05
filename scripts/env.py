@@ -884,7 +884,9 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
     repos = []
     for n, r in data["repos"].items():
         pth = env_dir / r["path"]
-        exists = pth.exists()
+        # a folder with no .git is what a half-failed remove leaves; git run there would read the
+        # workspace root repo instead, so treat it as already removed
+        exists = (pth / ".git").exists()
         repos.append((n, r, pth, exists,
                       exists and bool(git(["status", "--porcelain"], pth, check=False)),
                       git(["rev-list", "--count", f"origin/{r['base']}..HEAD"], pth, check=False) if exists else "0"))
