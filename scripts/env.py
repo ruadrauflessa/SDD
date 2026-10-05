@@ -13,7 +13,7 @@ Commands (run from anywhere inside the workspace):
     new    --id N --repos A,B --version 1.1.0 [--base Repo=branch] [--no-graph]
                                              create the folder, or add repos to it
     status --id N [--json]                   ADO state, recorded progress, spec files and tasks, repos, live PRs
-    progress --id N --flow bug|spec --phase P --status active|waiting|blocked|done|abandoned
+    progress --id N --flow bug|spec --phase P --status active|waiting|blocked|done|skipped|abandoned
              [--gate G] [--next X] [--note T] [--passed G] [--revoke G] [--ref R ...] [--no-visual WHY]
                                              checkpoint the flow; record gates; creates the folder if needed
     graph  --id N                            rebuild graph/ from src/ (no LLM, seconds)
@@ -302,7 +302,7 @@ def env_or_die(root, cfg, wid):
     return find_env(root, cfg, wid) or die(f"no work item folder for {wid} under {wt_root(root, cfg)}")
 
 
-PROGRESS_STATUS = ("active", "waiting", "blocked", "done", "abandoned")
+PROGRESS_STATUS = ("active", "waiting", "blocked", "done", "skipped", "abandoned")
 
 
 def done_dir(root, cfg):
@@ -392,6 +392,11 @@ def cmd_refs(a):
 
 
 def cmd_progress(a):
+    if a.status == "skipped" and not (a.confirmed or "").strip():
+        die("a skipped stage needs --confirmed \"<the user's words>\": ask the user first, and record the skip "
+            "only after they said yes")
+    if a.status == "skipped" and a.passed:
+        die("a skipped stage passes no gates: drop --passed")
     if a.status == "waiting" and not a.ref:
         die("a waiting gate needs at least one --ref (a spec file, code path[:line], or `ado`): "
             "the user must see what they are deciding on")
@@ -402,13 +407,25 @@ def cmd_progress(a):
     """Checkpoint for the flows: where the work stands, so another session can resume it."""
     root = require_root()
     cfg = load_config(root)
+    key = phase_key(a.flow, a.phase)
+    if key is None:
+        die(f"unknown {a.flow} stage '{a.phase}'. Stages: {', '.join(stage_keys(a.flow))}")
     env_dir, data = ensure_env(root, cfg, a.id)
+    if a.status != "abandoned":
+        missed = unaccounted(a.flow, data, key)
+        if missed:
+            die(f"{key} cannot start: {', '.join(missed)} {'was' if len(missed) == 1 else 'were'} never worked "
+                "and never skipped.\nDo that stage first. To skip it, ask the user; only after their yes record "
+                "it with: progress --phase \"<stage>\" --status skipped --confirmed \"<the user's words>\"")
     if a.ref:
         _, _, bad = build_refs(root, cfg, a.id, a.ref)
         if bad:
             die("\n".join(bad) + "\nFix the refs before recording the gate.")
     entry = {"at": now(), "flow": a.flow, "phase": a.phase, "status": a.status,
              "gate": a.gate or "", "next": a.next or "", "note": a.note or "", "refs": a.ref}
+    if a.status == "skipped":
+        entry["confirmed"] = a.confirmed.strip()
+    data["stages"] = mark_stage(a.flow, data, key, entry)
     gates = data.setdefault("gates", {})
     for g in a.passed:
         gates[g] = entry["at"]
@@ -571,6 +588,7 @@ def view_item(root, cfg, data, env_dir, full):
     if full:
         out["history"] = data.get("history") or []
     flow = (data.get("progress") or {}).get("flow") or data.get("flow")
+    out["stages"] = stage_record(flow, data) if flow in FLOWS["flows"] else {}
     out["feedback"] = {}  # stage -> gates a reopen there revokes; only stages that take feedback now
     for s in FLOWS["flows"].get(flow, {}).get("stages", []) if env_dir else []:
         ok, _, revoke = reopen_plan(data, s["key"])
@@ -714,6 +732,57 @@ def phase_key(flow, phase):
     return None
 
 
+def stage_keys(flow):
+    return [s["key"] for s in FLOWS["flows"].get(flow, {}).get("stages", [])]
+
+
+def stage_record(flow, data):
+    """key -> {"at", "status": worked|done|skipped[, "confirmed"]} for each stage the item went through.
+    Kept in workitem.json "stages". An item from before that field falls back to its history: a stage
+    with any row counts as done, the current one as worked."""
+    if (data or {}).get("stages") is not None:
+        return dict(data["stages"])
+    rec, cur = {}, phase_key(flow, ((data or {}).get("progress") or {}).get("phase"))
+    for h in (data or {}).get("history") or []:
+        k = phase_key(flow, h.get("phase"))
+        if k and k not in rec:
+            rec[k] = {"at": h["at"], "status": "done"}
+    if cur in rec and ((data or {}).get("progress") or {}).get("status") != "done":
+        rec[cur]["status"] = "worked"
+    return rec
+
+
+def unaccounted(flow, data, key):
+    """The stages before `key` that were never worked and never skipped with the user's yes."""
+    keys, rec = stage_keys(flow), stage_record(flow, data)
+    return [k for k in keys[:keys.index(key)] if k not in rec]
+
+
+def unfinished(flow, data):
+    """The stages that are not done and not skipped: what still blocks the flow from being finished."""
+    rec = stage_record(flow, data)
+    return [k for k in stage_keys(flow) if (rec.get(k) or {}).get("status") not in ("done", "skipped")]
+
+
+def mark_stage(flow, data, key, entry):
+    """The stage record after `entry` for stage `key`: the stages before it are finished (moving on
+    finishes a worked stage), the stages after it are cleared (going back means they are redone)."""
+    keys, rec = stage_keys(flow), stage_record(flow, data)
+    i = keys.index(key)
+    for k in keys[:i]:
+        if rec.get(k, {}).get("status") == "worked":
+            rec[k] = {**rec[k], "status": "done"}
+    for k in keys[i + 1:]:
+        rec.pop(k, None)
+    if entry["status"] == "skipped":
+        rec[key] = {"at": entry["at"], "status": "skipped", "confirmed": entry["confirmed"]}
+    elif entry["status"] == "done":
+        rec[key] = {"at": rec.get(key, {}).get("at", entry["at"]), "status": "done", "doneAt": entry["at"]}
+    elif entry["status"] != "abandoned":
+        rec[key] = {"at": rec.get(key, {}).get("at", entry["at"]), "status": "worked"}
+    return rec
+
+
 def gates_met(root, cfg, wid, data, env_dir):
     met = set((data or {}).get("gates") or {})
     repos = (data or {}).get("repos") or {}
@@ -805,6 +874,8 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
             return False, [f"unknown {flow} phase '{phase}'"], []
         if status in ("done", "abandoned"):
             return False, [f"the flow is {status}"], []
+        reasons += [f"{k} was never worked and never skipped — do it first, or ask the user to skip it"
+                    for k in unaccounted(flow, data, key)]
         missing = [g for g in PHASE_NEEDS.get(flow, {}).get(key, []) if g not in met]
         reasons += [f"{key} needs '{g}' first — " + ("not true on disk yet" if g in DERIVED else "not recorded as passed")
                     for g in missing]
@@ -844,7 +915,12 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
                 reasons.append(f"{n}: uncommitted changes in {pth}; commit them (or stash) first")
         return not reasons, reasons, notes
 
-    # op == "done": every repo merged AND the flow's close-out written to ADO
+    # op == "done": every stage done or skipped by the user, every repo merged, the close-out in ADO
+    flow = prog.get("flow") or data.get("flow")
+    left = [k for k in unfinished(flow, data) if not (k == phase_key(flow, cur_phase) and status == "done")]
+    if left:
+        reasons.append(f"not every stage is done: {', '.join(left)}. Do them (resume with /sdd {wid}), or ask "
+                       "the user to skip each one and record it with --status skipped --confirmed")
     for n, r, pth, exists, dirty, ahead in repos:
         if dirty:
             reasons.append(f"{n}: uncommitted changes in {pth}")
@@ -908,6 +984,7 @@ def cmd_reopen(a):
              "gates": {"passed": [], "revoked": revoke}}
     for g in revoke:
         data["gates"].pop(g, None)
+    data["stages"] = mark_stage(flow, data, key, entry)
     data["progress"] = entry
     data["history"] = (data.get("history") or [])[-49:] + [entry]
     write_env(env_dir, data)
@@ -983,6 +1060,7 @@ def main():
     s.add_argument("--note", help="anything the next session must know: task 3/7, blocker, decision")
     s.add_argument("--ref", action="append", default=[], help="spec file or code path[:line[-end]] the user decides on; required with --status waiting")
     s.add_argument("--no-visual", metavar="WHY", help="a waiting gate with nothing to explain (plain choice); otherwise an .html sdd:visual ref is required")
+    s.add_argument("--confirmed", metavar="WORDS", help="with --status skipped: the user's own words agreeing to skip this stage")
     s.add_argument("--passed", action="append", default=[], help="gate the user just approved, repeatable")
     s.add_argument("--revoke", action="append", default=[], help="gate no longer valid (e.g. spec changed), repeatable")
     s = sp.add_parser("pr")

@@ -1,6 +1,6 @@
 // The sdd view's contract: the snapshot `env.py view --json` prints, and the values the view keeps.
 
-export type SddStatus = 'active' | 'waiting' | 'blocked' | 'done' | 'abandoned'
+export type SddStatus = 'active' | 'waiting' | 'blocked' | 'done' | 'skipped' | 'abandoned'
 
 export type SddProgress = {
   at: string
@@ -11,6 +11,8 @@ export type SddProgress = {
   next?: string
   note?: string
   refs?: string[]
+  /** With status skipped: the user's own words agreeing to the skip. */
+  confirmed?: string
   gates?: { passed: string[]; revoked: string[] }
 }
 
@@ -41,9 +43,13 @@ export type SddItem = {
   met: string[]
   url: string | null
   history?: SddProgress[]
+  /** What happened to each stage the item went through (env.py stage_record). A stage not in it was never worked. */
+  stages?: Record<string, SddStageRecord>
   /** Stages that take feedback now, each with the gates a reopen there revokes (env.py reopen_plan). */
   feedback?: Record<string, string[]>
 }
+
+export type SddStageRecord = { at: string; status: 'worked' | 'done' | 'skipped'; confirmed?: string; doneAt?: string }
 
 export type SddStage = { key: string; label: string; needs: string[]; passes: string[]; stop?: boolean; reworkTo?: string }
 

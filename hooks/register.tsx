@@ -6,7 +6,7 @@ import { update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { SddAsk, SddColors, SddDoc, SddItem, SddQuestion, SddSnapshot, SddStage } from '../types'
-import { answerMessage, answersFor, decidedGates, fileLinks, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, fileTarget, gateStory, phaseKey, phaseLabel, refLink, stageDocs, stageHistory, stageRows, stageSummary, statusWord, when } from './view/model'
+import { answerMessage, answersFor, decidedGates, fileLinks, flowFinished, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, fileTarget, gateStory, phaseKey, phaseLabel, refLink, stageDocs, stageHistory, stageRows, stageSummary, statusWord, when } from './view/model'
 import type { Mark } from './view/model'
 
 const PANE = 'sdd-view'
@@ -46,9 +46,9 @@ function lighten(color: string | undefined): string | undefined {
 }
 
 function markColor(m: Mark): string | undefined {
-  return { done: C.done, active: C.work, waiting: C.now, blocked: C.revoked, abandoned: C.dim, next: C.work, later: undefined }[m]
+  return { done: C.done, skipped: C.dim, missed: C.revoked, active: C.work, waiting: C.now, blocked: C.revoked, abandoned: C.dim, next: C.work, later: undefined }[m]
 }
-const GLYPH: Record<Mark, string> = { done: '✓', active: '●', waiting: '●', blocked: '✕', abandoned: '–', next: '○', later: '·' }
+const GLYPH: Record<Mark, string> = { done: '✓', skipped: '↷', missed: '!', active: '●', waiting: '●', blocked: '✕', abandoned: '–', next: '○', later: '·' }
 
 function stageName(st: SddStage): string {
   return st.key === st.label ? st.label : `${st.key.replace('Phase ', '')}  ${st.label}`
@@ -348,7 +348,7 @@ export const register: Register = on => {
     const open = (await $.state.get(stage)).value ?? null        // 'stage:Design'
     const shown = (await $.state.get(doc)).value ?? null
     const typing = (await $.state.get(feedback)).value ?? null   // the stage whose feedback box is open
-    const isDone = p?.status === 'done' || p?.status === 'abandoned' || !!item.removed
+    const isDone = p?.status === 'abandoned' || !!item.removed || (p?.status === 'done' && !!flow && flowFinished(flow, item))
     const isWaiting = p?.status === 'waiting'
     const pend = flow ? pendingGate(flow, item, s.derived) : null
     const waitKey = flow && isWaiting ? phaseKey(flow, p?.phase) : null
@@ -404,6 +404,12 @@ export const register: Register = on => {
             {isDone ? `This item is ${p.status}${item.removed ? ` since ${when(item.removed)}` : ''}.` : `Now: ${phaseLabel(flow, item)}, ${statusWord(item)}.`}
           </Text>
         )}
+        {flow && (() => {
+          const missed = stageRows(flow, item).filter(r => r.mark === 'missed').map(r => stageName(r.stage))
+          return missed.length > 0 && (
+            <Text color={C.revoked} wrap="wrap">{`Never worked and not skipped by you: ${missed.join(', ')}.`}</Text>
+          )
+        })()}
 
         {flow && (
           <Box flexDirection="column" gap={1}>
@@ -545,12 +551,12 @@ export const register: Register = on => {
     function drawLog(key: string, mark: Mark) {
       const hist = [...stageHistory(flow!, item!, key)].reverse()
       const word = (h: (typeof hist)[number]) => h.status === 'waiting' ? 'Asked' : h.status === 'done' ? 'Done'
-        : h.status === 'blocked' ? 'Blocked' : h.status === 'abandoned' ? 'Abandoned' : 'Note'
+        : h.status === 'skipped' ? 'Skipped' : h.status === 'blocked' ? 'Blocked' : h.status === 'abandoned' ? 'Abandoned' : 'Note'
       return (
         <Box flexDirection="column" marginLeft={3} paddingLeft={1} borderStyle="single" borderColor={C.line}>
-          {hist.length === 0 && <Text dimColor>{mark === 'later' || mark === 'next' ? 'Not started yet.' : 'No log entries for this stage.'}</Text>}
+          {hist.length === 0 && <Text dimColor>{mark === 'later' || mark === 'next' ? 'Not started yet.' : mark === 'missed' ? 'Never worked, and you did not agree to skip it.' : 'No log entries for this stage.'}</Text>}
           {hist.map(h => entryRow(h.at, word(h), h.status === 'waiting' ? C.now : h.status === 'blocked' ? C.revoked : undefined,
-            [h.gate, h.note, h.gates?.passed?.length ? `Passed: ${h.gates.passed.join(', ')}.` : '',
+            [h.gate, h.confirmed ? `You said: "${h.confirmed}"` : '', h.note, h.gates?.passed?.length ? `Passed: ${h.gates.passed.join(', ')}.` : '',
               h.gates?.revoked?.length ? `Revoked: ${h.gates.revoked.join(', ')}.` : ''].filter(Boolean).join(' '),
             h.refs ?? []))}
         </Box>

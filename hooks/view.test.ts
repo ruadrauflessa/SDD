@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { SddItem, SddSnapshot } from '../types'
-import { answerMessage, answersFor, fileLinks, fileTarget, gateStory, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, phaseKey, refLink, stageRows, stageSummary } from './view/model'
+import { answerMessage, answersFor, fileLinks, flowFinished, fileTarget, gateStory, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, phaseKey, refLink, stageRows, stageSummary } from './view/model'
 
 const SPEC = {
   label: 'Spec flow',
@@ -55,6 +55,20 @@ test('stages: done before the current one, the current one waiting', () => {
   expect(stageRows(SPEC, ITEM).map(r => r.mark)).toEqual(['done', 'done', 'done', 'done', 'waiting'])
   const done = { ...ITEM, progress: { ...ITEM.progress!, phase: 'removed', status: 'done' as const } }
   expect(stageRows(SPEC, done).every(r => r.mark === 'done')).toBe(true)
+})
+
+test('stages: a jumped stage shows as missed, a skip the user agreed to as skipped', () => {
+  const t = '2026-10-05T06:22:42Z'
+  const item: SddItem = {
+    ...ITEM, flow: 'bug',
+    progress: { at: t, flow: 'bug', phase: 'Phase 10 — Pull request', status: 'done' },
+    stages: { 'Phase 0': { at: t, status: 'done' }, 'Phase 5': { at: t, status: 'done' },
+      'Phase 9': { at: t, status: 'skipped', confirmed: 'skip it' }, 'Phase 9a': { at: t, status: 'done' },
+      'Phase 10': { at: t, status: 'done' } },
+  }
+  expect(stageRows(BUG, item).map(r => r.mark)).toEqual(['done', 'missed', 'done', 'skipped', 'done', 'done'])
+  expect(flowFinished(BUG, item)).toBe(false)
+  expect(flowFinished(BUG, { ...item, stages: { ...item.stages, 'Phase 1': { at: t, status: 'skipped', confirmed: 'ok' } } })).toBe(true)
 })
 
 
