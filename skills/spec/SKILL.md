@@ -197,7 +197,7 @@ command, and a missed one means the next session starts blind.**
 
 ```
 python ${CLAUDE_PLUGIN_ROOT}/scripts/env.py progress --id <id> --flow spec \
-  --phase "<phase name as headed in this file>" --status active|waiting|blocked|done|abandoned \
+  --phase "<phase name as headed in this file>" --status active|waiting|blocked|done|skipped|abandoned \
   [--gate "<question waiting for the user>"] [--next "<next concrete step>"] [--note "<what the next session must know>"]
 ```
 
@@ -207,10 +207,29 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/env.py progress --id <id> --flow spec \
 | Just before asking a gate question | `waiting` | `--gate` (the question), `--next` (what happens on "yes"), `--ref visuals/<mode>.html` (or `--no-visual "<reason>"`) |
 | Stuck on something outside the flow | `blocked` | `--note` (what blocks it) |
 | Abandoned | `abandoned` | `--note` (what was cleaned up and what was left) |
+| Leaving a stage | `done` | `--passed` for any gate it passed |
+| Skipping a stage — only after the user's yes (see below) | `skipped` | `--confirmed "<the user's words>"` |
 | Closed out | `done` | — |
 
 `progress` creates the work item folder when it does not exist yet, so the first checkpoint can
 come before any worktree.
+
+### Never skip a stage on your own
+
+Every stage of the flow is worked, in order — also a stage whose work happened inside another one
+(record it anyway, with `--note` saying where the work was done). `progress` and `can` refuse a stage
+while an earlier one was never worked and never skipped, and `/sdd done` refuses until every stage
+is done or skipped.
+
+A stage is skipped **only with the user's yes in this chat**:
+
+1. Ask with `AskUserQuestion`: say which stage, why you want to skip it, and what the user loses.
+   Options: "Do the stage" / "Skip it".
+2. Only on "Skip it": `env.py progress --id <id> --flow spec --phase "<stage>" --status skipped
+   --confirmed "<the user's words>"`. A skip passes no gates, so a stage that needs them stays blocked.
+
+Never write `--confirmed` without a real answer from the user, and never take one skip as a yes for
+another stage.
 
 ### Phase guards — check before every mode
 

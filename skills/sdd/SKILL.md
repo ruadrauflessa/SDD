@@ -142,7 +142,7 @@ or "wait for the PR to merge"). Never work around a refusal by calling the under
 | `resume` | Progress is recorded and not done or abandoned |
 | `phase` | Every gate that phase needs has passed — the flow skills check this before each phase or mode |
 | `pr` | The flow's PR gates passed (bug: Approval, Verified, Manual verification; spec: Requirements agreed, Ready to PR), some repo has commits without a PR, and no repo has uncommitted changes |
-| `done` | No uncommitted changes, every repo with commits has a PR, every PR is merged, and the ADO item is in `doneStates` (default Resolved, Closed, Done) — the flow's close-out ran |
+| `done` | Every stage of the flow is done or skipped with the user's yes, no uncommitted changes, every repo with commits has a PR, every PR is merged, and the ADO item is in `doneStates` (default Resolved, Closed, Done) — the flow's close-out ran |
 | `abandon` | Not done, and no uncommitted changes (show them to the user first) |
 
 ## `/sdd done <id>` — clean up a finished item

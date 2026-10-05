@@ -164,19 +164,59 @@ def main():
         assert not env.check_op(root, cfg, 5, "phase", None, "Phase 0")[0]         # flow unknown
         wdir = root / ".claude/worktrees/5-x"
         wdir.mkdir(parents=True)
+        early = {f"Phase {n}": {"at": "t", "status": "done"} for n in range(5)}
         rec = {"id": 5, "flow": "bug", "repos": {}, "gates": {"Claimed": "t"},
+              "stages": {**early, "Phase 5": {"at": "t", "status": "worked"}},
               "progress": {"flow": "bug", "phase": "Phase 5", "status": "waiting"}}
         (wdir / "workitem.json").write_text(json.dumps(rec))
         ok, why, _ = env.check_op(root, cfg, 5, "phase", None, "Phase 7 — Apply the fix")
         assert not ok and any("Approval" in w for w in why) and any("Red test" in w for w in why)
         rec["gates"].update({"Approval": "t", "Red test": "t"})
         (wdir / "workitem.json").write_text(json.dumps(rec))
+        ok, why, _ = env.check_op(root, cfg, 5, "phase", None, "Phase 7")
+        assert not ok and any("Phase 6 was never worked" in w for w in why), why  # no jumping past a stage
+        rec["stages"]["Phase 6"] = {"at": "t", "status": "done"}
+        (wdir / "workitem.json").write_text(json.dumps(rec))
         assert env.check_op(root, cfg, 5, "phase", None, "Phase 7")[0]
         assert not env.check_op(root, cfg, 5, "phase", None, "Phase 3")[0]         # derived Worktree missing
+
+        # progress: a stage is never skipped silently, only with the user's recorded yes
+        import argparse as _ap, contextlib, io
+
+        def progress(phase, status="active", **kw):
+            args = dict(id=5, flow="bug", phase=phase, status=status, gate=None, next=None, note=None, ref=[],
+                        no_visual=None, passed=[], revoke=[], confirmed=None)
+            args.update(kw)
+            with contextlib.redirect_stdout(io.StringIO()):
+                env.cmd_progress(_ap.Namespace(**args))
+            return json.loads((wdir / "workitem.json").read_text(encoding="utf-8"))
+
+        def refused(*a, **kw):
+            err = io.StringIO()
+            try:
+                with contextlib.redirect_stderr(err):
+                    progress(*a, **kw)
+            except SystemExit:
+                return err.getvalue()
+            raise AssertionError("progress should have refused")
+
+        msg = refused("Phase 9a — Manual verification")  # the 93347 jump
+        assert "Phase 7, Phase 8, Phase 9 were never worked" in msg, msg
+        assert "--confirmed" in refused("Phase 7", "skipped")                              # skip needs the user's yes
+        assert "unknown bug stage" in refused("Phase 99")
+        got = progress("Phase 7 — Apply the fix")
+        assert got["stages"]["Phase 7"]["status"] == "worked"
+        got = progress("Phase 8 — Verify", "skipped", confirmed="yes, skip it")
+        assert got["stages"]["Phase 7"]["status"] == "done"                               # moving on finishes it
+        assert got["stages"]["Phase 8"] == {"at": got["stages"]["Phase 8"]["at"], "status": "skipped",
+                                            "confirmed": "yes, skip it"}
+        progress("Phase 9 — Commit and push")
+        got = progress("Phase 4 — Prove the root cause")                                   # going back
+        assert "Phase 7" not in got["stages"] and "Phase 9" not in got["stages"]          # later stages are redone
+        assert "Phase 5" in refused("Phase 6")
         assert not env.check_op(root, cfg, 5, "phase", None, "Phase 99")[0]        # unknown phase
 
         # /sdd done after close-out: status "done" must not block the clean-up (ADO and PRs faked)
-        import argparse as _ap, contextlib, io
         pr_state = {"status": "completed"}
         env.pr_live = lambda cfg, r: dict(pr_state)
         env.live_item = lambda cfg, wid: {"state": "Resolved", "board": "Dev Completed"}
@@ -184,7 +224,14 @@ def main():
         ddir.mkdir(parents=True)
         drec = {"id": 6, "flow": "bug", "gates": {"Claimed": "t"},
                 "repos": {"app": {"path": "app", "source": "app", "branch": "bug/6", "base": "main", "pr": {"id": 1, "url": "pr/1"}}},
-                "progress": {"flow": "bug", "phase": "Phase 11 — Write back to the work item", "status": "done"}}
+                "progress": {"flow": "bug", "phase": "Phase 11 — Write back to the work item", "status": "done"},
+                "history": [{"at": "t", "phase": p} for p in ("Phase 0", "Phase 1", "Phase 2", "Phase 5", "Phase 6",
+                                                               "Phase 7", "Phase 8", "Phase 9a", "Phase 10", "Phase 11")]}
+        (ddir / "workitem.json").write_text(json.dumps(drec))
+        ok, why, _ = env.check_op(root, cfg, 6, "done")                             # 93347: stages left out
+        assert not ok and any("Phase 3, Phase 4, Phase 9, Phase 12, Phase 13" in w for w in why), why
+        drec["stages"] = {k: {"at": "t", "status": "done"} for k in env.BUG_PHASES}
+        drec["stages"]["Phase 12"] = {"at": "t", "status": "skipped", "confirmed": "skip it"}
         (ddir / "workitem.json").write_text(json.dumps(drec))
         ok, why, _ = env.check_op(root, cfg, 6, "done")
         assert ok, why

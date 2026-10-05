@@ -1,7 +1,8 @@
 // What the view shows, worked out from one env.py view snapshot. No $ here: plain functions.
 import type { SddFlow, SddItem, SddProgress, SddQuestion, SddStage } from '../../types'
 
-export type Mark = 'done' | 'active' | 'waiting' | 'blocked' | 'abandoned' | 'next' | 'later'
+// skipped = the user agreed to skip it; missed = never worked and never skipped (the flow jumped it)
+export type Mark = 'done' | 'skipped' | 'missed' | 'active' | 'waiting' | 'blocked' | 'abandoned' | 'next' | 'later'
 
 export type StageRow = { stage: SddStage; mark: Mark }
 
@@ -18,20 +19,34 @@ export function phaseKey(flow: SddFlow, name: string | undefined): string | null
   return hit ? hit.key : null
 }
 
+/** A stage behind the current one, from its record. An old snapshot without records counts it done. */
+function pastMark(item: SddItem, key: string): Mark {
+  if (!item.stages) return 'done'
+  const r = item.stages[key]
+  return !r ? 'missed' : r.status === 'skipped' ? 'skipped' : 'done'
+}
+
 export function stageRows(flow: SddFlow, item: SddItem): StageRow[] {
   const p = item.progress
   if (p?.status === 'done' && phaseKey(flow, p.phase) === null) {
-    return flow.stages.map(stage => ({ stage, mark: 'done' as Mark }))
+    return flow.stages.map(stage => ({ stage, mark: pastMark(item, stage.key) }))
   }
   const cur = flow.stages.findIndex(s => s.key === phaseKey(flow, p?.phase))
   return flow.stages.map((stage, i) => {
     if (cur < 0) return { stage, mark: i === 0 ? 'next' : 'later' }
-    if (i < cur) return { stage, mark: 'done' }
+    if (i < cur) return { stage, mark: pastMark(item, stage.key) }
+    if (i === cur && item.stages?.[stage.key]?.status === 'skipped') return { stage, mark: 'skipped' }
     if (i === cur) return { stage, mark: (p?.status ?? 'active') as Mark }
     return { stage, mark: i === cur + 1 ? 'next' : 'later' }
   })
 }
 
+
+/** The flow is finished: every stage done, or skipped with the user's yes. */
+export function flowFinished(flow: SddFlow, item: SddItem): boolean {
+  if (item.removed) return true
+  return stageRows(flow, item).every(r => r.mark === 'done' || r.mark === 'skipped')
+}
 
 /** The history rows of one stage, newest first. */
 export function stageHistory(flow: SddFlow, item: SddItem, key: string): SddProgress[] {
