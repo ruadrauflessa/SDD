@@ -2,10 +2,11 @@
 // person, and a toast when a gate passes. It only reads: `env.py view` (local files, no ADO) and the
 // spec documents. It never passes a gate or runs a state-changing command; "Resume" only fills the
 // prompt box with `/sdd <id>` for the person to send.
+import { update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { SddColors, SddDoc, SddItem, SddSnapshot, SddStage } from '../types'
-import { decidedGates, fileLinks, idFromArgs, idFromScript, stamp, fileTarget, gateStory, phaseKey, phaseLabel, refLink, stageDocs, stageHistory, stageRows, stageSummary, statusWord, when } from './view/model'
+import type { SddAsk, SddColors, SddDoc, SddItem, SddQuestion, SddSnapshot, SddStage } from '../types'
+import { answerMessage, answersFor, decidedGates, fileLinks, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, fileTarget, gateStory, phaseKey, phaseLabel, refLink, stageDocs, stageHistory, stageRows, stageSummary, statusWord, when } from './view/model'
 import type { Mark } from './view/model'
 
 const PANE = 'sdd-view'
@@ -19,6 +20,8 @@ const feedback = { plugin: 'sdd', key: 'feedback' } as const
 const gate = { plugin: 'sdd', key: 'gate' } as const
 const autoOpened = { plugin: 'sdd', key: 'opened' } as const
 const mine = { plugin: 'sdd', key: 'mine' } as const
+const asked = { plugin: 'sdd', key: 'asked' } as const
+const picks = { plugin: 'sdd', key: 'picks' } as const
 
 const SCRIPT_RUN = /scripts[\\/]+(env|spec)\.py/
 const DOC_LIMIT = 9000
@@ -55,6 +58,9 @@ function stageName(st: SddStage): string {
 let python = 'python'  // module state: lost on reload, which is fine
 let isOpen = false
 let isWorkspace = false
+// An open AskUserQuestion call's way to take an answer from the view, by tool_use_id. Lost on a
+// reload; the view then says to answer in the chat.
+const answering = new Map<string, (answers: Record<string, string>) => void>()
 
 // Helpers do only the reading and drawing calls. $.state is read and written in the hook bodies
 // (and the closures they make), which is where the engine hands it out.
@@ -225,6 +231,33 @@ export const register: Register = on => {
     })
   }
 
+  // Claude's questions about this chat's item are kept, so the stage's feedback box shows them as the
+  // chat's dialog does. While that dialog is open, an answer from the view settles this call first:
+  // the chat's dialog is dropped and Claude reads the answer as the tool's own result.
+  on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
+    const own = (await $.state.get(mine)).value ?? null
+    const questions = (e as { questions?: unknown }).questions
+    if (own == null || !e.tool_use_id || !Array.isArray(questions)) return next(e)
+    const ask: SddAsk = { id: own, at: new Date().toISOString(), toolUseId: e.tool_use_id, questions: questions as SddQuestion[], isOpen: true }
+    const before = (await $.state.get(asked)).value ?? null
+    await $.state.set(asked, ask)
+    await $.state.set(picks, {})
+    const fromView = new Promise<Record<string, string>>(resolve => answering.set(ask.toolUseId, resolve))
+    const inChat = next(e)
+    inChat.catch(() => undefined)  // dropped once the view answers
+    let isAsked = true
+    try {
+      const first = await Promise.race([inChat.then(r => ({ r })), fromView.then(a => ({ a }))])
+      if ('a' in first) return { result: { questions: ask.questions, answers: first.a } }
+      // refused before it was shown (the question guard): nothing was asked
+      if ('deny' in first.r && first.r.deny) isAsked = false
+      return first.r
+    } finally {
+      answering.delete(ask.toolUseId)
+      await $.state.set(asked, isAsked ? { ...ask, isOpen: false } : before)
+    }
+  })
+
   on('turn.complete', async ($, e, next) => {
     if (isOpen || isWorkspace) {
       const v = await loadView($, (await $.state.get(selected)).value ?? null, (await $.state.get(snap)).value ?? null, (await $.state.get(place)).value ?? null)
@@ -317,6 +350,12 @@ export const register: Register = on => {
     const typing = (await $.state.get(feedback)).value ?? null   // the stage whose feedback box is open
     const isDone = p?.status === 'done' || p?.status === 'abandoned' || !!item.removed
     const isWaiting = p?.status === 'waiting'
+    const pend = flow ? pendingGate(flow, item, s.derived) : null
+    const waitKey = flow && isWaiting ? phaseKey(flow, p?.phase) : null
+    // Claude's questions belong to the stage only while the item still waits on that stage
+    const lastAsk = (await $.state.get(asked)).value ?? null
+    const ask = lastAsk && waitKey && lastAsk.id === item.id && (lastAsk.isOpen || lastAsk.at >= (p?.at ?? '')) ? lastAsk : null
+    const picked = (await $.state.get(picks)).value ?? {}
     const canOpen = e.surface !== 'mobile' && !!item.folder && !item.removed
     const hasInput = 'Input' in t
     const Input = hasInput ? t.Input : undefined
@@ -403,7 +442,8 @@ export const register: Register = on => {
                   })()}
                   {open === key && gates.map(g => {
                     const gkey = `gate:${g}`
-                    const story = gateStory(item, g)
+                    const isPending = pend?.gate === g && pend.key === r.stage.key
+                    const story = gateStory(item, g, isPending ? { flow, key: r.stage.key } : undefined)
                     const at = item.gates?.[g]
                     // the row shows the last recorded status only; earlier rounds are in the story
                     const last = at ? 'passed' : story.length ? story[story.length - 1].kind : 'open'
@@ -423,7 +463,7 @@ export const register: Register = on => {
                               onPress={() => void $.state.set(gate, openGate === gkey ? null : gkey)} />
                           )}
                         </Box>
-                        {openGate === gkey && drawGate(story)}
+                        {openGate === gkey && drawGate(story, isPending ? r.stage.key : null)}
                       </Box>
                     )
                   })}
@@ -469,14 +509,35 @@ export const register: Register = on => {
       )
     }
 
-    function drawGate(story: ReturnType<typeof gateStory>) {
-      if (!story.length) return <Box marginLeft={3}><Text dimColor>Not asked yet.</Text></Box>
+    // pendKey: the stage of a gate that waits on the person now; it also lists what to read first
+    function drawGate(story: ReturnType<typeof gateStory>, pendKey: string | null) {
+      if (!story.length && !pendKey) return <Box marginLeft={3}><Text dimColor>Not asked yet.</Text></Box>
+      const review = pendKey ? reviewLinks(item!, pendKey) : []
+      const canAnswer = !!pendKey && (!!ask || !!item!.feedback?.[pendKey])
       return (
         <Box flexDirection="column" marginLeft={3} paddingLeft={1} borderStyle="single" borderColor={C.line}>
-          {story.map(x => entryRow(x.at,
+          {story.map((x, i) => entryRow(x.at,
             x.kind === 'asked' ? 'Asked' : x.kind === 'passed' ? 'Passed. Your answer:' : 'Revoked:',
             x.kind === 'passed' ? C.done : x.kind === 'revoked' ? C.revoked : undefined,
-            x.text, x.refs))}
+            // the open question's refs are the reading list below
+            x.text, pendKey && i === story.length - 1 && x.kind === 'asked' ? [] : x.refs))}
+          {pendKey && (
+            <Box flexDirection="column" marginTop={story.length ? 1 : 0}>
+              <Text bold color={C.now}>Read before you decide</Text>
+              {review.length
+                ? linkMd(`review-${pendKey}`, review.map(l => `- ${l}`).join('\n'))
+                : <Text dimColor wrap="wrap">Claude named no documents with this question.</Text>}
+              {canAnswer && (
+                <Box marginTop={1}>
+                  <Button key={`answer-${pendKey}`} variant="primary" label={ask ? 'Answer Claude\'s question' : `Give feedback on ${pendKey}`}
+                    onPress={() => void (async () => {
+                      await $.state.set(doc, null)
+                      await $.state.set(feedback, pendKey)
+                    })()} />
+                </Box>
+              )}
+            </Box>
+          )}
         </Box>
       )
     }
@@ -503,7 +564,10 @@ export const register: Register = on => {
       const isReview = !!st.reworkTo && phaseKey(flow!, item!.progress?.phase) === key && item!.progress?.status === 'waiting'
       const revokes = isReview ? undefined : item!.feedback?.[key]
       const rejecting = typing === `review:${key}`
-      if (!docs.length && !revokes && !isReview) return null
+      // the stage waits on the person and Claude asked about it: the box shows those questions
+      const showAsk = !!ask && waitKey === key && !isReview
+      const takesInput = !!revokes || showAsk
+      if (!docs.length && !takesInput && !isReview) return null
       const answer = (text: string, done: string) => void (async () => {
         // posted as the person's own answer, so it shows in the chat; the flow skill takes it from there
         await $.state.set(feedback, null)
@@ -554,7 +618,7 @@ export const register: Register = on => {
                 )}
             </Box>
           )}
-          {(docs.length > 0 || revokes) && (
+          {(docs.length > 0 || takesInput) && (
             <Box flexDirection="row" gap={1} flexWrap="wrap">
               {docs.map(d => (
                 <Button key={`doc-${key}-${d}`} label={d} variant={shown?.name === d ? 'primary' : undefined}
@@ -563,8 +627,8 @@ export const register: Register = on => {
                     await $.state.set(doc, shown?.name === d ? null : await readDoc($, item!, d))
                   })()} />
               ))}
-              {revokes && (
-                <Button key={`fb-open-${key}`} label={`Give feedback on ${stageName(flow!.stages.find(x => x.key === key)!)}`}
+              {takesInput && (
+                <Button key={`fb-open-${key}`} label={showAsk ? 'Answer Claude\'s question' : `Give feedback on ${stageName(flow!.stages.find(x => x.key === key)!)}`}
                   variant={typing === key ? 'primary' : undefined}
                   onPress={() => void (async () => {
                     // one thing at a time: the feedback box closes the open file
@@ -580,8 +644,41 @@ export const register: Register = on => {
               {shown.isCut && <Text dimColor>{`Cut at ${DOC_LIMIT} characters. Open the file for the rest.`}</Text>}
             </Box>
           )}
-          {revokes && typing === key && (() => {
+          {takesInput && typing === key && (() => {
+            // an answer to Claude's question: into the open dialog's call when there is one, else as
+            // the person's own message, which the sdd skill reads as the answer
+            const sendAnswer = (other: string) => void (async () => {
+              const a = ask!
+              const answers = answersFor(a.questions, (await $.state.get(picks)).value ?? {}, other)
+              if (!answers) {
+                $.ui.toast('Pick an option for each question, or type your answer.')
+                return
+              }
+              const resolve = a.isOpen ? answering.get(a.toolUseId) : undefined
+              if (a.isOpen && !resolve) {
+                $.ui.toast('The question is open in the chat. Answer it there.')
+                return
+              }
+              await $.state.set(picks, {})
+              if (resolve) {
+                await $.state.set(feedback, null)
+                resolve(answers)
+                $.ui.toast('Answer sent to Claude.')
+                return
+              }
+              answer(answerMessage(item!.id, key, a.questions, answers), 'Answer sent to Claude.')
+            })()
+            const pick = (q: SddQuestion, label: string) => void update($, picks, cur => {
+              const was = (cur ?? {})[q.question] ?? []
+              const isOn = was.includes(label)
+              const now = q.multiSelect ? (isOn ? was.filter(l => l !== label) : [...was, label]) : (isOn ? [] : [label])
+              return { ...(cur ?? {}), [q.question]: now }
+            })
             const send = (v: string) => void (async () => {
+              if (showAsk) {
+                sendAnswer(v)
+                return
+              }
               const text = v.trim()
               if (!text) {
                 $.ui.toast('Type your feedback first')
@@ -603,9 +700,41 @@ export const register: Register = on => {
               }
             })()
             const close = () => void $.state.set(feedback, null)
-            const hint = `What should change in ${key}?` + (revokes.length ? ` Sending revokes ${revokes.join(', ')}.` : '')
+            const hint = showAsk
+              ? 'Or type your own answer (as Other in the chat)'
+              : `What should change in ${key}?` + (revokes?.length ? ` Sending revokes ${revokes.join(', ')}.` : '')
             return (
               <Box flexDirection="column" gap={1} borderStyle="round" borderColor={C.now} paddingX={1}>
+                {showAsk && (
+                  <Box flexDirection="column" gap={1}>
+                    {ask!.questions.map((q, qi) => {
+                      const chosen = picked[q.question] ?? []
+                      return (
+                        <Box flexDirection="column">
+                          {q.header && <Text dimColor>{q.header}</Text>}
+                          <Text bold wrap="wrap">{q.question}</Text>
+                          {q.options.map((o, oi) => {
+                            const isOn = chosen.includes(o.label)
+                            const mark = q.multiSelect ? (isOn ? '[x]' : '[ ]') : (isOn ? '(•)' : '( )')
+                            return (
+                              <Box flexDirection="column">
+                                <Button key={`ask-${key}-${qi}-${oi}`} plain dimColor={!isOn} hover={{ color: C.hoverText, dimColor: false }}
+                                  label={`${mark} ${o.label}`} onPress={() => pick(q, o.label)} />
+                                {o.description && <Box marginLeft={4}><Text dimColor wrap="wrap">{o.description}</Text></Box>}
+                              </Box>
+                            )
+                          })}
+                        </Box>
+                      )
+                    })}
+                    <Text dimColor wrap="wrap">
+                      {ask!.isOpen ? 'The same question is open in the chat. Answer here or there.' : 'Claude asked this earlier. Your answer goes to the chat as your message.'}
+                    </Text>
+                    <Box flexDirection="row" gap={1}>
+                      <Button key={`ask-send-${key}`} variant="primary" label="Send answer" onPress={() => sendAnswer('')} />
+                    </Box>
+                  </Box>
+                )}
                 {Input
                   ? (
                     // the field's own submit button sends; X closes the box
@@ -622,7 +751,7 @@ export const register: Register = on => {
                       <Box flexDirection="row" gap={1}>
                         <Button key={`fb-cancel-${key}`} label="X" role="dismiss" onPress={close} />
                         <Button key={`fb-fill-${key}`} variant="primary" label="Write it in the prompt"
-                          onPress={() => void $.prompt.fill({ text: `/sdd:sdd ${item!.id} feedback ${key}: ` })} />
+                          onPress={() => void $.prompt.fill({ text: showAsk ? `sdd answer for ${item!.id}, stage ${key}: ` : `/sdd:sdd ${item!.id} feedback ${key}: ` })} />
                       </Box>
                     </Box>
                   )}
