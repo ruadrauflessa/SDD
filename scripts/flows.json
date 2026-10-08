@@ -1,5 +1,5 @@
 {
-  "_": "The stages of each sdd flow, in order. env.py reads it for its state guards and the view draws it. key = what progress --phase starts with; needs = gates that must be met before the stage may start; passes = gates the stage records; stop = the flow stops here for the user. reworkTo = on a review stage, the stage a rejected PR goes back to.",
+  "_": "The stages of each sdd flow, in order. env.py reads it for its state guards and the view draws it. key = what progress --phase starts with; needs = gates that must be met before the stage may start; passes = gates the stage records; stop = the flow stops here for the user. conditional = the stage runs only when there is something to do (spec flow Open Questions: unanswered questions in questions.md); inferFromGates = a stage added after items were started: with its gates already passed, it needs no record. A conditional stage is recorded skipped without the user's words when there is nothing to do. reworkTo = on a review stage, the stage a rejected PR goes back to.",
   "derived": [
     "Worktree",
     "PR raised",
@@ -19,10 +19,32 @@
           "label": "Specify",
           "needs": [],
           "passes": [
-            "Claimed",
+            "Claimed"
+          ]
+        },
+        {
+          "key": "Open Questions",
+          "label": "Open Questions",
+          "needs": [
+            "Claimed"
+          ],
+          "passes": [
+            "Open questions"
+          ],
+          "stop": true,
+          "conditional": true
+        },
+        {
+          "key": "Requirements",
+          "label": "Requirements",
+          "needs": [
+            "Claimed"
+          ],
+          "passes": [
             "Requirements agreed"
           ],
-          "stop": true
+          "stop": true,
+          "inferFromGates": true
         },
         {
           "key": "Design",

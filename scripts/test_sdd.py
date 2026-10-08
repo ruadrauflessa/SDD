@@ -185,7 +185,7 @@ def main():
 
         def progress(phase, status="active", **kw):
             args = dict(id=5, flow="bug", phase=phase, status=status, gate=None, next=None, note=None, ref=[],
-                        no_visual=None, passed=[], revoke=[], confirmed=None)
+                        no_visual=None, passed=[], revoke=[], confirmed=None, caveat=None)
             args.update(kw)
             with contextlib.redirect_stdout(io.StringIO()):
                 env.cmd_progress(_ap.Namespace(**args))
@@ -256,6 +256,66 @@ def main():
             env.cmd_remove(_ap.Namespace(id=6, abandon=False, yes=True))
         kept = json.loads((env.done_dir(root, cfg) / "6.json").read_text(encoding="utf-8"))
         assert not ddir.exists() and v(None, kept, []).startswith("completed")
+        # Open Questions: conditional stage, driven by the unticked boxes in questions.md
+        sdir = root / cfg["specRoot"] / "9-US-asks"
+        sdir.mkdir(parents=True)
+        qfile = sdir / "questions.md"
+        assert env.count_questions("- [ ] Q1\n- [x] Q2 - answered\n* [ ] Q3\nplain") == (2, 3)
+        qdir = root / ".claude/worktrees/9-asks"
+        qdir.mkdir(parents=True)
+        qrec = {"id": 9, "flow": "spec", "repos": {}, "gates": {"Claimed": "t"}, "stages": {"Specify": {"at": "t", "status": "done"}},
+                "progress": {"flow": "spec", "phase": "Specify", "status": "active"}}
+
+        def spec_progress(phase, status="active", **kw):
+            args = dict(id=9, flow="spec", phase=phase, status=status, gate=None, next=None, note=None, ref=[],
+                        no_visual=None, passed=[], revoke=[], confirmed=None, caveat=None)
+            args.update(kw)
+            with contextlib.redirect_stdout(io.StringIO()):
+                env.cmd_progress(_ap.Namespace(**args))
+            return json.loads((qdir / "workitem.json").read_text(encoding="utf-8"))
+
+        def spec_refused(*a, **kw):
+            err = io.StringIO()
+            try:
+                with contextlib.redirect_stderr(err):
+                    spec_progress(*a, **kw)
+            except SystemExit:
+                return err.getvalue()
+            raise AssertionError("progress should have refused")
+
+        (qdir / "workitem.json").write_text(json.dumps(qrec))
+        qfile.write_text("- [ ] Q1 who signs off?\n- [ ] Q2 which region?\n", encoding="utf-8")
+        assert env.open_questions(root, cfg, 9) == 2
+        assert "2 open questions" in spec_refused("Open Questions", "skipped")            # cannot skip real questions
+        ok, why, _ = env.check_op(root, cfg, 9, "phase", "spec", "Requirements")
+        assert not ok and any("Open Questions" in w for w in why), why                     # questions block Requirements
+        got = spec_progress("Open Questions")
+        assert got["stages"]["Open Questions"]["status"] == "worked"
+        assert "--caveat" in spec_refused("Open Questions", "done", passed=["Open questions"])
+        assert not env.check_op(root, cfg, 9, "phase", "spec", "Requirements")[0]
+        got = spec_progress("Open Questions", "done", passed=["Open questions"], caveat="Q2 region: unanswered")
+        assert got["progress"]["caveat"] == "Q2 region: unanswered" and got["progress"]["openQuestions"] == 2
+        ok, why, _ = env.check_op(root, cfg, 9, "phase", "spec", "Requirements")
+        assert ok, why                                                                   # continued with a caveat
+        assert got["progress"]["status"] == "done"                                       # a done stage hands over, the flow goes on
+        assert "only for finishing" in spec_refused("Design", caveat="x")
+        # answered everything: nothing to ask, the stage records itself skipped without the user's words
+        qrec2 = {**qrec, "gates": {"Claimed": "t"}, "stages": {"Specify": {"at": "t", "status": "done"}}}
+        (qdir / "workitem.json").write_text(json.dumps(qrec2))
+        qfile.write_text("- [x] Q1 who signs off? - Answer: the PM\n", encoding="utf-8")
+        assert env.check_op(root, cfg, 9, "phase", "spec", "Requirements")[0]             # no record needed when no questions
+        got = spec_progress("Open Questions", "skipped")
+        assert got["stages"]["Open Questions"]["status"] == "skipped" and got["stages"]["Open Questions"]["confirmed"]
+        # an item from before the stage existed: Requirements agreed is passed, so Design is not blocked
+        old = {**qrec, "gates": {"Claimed": "t", "Requirements agreed": "t"},
+               "stages": {"Specify": {"at": "t", "status": "done"}}}
+        assert env.unaccounted("spec", old, "Design", 1) == ["Open Questions"]
+        assert env.unaccounted("spec", old, "Design", 0) == []
+        fin = {**old, "gates": {**old["gates"], "Design agreed": "t", "PR approved": "t"},
+               "progress": {"flow": "spec", "phase": "Review", "status": "done"}}
+        (qdir / "workitem.json").write_text(json.dumps(fin))
+        ok, why, _ = env.check_op(root, cfg, 9, "phase", "spec", "Review")
+        assert not ok and "the flow is done" in why, why                                   # the last stage done: flow over
         os.chdir(Path(__file__).parent)
     print("ok")
 

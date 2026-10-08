@@ -49,7 +49,7 @@ Work item folder: `.claude/worktrees/<id>-<slug>/`
 
 Spec folder: `specRoot` in `.claude/sdd.json`, then `**/<id>-<TYPE>-<slug>/` (TYPE: EPIC, FEAT, US, TS, CR, PBI, BUG, ISSUE)
 - `requirements.md` — mirror of ADO. Never edit it; the sync overwrites it.
-- `questions.md` — your open questions for the item's author.
+- `questions.md` — open questions for the item's author, one `- [ ]` line each. While any is open, the flow stops at **Open Questions** and asks them one by one; you can answer "Continue with this open" to go on anyway.
 - `design.md`, `tasks.md`, `impact.md` — yours. The sync never touches them.
 - `.index/spec.db` (at the spec folder root) — search index.
 

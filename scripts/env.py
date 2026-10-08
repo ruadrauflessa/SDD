@@ -14,7 +14,7 @@ Commands (run from anywhere inside the workspace):
                                              create the folder, or add repos to it
     status --id N [--json]                   ADO state, recorded progress, spec files and tasks, repos, live PRs
     progress --id N --flow bug|spec --phase P --status active|waiting|blocked|done|skipped|abandoned
-             [--gate G] [--next X] [--note T] [--passed G] [--revoke G] [--ref R ...] [--no-visual WHY]
+             [--gate G] [--next X] [--note T] [--caveat T] [--passed G] [--revoke G] [--ref R ...] [--no-visual WHY]
                                              checkpoint the flow; record gates; creates the folder if needed
     graph  --id N                            rebuild graph/ from src/ (no LLM, seconds)
     pr     --id N --title T --description-file F [--repos A] [--work-items 1,2] [--draft]
@@ -392,7 +392,8 @@ def cmd_refs(a):
 
 
 def cmd_progress(a):
-    if a.status == "skipped" and not (a.confirmed or "").strip():
+    conditional = is_conditional(getattr(a, "flow", None), phase_key(getattr(a, "flow", None), getattr(a, "phase", None)))
+    if a.status == "skipped" and not conditional and not (a.confirmed or "").strip():
         die("a skipped stage needs --confirmed \"<the user's words>\": ask the user first, and record the skip "
             "only after they said yes")
     if a.status == "skipped" and a.passed:
@@ -411,8 +412,17 @@ def cmd_progress(a):
     if key is None:
         die(f"unknown {a.flow} stage '{a.phase}'. Stages: {', '.join(stage_keys(a.flow))}")
     env_dir, data = ensure_env(root, cfg, a.id)
+    open_q = open_questions(root, cfg, a.id)
+    if conditional and a.status == "skipped" and open_q:
+        die(f"{key} cannot be skipped: {open_q} open question{'s' if open_q != 1 else ''} in questions.md. "
+            "Work the stage: ask each one, tick it off with its answer, or let the user continue with a caveat")
+    if conditional and a.status == "done" and open_q and not (a.caveat or "").strip():
+        die(f"{key} cannot be done: {open_q} open question{'s' if open_q != 1 else ''} in questions.md. Ask them, "
+            "or record the user's choice to continue anyway with --caveat \"<the questions left open>\"")
+    if a.caveat and not (conditional and a.status == "done"):
+        die("--caveat is only for finishing the Open Questions stage with questions still open")
     if a.status != "abandoned":
-        missed = unaccounted(a.flow, data, key)
+        missed = unaccounted(a.flow, data, key, open_q)
         if missed:
             die(f"{key} cannot start: {', '.join(missed)} {'was' if len(missed) == 1 else 'were'} never worked "
                 "and never skipped.\nDo that stage first. To skip it, ask the user; only after their yes record "
@@ -424,7 +434,10 @@ def cmd_progress(a):
     entry = {"at": now(), "flow": a.flow, "phase": a.phase, "status": a.status,
              "gate": a.gate or "", "next": a.next or "", "note": a.note or "", "refs": a.ref}
     if a.status == "skipped":
-        entry["confirmed"] = a.confirmed.strip()
+        entry["confirmed"] = (a.confirmed or "").strip() or "no open questions: nothing to ask"
+    if a.caveat and open_q:
+        entry["caveat"] = a.caveat.strip()
+        entry["openQuestions"] = open_q
     data["stages"] = mark_stage(a.flow, data, key, entry)
     gates = data.setdefault("gates", {})
     for g in a.passed:
@@ -441,6 +454,20 @@ def cmd_progress(a):
         print_refs(*build_refs(root, cfg, a.id, a.ref))
 
 
+def count_questions(text):
+    """(open, total) in a questions.md: each question is a checkbox line, `- [ ]` open, `- [x]` answered."""
+    done = len(re.findall(r"^\s*[-*] \[[xX]\]", text, re.M))
+    opened = len(re.findall(r"^\s*[-*] \[ \]", text, re.M))
+    return opened, opened + done
+
+
+def open_questions(root, cfg, wid):
+    """How many questions in the item's questions.md are still unanswered."""
+    sp = spec_folder(root, cfg, wid)
+    q = sp / "questions.md" if sp else None
+    return count_questions(q.read_text(encoding="utf-8", errors="replace"))[0] if q and q.is_file() else 0
+
+
 def spec_state(root, cfg, wid):
     base = (root / cfg["specRoot"])
     hits = [d for d in base.rglob(f"{int(wid)}-*") if d.is_dir() and ".index" not in d.parts] if base.is_dir() else []
@@ -449,6 +476,9 @@ def spec_state(root, cfg, wid):
     d = hits[0]
     out = {"folder": str(d.relative_to(root)).replace("\\", "/"),
            "files": sorted(f.name for f in d.iterdir() if f.is_file())}
+    q = d / "questions.md"
+    if q.is_file():
+        out["questions_open"], out["questions_total"] = count_questions(q.read_text(encoding="utf-8", errors="replace"))
     t = d / "tasks.md"
     if t.is_file():
         text = t.read_text(encoding="utf-8", errors="replace")
@@ -752,16 +782,41 @@ def stage_record(flow, data):
     return rec
 
 
-def unaccounted(flow, data, key):
+def is_conditional(flow, key):
+    return any(s["key"] == key and s.get("conditional") for s in FLOWS["flows"].get(flow, {}).get("stages", []))
+
+
+def not_needed(flow, data, key, open_q):
+    """A stage with no record that nothing needs: a conditional one while there is nothing to do (no open
+    questions), or one flagged inferFromGates whose gates are all passed already (an item from before the stage existed)."""
+    stage = next(s for s in FLOWS["flows"][flow]["stages"] if s["key"] == key)
+    if stage.get("conditional"):
+        return not open_q
+    gates = (data or {}).get("gates") or {}
+    return bool(stage.get("inferFromGates")) and all(g in gates for g in stage["passes"])
+
+
+def open_conditional(flow, data, key, open_q):
+    """A conditional stage that still has questions to ask: open questions exist and the user has not
+    answered them or chosen to continue (the stage's gate is not passed)."""
+    stage = next(s for s in FLOWS["flows"][flow]["stages"] if s["key"] == key)
+    gates = (data or {}).get("gates") or {}
+    return bool(stage.get("conditional") and open_q and not all(g in gates for g in stage["passes"]))
+
+
+def unaccounted(flow, data, key, open_q=0):
     """The stages before `key` that were never worked and never skipped with the user's yes."""
     keys, rec = stage_keys(flow), stage_record(flow, data)
-    return [k for k in keys[:keys.index(key)] if k not in rec]
+    return [k for k in keys[:keys.index(key)]
+            if (k not in rec and not not_needed(flow, data, k, open_q)) or open_conditional(flow, data, k, open_q)]
 
 
-def unfinished(flow, data):
+def unfinished(flow, data, open_q=0):
     """The stages that are not done and not skipped: what still blocks the flow from being finished."""
     rec = stage_record(flow, data)
-    return [k for k in stage_keys(flow) if (rec.get(k) or {}).get("status") not in ("done", "skipped")]
+    return [k for k in stage_keys(flow)
+            if ((rec.get(k) or {}).get("status") not in ("done", "skipped")
+                and not (k not in rec and not_needed(flow, data, k, open_q))) or open_conditional(flow, data, k, open_q)]
 
 
 def mark_stage(flow, data, key, entry):
@@ -872,10 +927,13 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
         key = phase_key(flow, phase)
         if key is None:
             return False, [f"unknown {flow} phase '{phase}'"], []
-        if status in ("done", "abandoned"):
+        # a stage recorded done means the flow is over only for the last stage; any other done stage just hands over
+        keys = stage_keys(flow)
+        cur_key = phase_key(flow, cur_phase)
+        if status == "abandoned" or (status == "done" and (cur_key is None or cur_key == keys[-1])):
             return False, [f"the flow is {status}"], []
         reasons += [f"{k} was never worked and never skipped — do it first, or ask the user to skip it"
-                    for k in unaccounted(flow, data, key)]
+                    for k in unaccounted(flow, data, key, open_questions(root, cfg, wid))]
         missing = [g for g in PHASE_NEEDS.get(flow, {}).get(key, []) if g not in met]
         reasons += [f"{key} needs '{g}' first — " + ("not true on disk yet" if g in DERIVED else "not recorded as passed")
                     for g in missing]
@@ -919,7 +977,7 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
 
     # op == "done": every stage done or skipped by the user, every repo merged, the close-out in ADO
     flow = prog.get("flow") or data.get("flow")
-    left = [k for k in unfinished(flow, data) if not (k == phase_key(flow, cur_phase) and status == "done")]
+    left = [k for k in unfinished(flow, data, open_questions(root, cfg, wid)) if not (k == phase_key(flow, cur_phase) and status == "done")]
     if left:
         reasons.append(f"not every stage is done: {', '.join(left)}. Do them (resume with /sdd {wid}), or ask "
                        "the user to skip each one and record it with --status skipped --confirmed")
@@ -1063,6 +1121,7 @@ def main():
     s.add_argument("--ref", action="append", default=[], help="spec file or code path[:line[-end]] the user decides on; required with --status waiting")
     s.add_argument("--no-visual", metavar="WHY", help="a waiting gate with nothing to explain (plain choice); otherwise an .html sdd:visual ref is required")
     s.add_argument("--confirmed", metavar="WORDS", help="with --status skipped: the user's own words agreeing to skip this stage")
+    s.add_argument("--caveat", metavar="TEXT", help="finishing Open Questions with questions still open: the user chose to continue; what was left open")
     s.add_argument("--passed", action="append", default=[], help="gate the user just approved, repeatable")
     s.add_argument("--revoke", action="append", default=[], help="gate no longer valid (e.g. spec changed), repeatable")
     s = sp.add_parser("pr")

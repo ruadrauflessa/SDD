@@ -204,12 +204,12 @@ on it. If the item no longer waits at `<stage>`, say so in one line and ask agai
 ## `sdd approve for <id>, stage <stage>` — the go-ahead from the view
 
 Posted as the user's own message by the **Approve** button of the sdd view. The view shows that
-button only while a spec flow item waits on the user at `Specify`, `Design`, `Decompose` or `Verify`.
+button only while a spec flow item waits on the user at `Requirements`, `Design`, `Decompose` or `Verify`.
 While your gate question is still open in the chat, the button answers it directly with the
 go-ahead option, so you get it as the AskUserQuestion result and this message is not sent.
 
 It is the user's real yes to that stage's gate question: the go-ahead option of the spec flow's gate
-table (`Specify` → "Approve — start Design", `Design` → "Approve — start Decompose", `Decompose` →
+table (`Requirements` → "Approve — start Design", `Design` → "Approve — start Decompose", `Decompose` →
 "Approve — start Implement", `Verify` → "Raise the PR"). Hand over to `sdd:spec` and treat it
 exactly as if the user picked that option in the dialog — pass the stage's gate on it and go on to
 the next stage. Before you act, run `env.py status --id <id> --json`: if the item no longer waits at
