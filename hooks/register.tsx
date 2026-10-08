@@ -6,7 +6,7 @@ import { update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { SddAsk, SddColors, SddDoc, SddItem, SddQuestion, SddSnapshot, SddStage } from '../types'
-import { answerMessage, answersFor, approveAnswers, approveFor, approveMessage,decidedGates, fileLinks, flowFinished, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, fileTarget, gateStory, phaseKey, phaseLabel, refLink, stageDocs, stageHistory, stageRows, stageSummary, statusWord, when } from './view/model'
+import { answerMessage, answersFor, approveAnswers, approveFor, approveMessage,decidedGates, fileLinks, flowFinished, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, fileTarget, gateStory, phaseKey, phaseLabel, refLink, stageDocs, stageHistory, questionBadge, stageRows, stageSummary, statusWord, when } from './view/model'
 import type { Mark } from './view/model'
 
 const PANE = 'sdd-view'
@@ -453,6 +453,7 @@ export const register: Register = on => {
               const key = `stage:${r.stage.key}`
               const sum = stageSummary(flow, item, r.stage.key)
               const gates = decidedGates(r.stage, s.derived)
+              const badge = questionBadge(flow, item, r.stage.key)
               return (
                 <Box flexDirection="column">
                   <Box key={`row-${key}`} flexDirection="row" gap={1} width="100%">
@@ -461,6 +462,7 @@ export const register: Register = on => {
                       <Button hover={{ color: C.hoverText, dimColor: false }} key={key} plain dimColor label={stageName(r.stage)}
                         onPress={() => toggle(key)} />
                     </Box>
+                    {badge && <Text color={badge.warn ? C.now : C.dim}>{badge.text}</Text>}
                     {stamp(sum.lastAt) && (
                       <Button hover={{ color: C.hoverText, dimColor: false }} key={`${key}-at`} plain dimColor label={stamp(sum.lastAt)} onPress={() => toggle(key)} />
                     )}
@@ -592,7 +594,7 @@ export const register: Register = on => {
         <Box flexDirection="column" marginLeft={3} paddingLeft={1} borderStyle="single" borderColor={C.line}>
           {hist.length === 0 && <Text dimColor>{mark === 'later' || mark === 'next' ? 'Not started yet.' : mark === 'missed' ? 'Never worked, and you did not agree to skip it.' : 'No log entries for this stage.'}</Text>}
           {hist.map(h => entryRow(h.at, word(h), h.status === 'waiting' ? C.now : h.status === 'blocked' ? C.revoked : undefined,
-            [h.gate, h.confirmed ? `You said: "${h.confirmed}"` : '', h.note, h.gates?.passed?.length ? `Passed: ${h.gates.passed.join(', ')}.` : '',
+            [h.gate, h.confirmed ? `You said: "${h.confirmed}"` : '', h.note, h.caveat ? `Continued with ${h.openQuestions ?? 'some'} open: ${h.caveat}.` : '', h.gates?.passed?.length ? `Passed: ${h.gates.passed.join(', ')}.` : '',
               h.gates?.revoked?.length ? `Revoked: ${h.gates.revoked.join(', ')}.` : ''].filter(Boolean).join(' '),
             h.refs ?? []))}
         </Box>

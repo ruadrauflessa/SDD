@@ -19,22 +19,39 @@ export function phaseKey(flow: SddFlow, name: string | undefined): string | null
   return hit ? hit.key : null
 }
 
-/** A stage behind the current one, from its record. An old snapshot without records counts it done. */
-function pastMark(item: SddItem, key: string): Mark {
+/** A stage behind the current one, from its record. An old snapshot without records counts it done.
+ *  A conditional stage with no record and no open question was never needed: it shows as skipped.
+ *  A stage added after the item started (inferFromGates) counts as done once its gates are passed. */
+function pastMark(item: SddItem, stage: SddStage): Mark {
   if (!item.stages) return 'done'
-  const r = item.stages[key]
+  const r = item.stages[stage.key]
+  if (!r && stage.conditional && !(item.spec?.questions_open ?? 0)) return 'skipped'
+  if (!r && stage.inferFromGates && stage.passes.every(g => item.gates?.[g])) return 'done'
   return !r ? 'missed' : r.status === 'skipped' ? 'skipped' : 'done'
+}
+
+/** The note beside a conditional stage: the questions still open, or the caveat the person continued with. */
+export function questionBadge(flow: SddFlow, item: SddItem, key: string): { text: string; warn: boolean } | null {
+  const stage = flow.stages.find(s => s.key === key)
+  if (!stage?.conditional) return null
+  const open = item.spec?.questions_open ?? 0
+  const gate = stage.passes.every(g => item.gates?.[g])
+  const caveat = stageHistory(flow, item, key).find(h => h.caveat)
+  if (gate && caveat && open) return { text: `continued with ${open} open`, warn: true }
+  if (open) return { text: `${open} open`, warn: true }
+  const total = item.spec?.questions_total ?? 0
+  return total ? { text: `${total} answered`, warn: false } : null
 }
 
 export function stageRows(flow: SddFlow, item: SddItem): StageRow[] {
   const p = item.progress
   if (p?.status === 'done' && phaseKey(flow, p.phase) === null) {
-    return flow.stages.map(stage => ({ stage, mark: pastMark(item, stage.key) }))
+    return flow.stages.map(stage => ({ stage, mark: pastMark(item, stage) }))
   }
   const cur = flow.stages.findIndex(s => s.key === phaseKey(flow, p?.phase))
   return flow.stages.map((stage, i) => {
     if (cur < 0) return { stage, mark: i === 0 ? 'next' : 'later' }
-    if (i < cur) return { stage, mark: pastMark(item, stage.key) }
+    if (i < cur) return { stage, mark: pastMark(item, stage) }
     if (i === cur && item.stages?.[stage.key]?.status === 'skipped') return { stage, mark: 'skipped' }
     if (i === cur) return { stage, mark: (p?.status ?? 'active') as Mark }
     return { stage, mark: i === cur + 1 ? 'next' : 'later' }
@@ -55,6 +72,8 @@ export function stageHistory(flow: SddFlow, item: SddItem, key: string): SddProg
 
 const DOCS: Record<string, string[]> = {
   Specify: ['requirements.md', 'questions.md', 'impact.md'],
+  'Open Questions': ['questions.md', 'impact.md'],
+  Requirements: ['requirements.md', 'questions.md', 'impact.md'],
   Design: ['design.md', 'questions.md'],
   Decompose: ['tasks.md'],
   Implement: ['tasks.md'],
@@ -228,7 +247,7 @@ export function idFromScript(cmd: string): number | null {
 /** The spec flow stops the view approves with one button: the button's label, and the go-ahead
  *  option each one's gate question offers, as the spec skill's gate table names it. */
 const APPROVE: Record<string, { label: string; option: string }> = {
-  Specify: { label: 'Approve Spec', option: 'Approve — start Design' },
+  Requirements: { label: 'Approve Spec', option: 'Approve — start Design' },
   Design: { label: 'Approve Design', option: 'Approve — start Decompose' },
   Decompose: { label: 'Approve Task List', option: 'Approve — start Implement' },
   Verify: { label: 'Raise PR', option: 'Raise the PR' },

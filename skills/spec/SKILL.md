@@ -115,13 +115,14 @@ Shape every gate the same way:
   revision is ready. Never guess at the fix and silently re-ask the same question with different
   content.
 - **Use the go-ahead labels in the table below as written.** The sdd view's **Approve** button
-  (shown at the Specify, Design, Decompose and Verify stops) picks the option with that label in an
+  (shown at the Requirements, Design, Decompose and Verify stops) picks the option with that label in an
   open question, or posts `sdd approve for <id>, stage <stage>` as the user's own message when the
   dialog has closed. Treat either as the user's choice of that option.
 
 | Gate | Mode | Options |
 | --- | --- | --- |
-| Requirements agreed | End of Specify | "Approve — start Design" / "Needs changes" |
+| Open questions | Open Questions, one question at a time while any are open | The question's own options, plus "Continue with this open" (see "Mode: Open Questions") |
+| Requirements agreed | End of Requirements | "Approve — start Design" / "Needs changes" |
 | Design agreed | End of Design — asked again after any requested changes are incorporated | "Approve — start Decompose" / "Needs changes" |
 | Tech story creation | Design, tech story gate | One option per proposal, `multiSelect: true` — the user picks which, if any, get created |
 | Tasks agreed | End of Decompose | "Approve — start Implement" / "Needs changes" |
@@ -140,7 +141,7 @@ The folder tree mirrors the ADO hierarchy, so the join is visible without openin
     tasks.md
     4471-US-guest-checkout/         # User Story
       requirements.md
-      questions.md                  # gaps and open questions for the author
+      questions.md                  # gaps and open questions: `- [ ]` open, `- [x]` answered
       impact.json, impact.md        # spec.py impact / sdd:impact
       design.md
       tasks.md
@@ -216,12 +217,14 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/env.py progress --id <id> --flow spec \
 
 | When | `--status` | Also pass |
 | --- | --- | --- |
-| Starting a mode (Specify, Design, Decompose, Implement, Verify); in Implement, `--note "task 3/7"` after each task | `active` | `--note` with anything decided so far |
+| Starting a mode (Specify, Open Questions, Requirements, Design, Decompose, Implement, Verify); in Implement, `--note "task 3/7"` after each task | `active` | `--note` with anything decided so far |
 | Just before asking a gate question | `waiting` | `--gate` (the question), `--next` (what happens on "yes"), `--ref visuals/<mode>.html` (or `--no-visual "<reason>"`) |
 | Stuck on something outside the flow | `blocked` | `--note` (what blocks it) |
 | Abandoned | `abandoned` | `--note` (what was cleaned up and what was left) |
 | Leaving a stage | `done` | `--passed` for any gate it passed |
 | Skipping a stage — only after the user's yes (see below) | `skipped` | `--confirmed "<the user's words>"` |
+| Open Questions with nothing to ask (no `- [ ]` left in `questions.md`) | `skipped` | nothing: no user's words needed; the script refuses the skip while any question is open |
+| Open Questions finished with questions still open, the user chose "Continue with this open" | `done` | `--passed "Open questions" --caveat "<the questions left open>"` |
 | Closed out | `done` | — |
 
 `progress` creates the work item folder when it does not exist yet, so the first checkpoint can
@@ -229,7 +232,8 @@ come before any worktree.
 
 ### Never skip a stage on your own
 
-Every stage of the flow is worked, in order — also a stage whose work happened inside another one
+Every stage of the flow is worked, in order (**Open Questions** is the one conditional stage: with no
+open question it records itself skipped, and the script refuses that skip while any question is open) — also a stage whose work happened inside another one
 (record it anyway, with `--note` saying where the work was done). `progress` and `can` refuse a stage
 while an earlier one was never worked and never skipped, and `/sdd done` refuses until every stage
 is done or skipped.
@@ -262,6 +266,7 @@ names really passed), with `--passed` on the checkpoint you write anyway:
 | Gate | Pass it when | Needed by |
 | --- | --- | --- |
 | `Claimed` | Specify step 1: assigned, `Active`, `Dev In Progress` written | Design |
+| `Open questions` | Open Questions: every question answered, or the user chose "Continue with this open" (with `--caveat`) | Requirements, while `questions.md` has open questions |
 | `Requirements agreed` | "Requirements agreed" gate: the user chose "Approve — start Design" | Design, Decompose, Implement, the PR |
 | `Design agreed` | "Design agreed" gate: the user chose "Approve — start Decompose" | Decompose, Implement |
 | `Ready to PR` | "Ready to PR" gate: the user chose "Raise the PR" | the PR |
@@ -270,7 +275,7 @@ Gates the script reads from disk, so you never pass them: `Worktree` (every repo
 exists), `PR raised` (a PR is recorded), `Tasks written` / `Tasks done` (checkboxes in `tasks.md`).
 
 **Revoke** a gate when what it approved has changed — with `--revoke` on the next checkpoint:
-- `spec.py sync` reports MATERIAL for this item or its parent → `--revoke "Requirements agreed" --revoke "Design agreed" --revoke "Ready to PR"`, and go back to Specify.
+- `spec.py sync` reports MATERIAL for this item or its parent → `--revoke "Open questions" --revoke "Requirements agreed" --revoke "Design agreed" --revoke "Ready to PR"`, and go back to Specify.
 - `design.md` changes materially after approval → `--revoke "Design agreed" --revoke "Ready to PR"`.
 - Code changes after "Raise the PR" was chosen but before the PR is open → `--revoke "Ready to PR"`.
 ### Resuming
@@ -298,7 +303,9 @@ the user why and stop. Otherwise:
 | Situation | Mode |
 | --- | --- |
 | Work item picked up, no spec folder yet | **Specify** |
-| Requirements mirrored and agreed | **Design** |
+| `questions.md` has an open `- [ ]` question | **Open Questions** |
+| Requirements mirrored, no open question | **Requirements** |
+| Requirements agreed | **Design** |
 | Design agreed | **Decompose** |
 | `tasks.md` exists | **Implement** |
 | Tasks done, before, during or after PR | **Verify** |
@@ -317,13 +324,56 @@ the user why and stop. Otherwise:
    field names and the write path.
 3. **Read the mirrored file** — resolve it by glob, `{specRoot}/**/<id>-*/requirements.md` — and
    its parent's. Put every gap and open question in `questions.md` next to it, never in
-   `requirements.md`.
+   `requirements.md`. One question per line, as an unticked checkbox:
+   `- [ ] Q1: <the question> (context: <why it matters>)`. The Open Questions stage counts those
+   lines; a question written any other way is never asked.
 4. **Run the `sdd:impact` flow for this item** (`spec.py impact --id <id>`, then its
    `impact.md`), so blast-radius gaps against other specs are raised now, before the requirement
-   is agreed, not at PR time.
+   is agreed, not at PR time. **Copy each blast-radius gap that needs an answer into
+   `questions.md` as a `- [ ]` line**: `impact.md` is read, but only `questions.md` is counted.
 5. **Do not soften a thin work item.** Missing acceptance criteria stay missing and get raised
    as a question in `questions.md` — inventing them puts intent in the repo that no PM ever agreed to.
-6. **Stop and ask.** Build the `sdd:visual` **requirements** page (`visuals/requirements.html`) — the requirement summary, the open questions and the impact gaps go on the page, not in chat — send it, then run the "Requirements agreed" gate
+6. **Hand over.** Specify makes no approval. Record `env.py progress --phase Specify --status done`.
+   If `questions.md` has an unticked `- [ ]` line, go to **Open Questions**. If not, record Open
+   Questions as skipped (`--phase "Open Questions" --status skipped`, no user's words needed) and go
+   to **Requirements**.
+
+### Mode: Open Questions (conditional)
+
+Runs only when Specify left open questions: any `- [ ]` line in `questions.md`. That file holds the
+gaps in the work item **and** the blast-radius gaps from `impact.md`, which Specify copied there.
+With none, the stage is skipped. The script refuses a skip while a question is open, and refuses to
+start Requirements until this stage is done.
+
+1. **Start the stage:** `env.py progress --phase "Open Questions" --status active --note "<N> open"`.
+2. **List and explain first. Ask nothing yet.** Build an `sdd:visual` page
+   (`visuals/open-questions.html`) that lists every open question, where it came from (work item gap
+   or impact gap), and the situation: what the requirement says, what is unclear, and what each
+   answer would change. Send it, paste the Links block (see "Decision briefs"), and open the chat
+   with a short intro: how many questions there are, and that you will ask them one at a time. Only
+   then ask the first one.
+3. **Ask one question at a time** with `AskUserQuestion`: one question per call, never batched. Offer
+   the likely answers as options when there are any (the built-in "Other" takes anything else), and
+   **always end with the option "Continue with this open"**. Checkpoint each ask:
+   `--status waiting --gate "Q<n> of <N>: <question>" --ref questions.md --ref visuals/open-questions.html`.
+4. **Record each answer at once.** Tick the line in `questions.md` and put the answer on it:
+   `- [x] Q1: <question> — Answer: <the user's words>`. Never write an answer into `requirements.md`
+   (ground rule 1), and never answer an unclear point yourself.
+5. **"Continue with this open"** ends the questioning. Do not ask the rest. Say in one line which
+   questions stay open, then record `env.py progress --phase "Open Questions" --status done
+   --passed "Open questions" --caveat "<each open question, a few words each>"`. Leave those lines
+   `- [ ]`. Carry them forward: the requirements page, the design and the PR description each list
+   them as **open questions the work continues with**. The script refuses a finish with open
+   questions and no `--caveat`.
+6. **All answered?** Record `--status done --passed "Open questions" --note "all <N> answered"`.
+7. A question that arises while asking is added as a new `- [ ]` line and asked in turn. One that an
+   earlier answer made moot is ticked with "— moot after Q<n>".
+
+### Mode: Requirements
+
+1. **Show where the questions stand** on the requirements page: answered ones with their answers,
+   and, when the user continued with a caveat, every question still open, marked as open.
+2. **Stop and ask.** Build the `sdd:visual` **requirements** page (`visuals/requirements.html`) — the requirement summary, the answered and open questions and the impact gaps go on the page, not in chat — send it, then run the "Requirements agreed" gate
    with `AskUserQuestion` (see "Approval gates" below). Designing before that answer wastes work
    if the requirement moves.
 

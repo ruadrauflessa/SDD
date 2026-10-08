@@ -106,7 +106,7 @@ Send the `sdd:visual` **impact** page — the Direct list and the gap questions 
   start again at Step 2.
 
 Called from `sdd:spec`? Return to its Specify step with the Direct list and the questions; it adds
-the open ones to `questions.md`.
+the open ones to `questions.md` as unticked `- [ ]` lines, so the Open Questions stage counts them.
 
 ## Whole spec at once — `/sdd impact all [<scope id>]`
 

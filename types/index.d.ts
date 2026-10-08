@@ -14,6 +14,10 @@ export type SddProgress = {
   /** With status skipped: the user's own words agreeing to the skip. */
   confirmed?: string
   gates?: { passed: string[]; revoked: string[] }
+  /** Open Questions finished with questions still open: what the person chose to leave open. */
+  caveat?: string
+  /** With caveat: how many questions were still open. */
+  openQuestions?: number
 }
 
 export type SddRepo = {
@@ -39,7 +43,7 @@ export type SddItem = {
   gates: Record<string, string>
   progress: SddProgress | null
   folder: string | null
-  spec: { folder: string; path: string; files: string[]; tasks_done?: number; tasks_total?: number } | null
+  spec: { folder: string; path: string; files: string[]; tasks_done?: number; tasks_total?: number; questions_open?: number; questions_total?: number } | null
   met: string[]
   url: string | null
   history?: SddProgress[]
@@ -51,7 +55,7 @@ export type SddItem = {
 
 export type SddStageRecord = { at: string; status: 'worked' | 'done' | 'skipped'; confirmed?: string; doneAt?: string }
 
-export type SddStage = { key: string; label: string; needs: string[]; passes: string[]; stop?: boolean; reworkTo?: string }
+export type SddStage = { key: string; label: string; needs: string[]; passes: string[]; stop?: boolean; reworkTo?: string; conditional?: boolean; inferFromGates?: boolean }
 
 export type SddFlow = { label: string; prGates: string[]; stages: SddStage[] }
 

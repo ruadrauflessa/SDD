@@ -1,13 +1,15 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { SddItem, SddSnapshot } from '../types'
-import { answerMessage, answersFor, approveAnswers, approveFor, approveMessage, fileLinks, flowFinished, fileTarget, gateStory, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, phaseKey, refLink, stageRows, stageSummary } from './view/model'
+import { questionBadge, answerMessage, answersFor, approveAnswers, approveFor, approveMessage, fileLinks, flowFinished, fileTarget, gateStory, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, phaseKey, refLink, stageRows, stageSummary } from './view/model'
 
 const SPEC = {
   label: 'Spec flow',
   prGates: ['Requirements agreed', 'Ready to PR'],
   stages: [
-    { key: 'Specify', label: 'Specify', needs: [], passes: ['Claimed', 'Requirements agreed'], stop: true },
+    { key: 'Specify', label: 'Specify', needs: [], passes: ['Claimed'] },
+    { key: 'Open Questions', label: 'Open Questions', needs: ['Claimed'], passes: ['Open questions'], stop: true, conditional: true },
+    { key: 'Requirements', label: 'Requirements', needs: ['Claimed'], passes: ['Requirements agreed'], stop: true, inferFromGates: true },
     { key: 'Design', label: 'Design', needs: ['Claimed', 'Requirements agreed'], passes: ['Worktree', 'Design agreed'], stop: true },
     { key: 'Decompose', label: 'Decompose', needs: [], passes: ['Tasks written'], stop: true },
     { key: 'Implement', label: 'Implement', needs: [], passes: ['Tasks done'] },
@@ -31,8 +33,8 @@ const ITEM: SddItem = {
   met: ['Claimed', 'Design agreed', 'PR raised', 'Ready to PR', 'Requirements agreed', 'Tasks done', 'Tasks written', 'Worktree'],
   url: 'https://dev.azure.com/o/Internal_DevOps/_workitems/edit/92012',
   history: [
-    { at: '2026-10-01T10:41:54Z', flow: 'spec', phase: 'Specify', status: 'waiting', gate: 'Requirements agreed?', refs: ['visuals/requirements.html'] },
-    { at: '2026-10-01T12:24:36Z', flow: 'spec', phase: 'Specify', status: 'done', gates: { passed: ['Requirements agreed'], revoked: [] } },
+    { at: '2026-10-01T10:41:54Z', flow: 'spec', phase: 'Requirements', status: 'waiting', gate: 'Requirements agreed?', refs: ['visuals/requirements.html'] },
+    { at: '2026-10-01T12:24:36Z', flow: 'spec', phase: 'Requirements', status: 'done', gates: { passed: ['Requirements agreed'], revoked: [] } },
     { at: '2026-10-01T12:35:44Z', flow: 'spec', phase: 'Design', status: 'active', gates: { passed: [], revoked: ['Requirements agreed'] } },
     { at: '2026-10-01T12:41:15Z', flow: 'spec', phase: 'Decompose', status: 'active', gates: { passed: ['Requirements agreed', 'Design agreed'], revoked: [] } },
   ],
@@ -85,8 +87,8 @@ test('refs become links', () => {
 
 test('a gate reads as one decision: in time order', () => {
   const item = { ...ITEM, history: [
-    { at: '2026-10-01T10:41:54Z', flow: 'spec', phase: 'Specify', status: 'waiting' as const, gate: 'Requirements agreed?', refs: ['visuals/requirements.html'] },
-    { at: '2026-10-01T12:24:36Z', flow: 'spec', phase: 'Specify', status: 'done' as const, note: 'AC 4-6 added', gates: { passed: ['Requirements agreed'], revoked: [] } },
+    { at: '2026-10-01T10:41:54Z', flow: 'spec', phase: 'Requirements', status: 'waiting' as const, gate: 'Requirements agreed?', refs: ['visuals/requirements.html'] },
+    { at: '2026-10-01T12:24:36Z', flow: 'spec', phase: 'Requirements', status: 'done' as const, note: 'AC 4-6 added', gates: { passed: ['Requirements agreed'], revoked: [] } },
     { at: '2026-10-01T12:29:10Z', flow: 'spec', phase: 'Design', status: 'waiting' as const, gate: 'Design agreed?' },
     { at: '2026-10-01T12:35:44Z', flow: 'spec', phase: 'Design', status: 'active' as const, note: 'tags moved', gates: { passed: [], revoked: ['Requirements agreed'] } },
     { at: '2026-10-01T12:38:01Z', flow: 'spec', phase: 'Design', status: 'waiting' as const, gate: 'Re-approve rev 2' },
@@ -100,7 +102,7 @@ test('a gate reads as one decision: in time order', () => {
 })
 
 test('a stage row counts its entries and shows its latest note', () => {
-  expect(stageSummary(SPEC, ITEM, 'Specify')).toEqual({ count: 2, note: '', lastAt: '2026-10-01T12:24:36Z' })
+  expect(stageSummary(SPEC, ITEM, 'Requirements')).toEqual({ count: 2, note: '', lastAt: '2026-10-01T12:24:36Z' })
   const withNote = { ...ITEM, history: [...ITEM.history!, { at: '2026-10-01T12:50:00Z', flow: 'spec', phase: 'Decompose', status: 'active' as const, note: '20 tasks' }] }
   expect(stageSummary(SPEC, withNote, 'Decompose')).toEqual({ count: 2, note: '20 tasks', lastAt: '2026-10-01T12:50:00Z' })
 })
@@ -136,7 +138,7 @@ const AT_DESIGN: SddItem = {
   gates: { Claimed: '2026-10-01T08:50:08Z', 'Requirements agreed': '2026-10-01T12:24:36Z' },
   progress: { at: '2026-10-01T12:29:10Z', flow: 'spec', phase: 'Design', status: 'waiting', gate: 'Design agreed?', refs: ['visuals/design.html', 'design.md', 'src/Repo/A.cs:43-82'] },
   history: [
-    { at: '2026-10-01T12:24:36Z', flow: 'spec', phase: 'Specify', status: 'done', gates: { passed: ['Requirements agreed'], revoked: [] } },
+    { at: '2026-10-01T12:24:36Z', flow: 'spec', phase: 'Requirements', status: 'done', gates: { passed: ['Requirements agreed'], revoked: [] } },
     { at: '2026-10-01T12:29:10Z', flow: 'spec', phase: 'Design', status: 'waiting', gate: 'Design agreed?', refs: ['visuals/design.html', 'design.md', 'src/Repo/A.cs:43-82'] },
   ],
   spec: { ...ITEM.spec!, files: ['design.md', 'questions.md', 'requirements.md'] },
@@ -180,7 +182,7 @@ test('answers read as the chat dialog gives them', () => {
 
 test('the Approve button shows at the four spec stops and picks the go-ahead', () => {
   const at = (phase: string, status: 'waiting' | 'active' = 'waiting'): SddItem => ({ ...ITEM, progress: { ...ITEM.progress!, phase, status } })
-  expect(approveFor(SPEC, at('Specify'))).toEqual({ key: 'Specify', label: 'Approve Spec', option: 'Approve — start Design' })
+  expect(approveFor(SPEC, at('Requirements'))).toEqual({ key: 'Requirements', label: 'Approve Spec', option: 'Approve — start Design' })
   expect(approveFor(SPEC, at('Design'))).toEqual({ key: 'Design', label: 'Approve Design', option: 'Approve — start Decompose' })
   expect(approveFor(SPEC, at('Decompose'))).toEqual({ key: 'Decompose', label: 'Approve Task List', option: 'Approve — start Implement' })
   expect(approveFor(SPEC, at('Verify'))).toEqual({ key: 'Verify', label: 'Raise PR', option: 'Raise the PR' })
@@ -195,4 +197,26 @@ test('the Approve button shows at the four spec stops and picks the go-ahead', (
   const other = [{ question: 'Which tech stories?', multiSelect: true, options: [{ label: 'TS-1' }, { label: 'TS-2' }] }]
   expect(approveAnswers(other, 'Approve — start Decompose')).toBe(null)
   expect(approveMessage(92012, 'Decompose')).toBe('sdd approve for 92012, stage Decompose')
+})
+
+test('Open Questions: skipped when nothing was asked, badged while questions stay open or were left open', () => {
+  const done = { at: '2026-10-01T10:00:00Z', status: 'done' as const }
+  const base: SddItem = { ...ITEM, gates: { Claimed: 'x' }, progress: { ...ITEM.progress!, phase: 'Requirements', status: 'waiting' },
+    stages: { Specify: done }, spec: { ...ITEM.spec!, questions_open: 0, questions_total: 0 } }
+  const mark = (i: SddItem) => stageRows(SPEC, i).find(r => r.stage.key === 'Open Questions')!.mark
+  expect(mark(base)).toBe('skipped')
+  expect(questionBadge(SPEC, base, 'Open Questions')).toBe(null)
+  expect(questionBadge(SPEC, base, 'Specify')).toBe(null)
+  const asked = { ...base, spec: { ...base.spec!, questions_open: 2, questions_total: 3 } }
+  expect(mark(asked)).toBe('missed')
+  expect(questionBadge(SPEC, asked, 'Open Questions')).toEqual({ text: '2 open', warn: true })
+  const caveat = { ...asked, gates: { ...asked.gates, 'Open questions': 'y' }, stages: { ...asked.stages, 'Open Questions': done },
+    history: [{ at: '2026-10-01T11:00:00Z', flow: 'spec', phase: 'Open Questions', status: 'done' as const, caveat: 'Q2 region', openQuestions: 2 }] }
+  expect(mark(caveat)).toBe('done')
+  expect(questionBadge(SPEC, caveat, 'Open Questions')).toEqual({ text: 'continued with 2 open', warn: true })
+  const answered = { ...base, spec: { ...base.spec!, questions_open: 0, questions_total: 3 }, stages: { ...base.stages, 'Open Questions': done } }
+  expect(questionBadge(SPEC, answered, 'Open Questions')).toEqual({ text: '3 answered', warn: false })
+  // an item started before the stages existed: Requirements agreed is passed, so Requirements is not "missed"
+  const legacy = { ...base, gates: { Claimed: 'x', 'Requirements agreed': 'y' } }
+  expect(stageRows(SPEC, { ...legacy, progress: { ...legacy.progress!, phase: 'Design' } }).find(r => r.stage.key === 'Requirements')!.mark).toBe('done')
 })
