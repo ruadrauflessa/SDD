@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git branch *)",
+      "PowerShell(git status *)",
+      "PowerShell(git diff *)",
+      "PowerShell(git log *)",
+      "PowerShell(git branch *)",
+
+      "mcp__azure-devops__wit_work_item",
+      "mcp__azure-devops__wit_query",
+      "mcp__azure-devops__wit_backlog",
+      "mcp__azure-devops__search_workitem",
+
+      "Bash(powershell -NoProfile -ExecutionPolicy Bypass -File *audit-coverage.ps1*)",
+      "PowerShell(*audit-coverage.ps1*)"
+    ]
+  }
+}
+
+// Notes (strip before use - JSON has no comments):
+// - Read-only ADO MCP tools only (no `*_write` tools). Every write (state change, comment, work item create) stays
+//   prompted; that prompt is the safety net for the one upward write this workspace allows.
+// - Tool names follow mcp__<server>__<tool>; replace "azure-devops" with your configured server name.
+// - Mirror every Bash(...) entry with PowerShell(...) on Windows, or the prompts come back
+//   through the other shell.
+// - Add the stack's build/test/lint commands once you have observed them prompting.
