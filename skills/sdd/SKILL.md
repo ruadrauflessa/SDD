@@ -1,6 +1,6 @@
 ---
 name: sdd
-description: 'Entry point for the spec-driven development workflows on Azure DevOps work items in a multi-repo workspace. `/sdd help` gives a quick tour; `/sdd init` checks and (per item, with permission) installs or configures everything the workflows need, including the workspace CLAUDE.md block. `/sdd <id>` reads the work item type and routes Bug/Issue to the bug flow and story/tech story/change request/feature/epic to the spec flow; `/sdd bug <id>`, `/sdd spec <id>`, `/sdd sync [<id>|all]`, `/sdd impact <id>` (or `/sdd impact all` for the whole spec, after a token-cost warning), `/sdd status <id>` reports where an item stands (so work started in one chat can resume in another), `/sdd done <id>` cleans up, `/sdd abandon <id>` stops an item, and `/sdd <id> feedback <stage>: <text>` (or the sdd view''s message "sdd feedback for <id>, stage <stage>: <text>") sends an item back to a stage with the user''s feedback, the view''s "sdd answer for <id>, stage <stage>: …" is the user''s answer to a gate question, and the view''s "sdd approve for <id>, stage <stage>" is the user''s go-ahead at a spec flow stop — each refuses and explains when the item''s state does not allow it. Use whenever the user types /sdd or asks to "sdd" a work item.'
+description: 'Entry point for the spec-driven development workflows on Azure DevOps work items in a multi-repo workspace. `/sdd help` gives a quick tour; `/sdd init` checks and (per item, with permission) installs or configures everything the workflows need, including the workspace CLAUDE.md block. `/sdd <id>` reads the work item type and routes Bug/Issue to the bug flow and story/tech story/change request/feature/epic to the spec flow; `/sdd bug <id>`, `/sdd spec <id>`, `/sdd sync [<id>|all]`, `/sdd impact <id>` (or `/sdd impact all` for the whole spec, after a token-cost warning), `/sdd status <id>` reports where an item stands (so work started in one chat can resume in another), `/sdd harness <create|onboard|audit|maintain>` sets up and audits the Claude Code harness (CLAUDE.md, allowlists, hooks) of a repo or workspace, `/sdd done <id>` cleans up, `/sdd abandon <id>` stops an item, and `/sdd <id> feedback <stage>: <text>` (or the sdd view''s message "sdd feedback for <id>, stage <stage>: <text>") sends an item back to a stage with the user''s feedback, the view''s "sdd answer for <id>, stage <stage>: …" is the user''s answer to a gate question, and the view''s "sdd approve for <id>, stage <stage>" is the user''s go-ahead at a spec flow stop — each refuses and explains when the item''s state does not allow it. Use whenever the user types /sdd or asks to "sdd" a work item.'
 ---
 
 # /sdd — one entry point for every sdd workflow
@@ -15,6 +15,7 @@ description: 'Entry point for the spec-driven development workflows on Azure Dev
 | `/sdd sync <id>` / `/sdd sync` / `/sdd sync all` | `sdd:sync` | Mirror specs from ADO into the spec folder and index them |
 | `/sdd impact <id>` | `sdd:impact` | Blast radius of one item over the synced specs, with gap questions |
 | `/sdd impact all [<scope id>]` | `sdd:impact` | The same over the whole synced spec, or one epic/feature — deduplicated pairs, **token-cost warning first** |
+| `/sdd harness <operation>` | `sdd:harness` | Create, onboard, audit or maintain the Claude Code harness — CLAUDE.md files, allowlists, hooks — of a repo or workspace |
 | `/sdd status <id>` | this skill | Where the item stands: ADO state, recorded progress, spec files and tasks, repos, live PRs, and a one-line verdict |
 | `/sdd done <id>` | this skill | Clean up once every PR is merged and the close-out is written to ADO — refuses and explains otherwise |
 | `/sdd abandon <id>` | the item's flow skill | Stop the item and clean up what the flow created — refuses and explains if it cannot |
@@ -86,6 +87,12 @@ Work on ADO items goes through `/sdd` (`/sdd help` for the tour). Config: `.clau
 - ADO projects synced: {projects}.
 <!-- sdd:end -->
 ```
+
+## `/sdd harness <operation>` — the Claude Code harness
+
+Invoke `sdd:harness` with the Skill tool, passing the operation word (`create`, `onboard`,
+`audit`, `maintain`). It needs no `.claude/sdd.json` and no work item, so it skips Step 1 and
+the state guards.
 
 ## Step 1 — the workspace must have `.claude/sdd.json`
 

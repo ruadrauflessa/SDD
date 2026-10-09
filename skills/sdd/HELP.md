@@ -31,6 +31,10 @@ make the decisions.
 - `/sdd abandon <id>` — stop an item and clean up what it created. Asks before anything outward-facing.
 - Both refuse, and say why, when the item is not in the right state.
 
+**Harness**
+- `/sdd harness audit` — is the Claude Code setup (CLAUDE.md, allowlists, hooks) complete and current? Reports, changes nothing.
+- `/sdd harness create` / `onboard` / `maintain` — set up a repo or workspace, add a new repo to it, or fix drift.
+
 **Help**
 - `/sdd help` — this page.
 

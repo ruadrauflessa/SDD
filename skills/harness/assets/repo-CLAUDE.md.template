@@ -1,0 +1,26 @@
+# {RepoName}
+
+{One sentence: what this codebase is and where it sits in the wider system — e.g. "Reporting API
+for the Acme platform; sits behind the gateway at /api-reporting."}
+
+## Build / test / run
+
+<!-- Every command below must have been run successfully before being written down. -->
+- Build: `{command}`
+- Test: `{command}`
+- Run locally: `{command}` (serves on {port / URL})
+
+## Layout
+
+<!-- Only what a reader can't infer from 30 seconds of listing folders. Delete the section if nothing qualifies. -->
+- `{path}` — {what's surprising or important about it}
+
+## Conventions
+
+<!-- Only deviations from ecosystem defaults, with the why. Style a linter enforces doesn't belong here. -->
+- {convention} — {why / what happens if ignored}
+
+## Gotchas
+
+<!-- Things that cost someone an hour once. Date-stamp anything likely to change. -->
+- {gotcha}

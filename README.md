@@ -54,7 +54,7 @@ The sdd view opens by itself the first time a chat takes up a work item. In it:
 
 | Path | What |
 | --- | --- |
-| `skills/` | `sdd` (entry), `spec`, `bug`, `sync`, `impact`, `visual`, `workspace` |
+| `skills/` | `sdd` (entry), `spec`, `bug`, `sync`, `impact`, `harness`, `visual`, `workspace` |
 | `scripts/` | `env.py` (work item folders, state guards, progress), `spec.py` (ADO mirror, impact), `flows.json` (the stages of each flow) |
 | `hooks/` | `hooks.json`, `question_guard.py` (links before every question), `register.tsx` + `view/` (the sdd view) |
 | `types/` | The view's state contract |

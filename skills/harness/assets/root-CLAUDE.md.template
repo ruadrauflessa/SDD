@@ -1,0 +1,51 @@
+# {Workspace Name}
+
+{One paragraph: what the platform/product is. If shared architecture docs exist (e.g. for other
+AI tooling), import them instead of duplicating:}
+
+@{path/to/shared-architecture-doc.md}
+
+## Repos — read this first
+
+This root folder {is / is NOT} a git repository. {If multi-repo: every folder below is its own
+git repo with its own pipeline — never assume changes in two folders can share a commit.}
+
+| Repo | What it is | Entry point |
+| --- | --- | --- |
+| `{folder}/` | {one-liner} | {solution file / package.json / main} |
+
+Each repo has its own `CLAUDE.md` with build/test/run commands and conventions — prefer that
+file's guidance when working inside the repo.
+
+## Cross-cutting rules
+
+- Branching: `dev/{developer}/{version}/{type}/{ado-id}-{slug}` → versioned `team/*` →
+  versioned `release/*`. The work item id is the **last segment** of a dev branch and is the
+  only part anything parses. Every `dev/*` PR links exactly one work item: the lowest-level one.
+- Environments: {domains per environment; where environment configs actually live}
+
+## Spec workflow
+
+<!-- Delete this section if the workspace does not use spec-driven development. For an sdd
+     workspace do not hand-write it: `/sdd init` adds the `<!-- sdd:begin -->` block. -->
+
+- Requirements live in **Azure DevOps** ({org}/{project}) and are mirrored read-only into
+  `{specRoot}/**/<ado-id>-<slug>/requirements.md` by `/sdd sync`. Never edit a mirrored
+  requirement: fix the work item and re-sync, or the fix is silently overwritten.
+- `design.md`, `tasks.md` and `questions.md` in the same folder are repo-owned and never pushed to ADO.
+- The spec folder tree mirrors the ADO hierarchy; resolve a folder by glob `{specRoot}/**/<id>-*/`,
+  never by remembered path.
+- `ado_id` is the join key between work item, spec folder, branch and PR.
+- Use `/sdd` for anything spec-related (`/sdd help` for the tour).
+
+## Skills catalogue
+
+<!-- One line per project skill so sessions know what to reach for.
+     Keep in sync with .claude/skills/ — the `/sdd harness audit` script checks this. -->
+- **{skill-name}**: {when to reach for it}
+- **sdd**: starting work from an ADO work item; mirroring, designing and implementing a spec;
+  fixing a bug; impact analysis (`/sdd help`).
+
+## Environment notes
+
+- {OS/shell, path-quoting quirks, VPN-only package feeds, anything machine-environmental}
