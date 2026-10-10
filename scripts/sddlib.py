@@ -3,6 +3,7 @@
 Every script finds the workspace by walking up from the current directory to the first
 folder holding .claude/sdd.json. Run `env.py init` once per workspace to create it.
 """
+import hashlib
 import json
 import os
 import re
@@ -115,6 +116,92 @@ def upgrade_config(root):
     if added:
         path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
     return added
+
+
+# ---------------------------------------------------------------- output style (global)
+
+# The plugin's output style. Installed into the person's global output-styles folder (named after
+# its `name` field) and set as the global outputStyle — at the first session after the plugin is
+# installed or updated (env.py upgrade-config, the SessionStart hook) and by `env.py init`.
+STYLE_NAME = "ELI5"
+STYLE_SRC = Path(__file__).resolve().parent.parent / "assets" / "output-styles" / f"{STYLE_NAME}.md"
+
+
+def config_home():
+    """Claude Code's user config folder: CLAUDE_CONFIG_DIR when set, else ~/.claude."""
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+
+
+def _sha(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _write_atomic(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".sdd-tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def install_output_style(force=False):
+    """Make the plugin's output style the person's global one. -> (changed paths, notes).
+
+    The style file: written when missing, and replaced on a plugin update only while it still holds
+    the text the plugin wrote last time — a file the person edited stays theirs.
+    The setting: outputStyle in the global settings.json, the file created and the key added when
+    missing, every other key kept. Set once: a person who picks another style afterwards keeps it,
+    unless `force` (env.py init, an explicit setup). A settings file that is not valid JSON is never
+    written; a note says so."""
+    home = config_home()
+    state_path = home / "sdd" / "state.json"
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        state = {}
+    before = dict(state)
+    changed, notes = [], []
+
+    text = STYLE_SRC.read_text(encoding="utf-8")
+    dest = home / "output-styles" / f"{STYLE_NAME}.md"
+    try:
+        have = dest.read_text(encoding="utf-8")
+    except OSError:
+        have = None
+    if have is None or (have != text and _sha(have) == state.get("styleHash")):
+        _write_atomic(dest, text)
+        changed.append(dest)
+    elif have != text:
+        notes.append(f"{dest} differs from the plugin's {STYLE_NAME} style; kept your version")
+    if have is None or have == text or _sha(have) == state.get("styleHash"):
+        state["styleHash"] = _sha(text)
+
+    settings_path = home / "settings.json"
+    try:
+        raw = settings_path.read_text(encoding="utf-8")
+        settings = json.loads(raw) if raw.strip() else {}
+    except FileNotFoundError:
+        settings = {}
+    except (OSError, ValueError) as e:
+        settings = None
+        notes.append(f"{settings_path} is not valid JSON ({e}); outputStyle not set")
+    if isinstance(settings, dict):
+        cur = settings.get("outputStyle")
+        if cur != STYLE_NAME and (force or not state.get("outputStyleSet")):
+            settings["outputStyle"] = STYLE_NAME
+            _write_atomic(settings_path, json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
+            changed.append(settings_path)
+            state["outputStyleWas"] = cur
+        if settings.get("outputStyle") == STYLE_NAME:
+            state["outputStyleSet"] = True
+    elif settings is not None:
+        notes.append(f"{settings_path} is not a JSON object; outputStyle not set")
+
+    if state != before:
+        try:
+            _write_atomic(state_path, json.dumps(state, indent=2) + "\n")
+        except OSError:
+            pass
+    return changed, notes
 
 
 def bad_agent_models(cfg):

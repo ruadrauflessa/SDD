@@ -37,10 +37,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from sddlib import (AGENT_MODELS, BUG_TYPES, CONFIG_REL, DEFAULTS, TYPE_SEGMENT, ado, bad_agent_models,
-                    developer, die, discover_repos, ensure_ignored, find_env, find_root, get_items, git,
-                    load_config, org_url, parse_remote, read_env, read_record, require_root, slug,
-                    upgrade_config, wt_root, write_env)
+from sddlib import (AGENT_MODELS, BUG_TYPES, CONFIG_REL, DEFAULTS, STYLE_NAME, TYPE_SEGMENT, ado,
+                    bad_agent_models, config_home, developer, die, discover_repos, ensure_ignored,
+                    find_env, find_root, get_items, git, install_output_style, load_config, org_url,
+                    parse_remote, read_env, read_record, require_root, slug, upgrade_config, wt_root,
+                    write_env)
 
 GRAPH_IGNORE = "bin/\nobj/\nnode_modules/\ndist/\nbuild/\ncoverage/\n*.min.js\n"
 PLUGIN = Path(__file__).resolve().parent.parent  # the sdd plugin root
@@ -85,6 +86,7 @@ def cmd_init(a):
     print(f"repos found: {', '.join(sorted(repos)) or 'none'}")
     if len(orgs) > 1:
         print(f"warning: several ADO orgs in remotes ({', '.join(sorted(orgs))}); kept the first")
+    report_output_style(force=True)
 
 
 def cmd_type(a):
@@ -92,9 +94,25 @@ def cmd_type(a):
     print(json.dumps(item_info(cfg, a.id), indent=2))
 
 
+def report_output_style(force=False):
+    """Install the plugin's output style globally (see sddlib.install_output_style) and say what changed."""
+    try:
+        changed, notes = install_output_style(force)
+    except OSError as e:
+        print(f"sdd: could not install the {STYLE_NAME} output style: {e}", file=sys.stderr)
+        return
+    for n in notes:
+        print(f"sdd: {n}", file=sys.stderr)
+    if changed:
+        print(f"sdd: {STYLE_NAME} output style installed. Changed: {', '.join(str(p) for p in changed)}. "
+              "Restart Claude Code to use it.")
+
+
 def cmd_upgrade_config(a):
-    """Add new settings' defaults to this workspace's .claude/sdd.json. Run by the plugin's
-    SessionStart hook: silent outside a workspace, and never fails the session start."""
+    """Bring settings up to the plugin's: the global output style, then the defaults of new keys in
+    this workspace's .claude/sdd.json. Run by the plugin's SessionStart hook: prints only what
+    changed, and never fails the session start."""
+    report_output_style()
     root = find_root()
     if not root:
         return
@@ -190,6 +208,15 @@ def cmd_doctor(a):
             add("ollama running", False, False, "not answering on " + cfg["embeddings"]["url"],
                 "start the Ollama app (or: ollama serve)")
 
+    try:
+        style_set = json.loads((config_home() / "settings.json").read_text(encoding="utf-8")).get("outputStyle")
+    except (OSError, ValueError, AttributeError):
+        style_set = None
+    style_file = (config_home() / "output-styles" / f"{STYLE_NAME}.md").is_file()
+    add("output style", style_file and style_set == STYLE_NAME, False,
+        f"{STYLE_NAME}, set globally" if style_file and style_set == STYLE_NAME
+        else f"global outputStyle is {style_set or 'not set'}" + ("" if style_file else f"; no {STYLE_NAME}.md"),
+        f"pick {STYLE_NAME} in /config (the plugin sets it once and then leaves your choice alone)")
     add("sdd.json", root, True, str(root / CONFIG_REL) if root else "no .claude/sdd.json at or above here",
         f"{ENV_PY} init --spec-root <folder>   (from the workspace root)")
     if root:

@@ -66,8 +66,8 @@ take.
 
 | Command | Does | Notes |
 | --- | --- | --- |
-| `doctor [--json]` | Checks Python, SQLite FTS5, git, az + login, graphify, pandoc, Ollama + model, `sdd.json`, repos, ADO projects, worktree ignore, agent models, the CLAUDE.md block | Read-only. `/sdd init` acts on it |
-| `upgrade-config` | Writes the defaults of new settings (`agents.models`) missing from `sdd.json` into it | Run by the SessionStart hook. Never changes a set value; silent outside a workspace |
+| `doctor [--json]` | Checks Python, SQLite FTS5, git, az + login, graphify, pandoc, Ollama + model, `sdd.json`, repos, ADO projects, worktree ignore, agent models, the output style, the CLAUDE.md block | Read-only. `/sdd init` acts on it |
+| `upgrade-config` | Installs the ELI5 output style globally (the style file, and `outputStyle` in `~/.claude/settings.json`, once), then writes the defaults of new settings (`agents.models`) missing from `sdd.json` into it | Run by the SessionStart hook. Never changes a set value, never writes a settings file that is not valid JSON; prints only what changed |
 | `type --id N` | Prints type, title, state, project and `flow` (`bug` for Bug/Issue, else `spec`) | Read-only |
 | `new --id N --repos A,B --version 1.1.0` | Creates the folder, fetches each repo, adds `src/{Repo}` on a new branch from `origin/team/{version}`, writes `workitem.json` and `CLAUDE.md`, builds the graph | Run it again with another `--repos` to **add** a repo later — existing repos are skipped |
 | `new ... --base Repo=main` | Per-repo base branch, repeatable. Overrides `--version` for that repo | For repos without `team/*` branches |

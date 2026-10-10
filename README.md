@@ -15,6 +15,13 @@ a git worktree per work item, an ADO spec mirror, impact analysis and visual pag
 Then, in each workspace (the folder above your repos), run `/sdd init` once. It checks Python 3, Node,
 git, the Azure CLI login and the rest, and writes `.claude/sdd.json`.
 
+The plugin also installs the **ELI5** output style (plain, short replies in ASD-STE100 Simplified
+Technical English) as your global style: `~/.claude/output-styles/ELI5.md`, and `"outputStyle": "ELI5"`
+in `~/.claude/settings.json`. It does this at the first session after the plugin is installed or
+updated, and on `/sdd init`. Restart Claude Code to see it. It sets the style once: pick another in
+`/config` and the plugin leaves your choice alone (`/sdd init` sets it again). A style file you edit
+is kept; an unedited one is updated with the plugin.
+
 Needs: Python 3.9+, Node 18+, git, the Azure CLI (`az login`). Optional: graphify (code graphs),
 pandoc, Ollama (meaning search).
 
@@ -64,6 +71,7 @@ values already set are kept. `skills/workspace/SKILL.md` lists every key.
 | `agents/` | `investigator` (read-only code search) and `skeptic` (independent review of a root cause, a test or a design), used by the bug and spec flows; models from `agents.models` |
 | `scripts/` | `env.py` (work item folders, state guards, progress, config upgrades), `spec.py` (ADO mirror, impact), `flows.json` (the stages of each flow) |
 | `hooks/` | `hooks.json`, `question_guard.py` (links before every question), `agent_guard.py` (keeps the sdd agents read-only: no git writes, no `env.py` / `spec.py` runs), `register.tsx` + `view/` (the sdd view) |
+| `assets/output-styles/` | `ELI5.md`, the output style the plugin installs globally |
 | `types/` | The view's state contract |
 
 ## Develop

@@ -58,7 +58,12 @@ It must work on a phone too (the user may follow the session remotely), so:
      to run `az login` themselves (in their terminal, or `! az login` in this prompt), then re-check.
    - **`sdd.json` missing**: ask which folder holds the specs (default `docs/spec`), run
      `env.py init --spec-root <folder>` from the workspace root, show the file, and ask the user to
-     drop any ADO project that holds no specs (a tooling repo's project, for example).
+     drop any ADO project that holds no specs (a tooling repo's project, for example). `init` also
+     installs the **ELI5** output style globally (`~/.claude/output-styles/ELI5.md`, and
+     `outputStyle` in `~/.claude/settings.json`) — tell the user, list the files it names, and say
+     to restart Claude Code.
+   - **`output style`** (a warning only): the user picked another style after the plugin set ELI5.
+     Leave it. Mention that `/config` switches it back if they want.
    - **`CLAUDE.md sdd block`**: show the block below with the values filled in, ask, then add it to
      the workspace root `CLAUDE.md` (create the file only if the user agrees). If a block with
      the `<!-- sdd:begin -->` marker exists, replace it in place — never add a second one.

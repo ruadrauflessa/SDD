@@ -334,7 +334,45 @@ def main():
         assert not ok and "the flow is done" in why, why                                   # the last stage done: flow over
         os.chdir(Path(__file__).parent)
     config_upgrade()
+    output_style()
     print("ok")
+
+
+def output_style():
+    """The ELI5 style: written to the global output-styles folder and set once in settings.json."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = Path(tmp)
+        os.environ["CLAUDE_CONFIG_DIR"] = tmp
+        try:
+            style, settings = home / "output-styles" / "ELI5.md", home / "settings.json"
+            text = sddlib.STYLE_SRC.read_text(encoding="utf-8")
+            assert "\nname: ELI5\n" in text.split("---")[1]                 # file named after its name field
+            changed, notes = sddlib.install_output_style()                  # fresh: folder, file, settings
+            assert changed == [style, settings] and not notes
+            assert style.read_text(encoding="utf-8") == text
+            assert json.loads(settings.read_text()) == {"outputStyle": "ELI5"}
+            assert sddlib.install_output_style() == ([], [])                # nothing to do the second time
+            settings.write_text(json.dumps({"model": "opus", "outputStyle": "Explanatory"}))
+            assert sddlib.install_output_style() == ([], [])                # the person's later pick stays
+            assert json.loads(settings.read_text()) == {"model": "opus", "outputStyle": "Explanatory"}
+            assert sddlib.install_output_style(force=True)[0] == [settings]  # env.py init sets it again
+            assert json.loads(settings.read_text()) == {"model": "opus", "outputStyle": "ELI5"}
+            style.write_text("my own words", encoding="utf-8")              # an edited style file stays
+            changed, notes = sddlib.install_output_style()
+            assert changed == [] and "kept your version" in notes[0]
+            assert style.read_text(encoding="utf-8") == "my own words"
+            state = home / "sdd" / "state.json"                             # an unedited old copy updates
+            old = "---\nname: ELI5\n---\nold words\n"
+            style.write_text(old, encoding="utf-8")
+            st = json.loads(state.read_text())
+            state.write_text(json.dumps({**st, "styleHash": sddlib._sha(old)}))
+            assert sddlib.install_output_style()[0] == [style] and style.read_text(encoding="utf-8") == text
+            settings.write_text('{"a": 1,')                                  # broken JSON is never written
+            state.unlink()
+            changed, notes = sddlib.install_output_style()
+            assert settings.read_text() == '{"a": 1,' and "not valid JSON" in notes[0]
+        finally:
+            del os.environ["CLAUDE_CONFIG_DIR"]
 
 
 def config_upgrade():
