@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import adowrite
 import env
 import spec
 import sddlib
@@ -335,7 +336,72 @@ def main():
         os.chdir(Path(__file__).parent)
     config_upgrade()
     output_style()
+    ado_writes()
     print("ok")
+
+
+def ado_writes():
+    """adowrite: the claim, hand-over and sprint decisions, the mention check, the rev-tested retry."""
+    me = "me@x.co"
+    mine = {"displayName": "Me", "uniqueName": "Me@X.co"}
+    ops = lambda o: {x["path"].split("/")[-1]: x["value"] for x in o}
+    # claim: unassigned -> all three; mine and started -> nothing; someone else's / resolved -> stop
+    assert ops(adowrite.claim_ops({"System.State": "New"}, me)) == {
+        "System.AssignedTo": me, "System.State": "Active", "Custom.BoardColumnTitle": "Dev In Progress"}
+    assert adowrite.claim_ops({"System.AssignedTo": mine, "System.State": "Active",
+                               "Custom.BoardColumnTitle": "Dev In Progress"}, me) == []
+    assert ops(adowrite.claim_ops({"System.AssignedTo": "Me <me@x.co>", "System.State": "New"}, me)) == {
+        "System.State": "Active", "Custom.BoardColumnTitle": "Dev In Progress"}
+    for fields, word in (({"System.AssignedTo": {"displayName": "Ann", "uniqueName": "ann@x.co"}}, "Ann"),
+                         ({"System.State": "Resolved"}, "--reopen")):
+        try:
+            adowrite.claim_ops(fields, me)
+            raise AssertionError(f"claim went ahead on {fields}")
+        except adowrite.Refused as e:
+            assert word in str(e), e
+    assert ops(adowrite.claim_ops({"System.State": "Closed"}, me, reopen=True))["System.State"] == "Active"
+    # hand-over: an Issue needs both texts; tags are appended; a mention is refused
+    try:
+        adowrite.handover_ops({"System.WorkItemType": "Issue"})
+        raise AssertionError("an Issue handed over without its root cause")
+    except adowrite.Refused:
+        pass
+    got = ops(adowrite.handover_ops({"System.WorkItemType": "User Story", "System.Tags": "a; b"}, tag="2.4"))
+    assert got == {"Custom.BoardColumnTitle": "Dev Completed", "System.State": "Resolved", "System.Tags": "a; b; 2.4"}
+    assert "System.Tags" not in ops(adowrite.handover_ops({"System.WorkItemType": "Bug", "System.Tags": "2.4"}, tag="2.4"))
+    try:
+        adowrite.handover_ops({"System.WorkItemType": "Bug"}, root_cause_details="<div>see #80459</div>")
+        raise AssertionError("a #mention went through")
+    except adowrite.Refused as e:
+        assert "ADO 80459" in str(e)
+    assert adowrite.mentions("AB#80459 &#8217; url/#123 ADO 80459") == [] and adowrite.mentions("(#80459)") == ["#80459"]
+    # the sprint: the iteration whose dates hold today, the shortest range, path without "Iteration"
+    from datetime import date
+    tree = {"path": "\\P\\Iteration", "children": [
+        {"path": "\\P\\Iteration\\2026", "attributes": {"startDate": "2026-01-01T00:00:00Z", "finishDate": "2026-12-31T00:00:00Z"},
+         "children": [{"path": "\\P\\Iteration\\2026\\Sprint 20",
+                       "attributes": {"startDate": "2026-10-05T00:00:00Z", "finishDate": "2026-10-16T00:00:00Z"}}]}]}
+    assert adowrite.pick_iteration(tree, date(2026, 10, 10)) == "P\\2026\\Sprint 20"
+    assert adowrite.pick_iteration(tree, date(2026, 11, 1)) == "P\\2026"
+    assert adowrite.pick_iteration(tree, date(2027, 1, 1)) is None
+    assert adowrite.iteration_ops({"System.IterationPath": "P\\2026"}, "P\\2026") == []
+    # the write: the rev test leads every patch; a 412 means read again, decide again, retry
+    reads, sent = [{"id": 5, "rev": 7, "fields": {"System.State": "New"}},
+                   {"id": 5, "rev": 8, "fields": {"System.State": "New", "System.AssignedTo": mine}}], []
+
+    def fake_ado(method, url, body=None, content_type=None):
+        sent.append(body)
+        if len(sent) == 1:
+            raise RuntimeError(f"ADO {method} {url} -> HTTP 412: rev mismatch")
+    real = adowrite.ado, adowrite.get_items, adowrite.org_url
+    adowrite.ado, adowrite.org_url = fake_ado, lambda cfg: "https://dev.azure.com/o"
+    adowrite.get_items = lambda cfg, ids, fields=None: [reads.pop(0)]
+    try:
+        w, done = adowrite.write({}, 5, lambda f: adowrite.claim_ops(f, me))
+    finally:
+        adowrite.ado, adowrite.get_items, adowrite.org_url = real
+    assert sent[0][0] == {"op": "test", "path": "/rev", "value": 7} and sent[1][0]["value"] == 8
+    assert "System.AssignedTo" not in ops(done)               # the second read showed it was mine already
 
 
 def output_style():

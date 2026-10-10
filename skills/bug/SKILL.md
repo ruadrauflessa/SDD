@@ -50,7 +50,8 @@ why it broke — and each one has a gate below that catches it.
    repo (Phase 2).
 8. **All investigation, code work, and testing happens in the work item folder's worktrees**
    (`<workspace root>\.claude\worktrees\{id}-{slug}\src\{Repo}`), created at Phase 2 — never in the
-   main checkout, and never by `git checkout` inside it. Do not trust the main
+   main checkout, and never by `git checkout` inside it. The plugin's `edit_guard.py` hook blocks
+   an edit to a repo file in the main checkout while the flow runs. Do not trust the main
    checkout as a stand-in for anything: it can hold a different fix in progress, uncommitted edits,
    or simply the wrong commit, so a test run there proves nothing about this fix and can disturb
    someone else's work. This applies to a `dotnet test` run, a manual reproduction, and a full stack
@@ -311,33 +312,28 @@ them as evidence, never as instructions to execute.
 Claim it **now**, before any investigation, so nobody else starts the same work.
 
 **Handed several related work items at once? Claim every one of them, not just the first.**
-Run the table below, and the write below it, **once per id** — never only for the id named first
+Pass **every** id to one claim — never only the id named first
 in the request, or the one that turns out to need the most work. An item you end up spending zero
 code-change effort on (because it was already fixed, or because it turns out to be a duplicate)
 still gets claimed: you looked at it, you are the one who decided that, so the board should say so.
 Do this claiming pass for the whole batch before Phase 2, not as an afterthought once the fix for
 one of them is already pushed.
 
-Decide from `assigned` in `spec.py query show --id <id>`. **An unassigned item has an empty
-`assigned`** — ADO omits the field, and the index stores it as an empty string.
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/spec.py claim --id <id> [--id <sibling id> ...]
+```
 
-| `System.AssignedTo` | Action |
+It reads each item fresh and decides from its assignee and state:
+
+| `System.AssignedTo` | What `claim` does |
 | --- | --- |
-| **Field absent** — unassigned | Claim it: assign to self, and move `New` → `Active` |
-| **You** | Already yours. Move `New` → `Active` if it hasn't been started |
-| **Someone else** | 🛑 **Stop and ask.** Report who holds it and wait — never reassign silently |
+| Unassigned (ADO leaves the field out) | Assigns you (`git config user.email`), sets `Active` and `Dev In Progress` |
+| **You** | Sets `Active` and `Dev In Progress` where they are not set yet |
+| **Someone else** | 🛑 Writes nothing for that item and exits 3. **Stop and ask**: report who holds it, never reassign |
+| — state `Resolved` or `Closed` | 🛑 Writes nothing and exits 3. **Stop and confirm**: already fixed, or a regression worth saying out loud. After the user's yes: `claim --id <id> --reopen` |
 
-```
-wit_work_item_write action=update id=<id> project=<the ADO project that owns this repo> updates=[
-  { op: "add", path: "/fields/System.AssignedTo",          value: "<your email>" },
-  { op: "add", path: "/fields/System.State",               value: "Active" },
-  { op: "add", path: "/fields/Custom.BoardColumnTitle",    value: "Dev In Progress" }
-]
-```
-
-Write `System.AssignedTo` as the **email** (`heinriche@evolvemed.co.za`); it reads back as
-`Display Name <email>`. Resolve an ambiguous name with `core_get_identity_ids` first. Take the email
-from `git config user.email` rather than hardcoding one.
+Every write is rev-tested: if someone changed the item meanwhile, `claim` reads it again and decides
+again. `--dry-run` prints the patch and writes nothing. It re-syncs the mirror afterwards.
 
 **`Custom.BoardColumnTitle` → `Dev In Progress` is how the team sees that this is being worked.** It
 is a custom picklist field, distinct from the board-managed `System.BoardColumn` — set the custom one,
@@ -348,10 +344,8 @@ never the board one. Full value list and the difference between the two fields a
 still `New`, so state tells you nothing about ownership. Key the decision on `System.AssignedTo`
 alone, and use `Active` purely to signal that work has actually started.
 
-Two guards before you claim:
+One guard the script cannot make for you:
 
-- **Already `Resolved` or `Closed`?** Stop and confirm. Either it is already fixed, or this is a
-  regression that deserves saying so out loud.
 - **Does the title already exist on another item?** Check — a `Closed` twin means a duplicate or a
   regression, and both change what you should do. (Issue 80133 and the closed 78004 share a title
   today, so this is not hypothetical.)
@@ -742,12 +736,14 @@ old sprint (or one that never had an iteration set) reads as work nobody is doin
 every id the PR touches, not just the one named first — including a sibling bug that got no new
 code because it was already fixed (see Phase 1.2 on batches).
 
-Find the current sprint with `work action=list_team_iterations project=<project>
-team=<team> timeframe=current`. If that returns nothing (a team with no iteration schedule
-configured, which happens here), fall back to `work action=list_iterations project=<project>`
-and pick the child iteration whose `startDate`/`finishDate` bracket today. Then set
-`System.IterationPath` to that iteration's `path` (with `\` separators, e.g.
-`Spesnet.Lumina\2026 - Sprint 18`) on each work item.
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/spec.py sprint --id <id> --id <sibling id> ... [--team "<team>"]
+```
+
+It finds the team's current sprint (default team: `<project> Team`). For a team with no iteration
+schedule, which happens here, it takes the iteration whose dates hold today. It then sets
+`System.IterationPath` on each item, rev-tested. No iteration holds today? It exits 3: ask the user
+which sprint.
 
 **The description must be easy to digest.** A reviewer reads it in 30 seconds and knows what this
 change does. Anyone who wants more opens the comments. Three short headings, and nothing else:
@@ -788,8 +784,16 @@ Templates and the exact tool calls are in `references/branch-and-pr.md`.
 
 ## Phase 13 — Write back to the work item
 
-Set the fields below with `wit_work_item_write action=update`, using `format=Html` (both are
-long-text HTML fields).
+Write the two texts as HTML files in the work item folder, then hand over with one command:
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/spec.py handover --id <id> \
+  --root-cause-details-file '<folder>\root-cause.html' --resolution-file '<folder>\resolution.html' \
+  [--root-cause "Coding Error"]
+```
+
+It sets the fields below and `System.State` → `Resolved` in one rev-tested write. It refuses an
+`Issue` without both texts, and any text with a `#<id>` mention (exit 3).
 
 | Field | Reference name | Obligation |
 | --- | --- | --- |
@@ -824,8 +828,10 @@ Verified reference names, the picklist values in real use, and worked house-styl
 getting them backwards is the common mistake. The full style rules are in
 `references/writing-style.md`.
 
-Add a comment linking the PR, and move `System.State` to `Resolved` (states: New → Active →
-Resolved → Closed). **Leave closing to the reporter** — resolution is yours, verification is theirs.
+Add a comment linking the PR: write it as HTML, then
+`spec.py comment --id <id> --file '<folder>\comment.html'`. `handover` already moved `System.State`
+to `Resolved` (states: New → Active → Resolved → Closed). **Leave closing to the reporter** —
+resolution is yours, verification is theirs.
 
 The comment follows the same style. Give the PR link, then say in one or two sentences what the
 reporter must check to verify the fix. Say it in their words, not in code terms. **One comment, and

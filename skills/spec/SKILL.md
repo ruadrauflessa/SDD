@@ -39,10 +39,10 @@ full command table. This file calls them `env.py` and `spec.py`, short for
    interaction risk; one open six weeks carries it regardless of tooling.
 6. **Claim before you touch anything.** Assign the work item to yourself, move its board column
    to `Dev In Progress`, and move its status to `Active` — all three, before you read the
-   requirement — otherwise two people can start the same item unnoticed. The claim takes its
-   `rev` from the sync (ground rule 13), so the sync runs first and the claim comes right after it.
-   Detail in `references/ado-sync.md`.
-7. **The main checkout is never edited.** Every change to a repo's tracked files — code, tests,
+   requirement — otherwise two people can start the same item unnoticed. `spec.py claim --id <id>`
+   does all three in one rev-tested write. Detail in `references/ado-sync.md`.
+7. **The main checkout is never edited** (the plugin's `edit_guard.py` hook blocks it while a flow
+   runs). Every change to a repo's tracked files — code, tests,
    anything under `projects/*/` — happens inside `src\{Repo}` of the work item's folder,
    `<workspace>\.claude\worktrees\{id}-{slug}\`, and that folder is removed only once its PRs
    are merged. `{specRoot}` sits at the workspace root, outside every repo, so spec files are the
@@ -339,11 +339,10 @@ plugin's agents are missing)? Do the same work here.
    and one hop of links out of that tree, and writes each `requirements.md` into place under
    `{specRoot}`. Never write or edit `requirements.md` yourself — the next sync overwrites it.
    Don't read the requirement yet.
-2. **Claim the work item, before you read it.** Take `rev` from `spec.py query show --id <id>`
-   — no `wit_work_item` get (ground rule 13). Assign it to yourself (`System.AssignedTo`), set
-   the board column (`Custom.BoardColumnTitle`) to `Dev In Progress`, and set the status
-   (`System.State`) to `Active`, in one rev-tested write. See `references/ado-sync.md` for the
-   field names and the write path.
+2. **Claim the work item, before you read it:** `spec.py claim --id <id>`. It assigns you, sets
+   `Dev In Progress` and `Active` in one rev-tested write, and re-syncs the mirror. **Exit 3 means
+   stop and ask**: the item is someone else's (never take it), or it is already `Resolved` or
+   `Closed` (after the user's yes, `claim --id <id> --reopen`).
 3. **Read the mirrored file** — resolve it by glob, `{specRoot}/**/<id>-*/requirements.md` — and
    its parent's. Put every gap and open question in `questions.md` next to it, never in
    `requirements.md`. One question per line, as an unticked checkbox:
@@ -491,9 +490,9 @@ start Requirements until this stage is done.
 7. **"Raise the PR"?** Write the description to `<folder>\pr-description.md`, then `env.py pr
    --id <id> --title "<title>" --description-file <folder>\pr-description.md` — it pushes each
    repo with commits ahead, opens its PR against the base branch and links the work item. Move the
-   work item's `System.IterationPath` to the current sprint before or as you open it — an item
-   still sitting in an old sprint (or with none set) reads as work nobody is doing. Lookup steps
-   in `references/ado-sync.md`. Never write the work item as `#12345` anywhere in the PR text,
+   work item to the current sprint as you open it, `spec.py sprint --id <id>` — an item still
+   sitting in an old sprint (or with none set) reads as work nobody is doing. Never write the work
+   item as `#12345` anywhere in the PR text (`env.py pr` refuses it),
    and never add a Claude attribution line to the title, description or a comment — the
    developer owns the PR. `references/branching.md` has both rules and why.
 8. Start **Review** at once: `env.py progress --id <id> --flow spec --phase Review --status waiting
@@ -512,11 +511,9 @@ The PR is open and waits on its reviewers. The user answers in the chat, or with
    whenever you next pick this work item back up.
 2. **"Not yet approved"** — nothing changes; Review keeps waiting.
 3. **"Approved" or "Merged"** — `env.py progress --id <id> --flow spec --phase Review --status done
-   --passed "PR approved"`. Then set `Custom.BoardColumnTitle` to `Dev Completed`, move
-   `System.State` to `Resolved`, and tag the work item with the version segment the branch carries
-   (the `team/{version}` it was branched from). Get the current `rev` and tags with
-   `spec.py sync --id <id>`, then `spec.py query show --id <id>` — not from ADO (ground rule 13).
-   Field names and the write path in `references/ado-sync.md`.
+   --passed "PR approved"`. Then hand over: `spec.py handover --id <id> --tag <version>`, with the
+   version segment the branch carries (the `team/{version}` it was branched from). It sets
+   `Dev Completed` and `Resolved` and appends the tag, in one rev-tested write.
 4. **"Merged" only** — `env.py remove --id <id>` (dry run, shown to the user), then `--yes`, then
    archive this session: `mcp__ccd_session_mgmt__archive_session`, `session_id: "self"`, `reason`
    naming the merged PR. This is cleanup, done together, no separate question — the "Merged" answer

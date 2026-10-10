@@ -78,13 +78,11 @@ and expect it to render.
 The **words** inside follow `writing-style.md` — short sentences, active voice, one idea each. Read
 that file before you write these two fields.
 
-```
-wit_work_item_write action=update id=<id> project=<the ADO project that owns this repo> updates=[
-  { op: "add", path: "/fields/Custom.RootCauseDetails",            value: "<div>…</div>" },
-  { op: "add", path: "/fields/Microsoft.VSTS.Common.Resolution",   value: "<div>…</div>" },
-  { op: "add", path: "/fields/Microsoft.VSTS.CMMI.RootCause",      value: "Coding Error" },
-  { op: "add", path: "/fields/System.State",                       value: "Resolved" }
-]
+`spec.py handover` writes them (with `Dev Completed` and `Resolved`, rev-tested):
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/spec.py handover --id <id> \
+  --root-cause-details-file root-cause.html --resolution-file resolution.html --root-cause "Coding Error"
 ```
 
 ### `Microsoft.VSTS.CMMI.RootCause` values

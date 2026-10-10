@@ -16,6 +16,14 @@ Deterministic: the same ADO state always produces the same files and index. No L
     impact --all [--scope N]             every item (or everything under N): impact.json each, plus one
                                          deduplicated pair list and a token estimate in impact-all.json
 
+Writes to ADO (rev-tested, retried on a conflict; adowrite.py; exit 3 = stop and ask the user):
+    claim    --id N [--id M ...] [--reopen]      assign to you, Active, Dev In Progress; never from someone else
+    handover --id N [--tag T] [--root-cause-details-file F --resolution-file F] [--root-cause V]
+                                                 Resolved + Dev Completed: the hand-over to QA
+    sprint   --id N [--id M ...] [--team T]      move to the current sprint
+    comment  --id N --file F                     post an HTML comment (refuses a `#<id>` mention)
+    (--dry-run on any of them prints the patch and writes nothing)
+
 Only the files sync writes are touched: requirements.md. design.md, tasks.md, questions.md and
 impact.* in a spec folder are never overwritten, and move with the folder on a reparent.
 """
@@ -37,6 +45,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import adowrite
 from sddlib import die, get_items, load_config, org_url, require_root, slug, wiql
 
 SYNCED_BY = "sdd-spec-sync@1"
@@ -720,6 +729,81 @@ def impact_all(ctx, a):
     print("        (a floor: each agent turn re-sends its growing context, so real use is often 3-5x this)")
     print(f"wrote {dest}")
 
+# ---------------------------------------------------------------- writes
+
+def _refresh(ids):
+    """Re-sync what was written, so the mirror and index show it."""
+    for wid in ids:
+        try:
+            cmd_sync(argparse.Namespace(id=wid, all=False, no_embed=True))
+        except (RuntimeError, OSError, SystemExit) as e:
+            print(f"warning: the write landed, but re-syncing {wid} failed ({e}). Run: spec.py sync --id {wid}")
+
+
+def _write_each(a, ids, plan, label):
+    """Apply one decision per item, report each, re-sync the written ones. Exit 3 if any was refused."""
+    cfg = load_config(require_root())
+    written, refused = [], []
+    for wid in ids:
+        try:
+            w, ops = adowrite.write(cfg, wid, plan, dry_run=a.dry_run)
+        except (adowrite.Refused, adowrite.Conflict) as e:
+            refused.append(wid)
+            print(f"{wid}: not {label}: {e}")
+            continue
+        fields = ", ".join(f"{o['path'].split('/')[-1]}={o['value']}" for o in ops
+                           if len(str(o["value"])) < 80) or "nothing to change"
+        if a.dry_run:
+            print(f"{wid}: would write {json.dumps([{'op': 'test', 'path': '/rev', 'value': w['rev']}] + ops)}")
+        else:
+            print(f"{wid}: {label} ({fields})")
+            if ops:
+                written.append(wid)
+    if written:
+        _refresh(written)
+    if refused:
+        sys.exit(3)
+
+
+def cmd_claim(a):
+    me = a.email or adowrite.my_email() or die("no email: set git config user.email, or pass --email")
+    _write_each(a, a.id, lambda f: adowrite.claim_ops(f, me, reopen=a.reopen), "claimed")
+
+
+def cmd_handover(a):
+    text = lambda p: Path(p).read_text(encoding="utf-8") if p else None
+    rcd, res = text(a.root_cause_details_file), text(a.resolution_file)
+    _write_each(a, [a.id], lambda f: adowrite.handover_ops(f, a.tag, rcd, res, a.root_cause), "handed over to QA")
+
+
+def cmd_sprint(a):
+    cfg = load_config(require_root())
+    paths = {}
+
+    def plan(fields):
+        project = fields[adowrite.PROJECT]
+        if project not in paths:
+            paths[project] = adowrite.current_iteration(cfg, project, a.team)
+        return adowrite.iteration_ops(fields, paths[project])
+    _write_each(a, a.id, plan, "in the current sprint")
+
+
+def cmd_comment(a):
+    cfg = load_config(require_root())
+    body = Path(a.file).read_text(encoding="utf-8")
+    try:
+        project = adowrite.read(cfg, a.id)["fields"][adowrite.PROJECT]
+        if a.dry_run:
+            adowrite.refuse_mentions(body, "the comment")
+            print(f"{a.id}: would post a comment of {len(body)} characters to {project}")
+            return
+        r = adowrite.comment(cfg, project, a.id, body)
+    except (adowrite.Refused, adowrite.Conflict) as e:
+        print(f"{a.id}: comment not posted: {e}")
+        sys.exit(3)
+    print(f"{a.id}: comment {(r or {}).get('id', '')} posted")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sp = ap.add_subparsers(dest="cmd", required=True)
@@ -739,6 +823,26 @@ def main():
     s.add_argument("--all", action="store_true", help="every synced item: deduplicated candidate pairs + a token estimate")
     s.add_argument("--scope", type=int, help="with --all: only items under this epic/feature/story")
     s.add_argument("--hops", type=int, default=2)
+    s = sp.add_parser("claim", help="assign to you, Active, Dev In Progress (rev-tested)")
+    s.add_argument("--id", type=int, action="append", required=True, help="repeat for a batch: claim every one")
+    s.add_argument("--email", help="default: git config user.email")
+    s.add_argument("--reopen", action="store_true", help="the item is Resolved/Closed and the user said to claim it anyway")
+    s.add_argument("--dry-run", action="store_true")
+    s = sp.add_parser("handover", help="Resolved + Dev Completed, the hand-over to QA (rev-tested)")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--tag", help="append this tag (the spec flow's team/{version} segment)")
+    s.add_argument("--root-cause-details-file", help="HTML for Custom.RootCauseDetails (required for an Issue)")
+    s.add_argument("--resolution-file", help="HTML for Microsoft.VSTS.Common.Resolution (required for an Issue)")
+    s.add_argument("--root-cause", help="the Microsoft.VSTS.CMMI.RootCause picklist value, when it is clear")
+    s.add_argument("--dry-run", action="store_true")
+    s = sp.add_parser("sprint", help="move to the current sprint (rev-tested)")
+    s.add_argument("--id", type=int, action="append", required=True, help="repeat: every item the PR covers")
+    s.add_argument("--team", help="default: '<project> Team'")
+    s.add_argument("--dry-run", action="store_true")
+    s = sp.add_parser("comment", help="post an HTML comment on a work item")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--file", required=True, help="the comment, as HTML")
+    s.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     if a.cmd == "impact" and bool(a.all) == bool(a.id):
         die("impact needs --id N, or --all [--scope N]")
@@ -750,7 +854,8 @@ def main():
         die(f"query {a.what} needs TEXT")
     if a.cmd == "query" and a.what == "similar" and not a.id:
         a.text = a.text or die("query similar needs --id or TEXT")
-    {"sync": cmd_sync, "embed": cmd_embed, "query": cmd_query, "impact": cmd_impact}[a.cmd](a)
+    {"sync": cmd_sync, "embed": cmd_embed, "query": cmd_query, "impact": cmd_impact, "claim": cmd_claim,
+     "handover": cmd_handover, "sprint": cmd_sprint, "comment": cmd_comment}[a.cmd](a)
 
 
 if __name__ == "__main__":

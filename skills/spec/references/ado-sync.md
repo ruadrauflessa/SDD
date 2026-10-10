@@ -141,11 +141,12 @@ than silently overwriting their edit. The same test works on the batch endpoint,
 item independently.
 
 Stock ADO MCP servers do not do this — Microsoft's `azure-devops-mcp` has an open request for an
-`expectedRev` parameter that is not planned. So writes route through a thin wrapper that always
-prepends the rev test, classifies 412 as a conflict, and retries by re-reading (`spec.py sync --id
-<id>`, then `spec.py query show --id <id>`) and replaying a bounded number of times. A conflict that survives retry surfaces to a human: two writers
-disagreeing about acceptance criteria is not a merge problem. `pm-ado` is working prior art for
-this shape and is worth reading before building it.
+`expectedRev` parameter that is not planned. So the workflow writes go through `scripts/adowrite.py`,
+behind `spec.py claim`, `handover`, `sprint` and `comment`. It always prepends the rev test. On a
+412 it reads the item again, decides again from what is there now, and retries up to three times.
+A conflict that survives that, or a state that says stop (someone else's item, an Issue without
+its root cause, a `#<id>` mention), exits 3 for a human to decide: two writers disagreeing is not a
+merge problem. `--dry-run` prints the patch and writes nothing.
 
 Agent writes stay narrow — assignment, board column, state, tags, comments, commit and PR links,
 and tech story creation. The agent never rewrites descriptions or acceptance criteria; those are
@@ -164,7 +165,7 @@ rev-tested patch above.
 | Status | `System.State` | state | Always written in the same call as `Custom.BoardColumnTitle` — the two move together, never one without the other. |
 | Tags | `System.Tags` | string | A PATCH replaces the whole field. Read the current value first (`spec.py query show --id <id>`, after a sync), append the new tag, write the full semicolon-separated string back — never a bare `add` with just the new tag. |
 
-**Specify, right after the sync and before the requirement is read:** `Custom.BoardColumnTitle` and `System.State` move
+**Specify, right after the sync and before the requirement is read** (`spec.py claim`): `Custom.BoardColumnTitle` and `System.State` move
 together — `Dev In Progress` pairs with `Active`, the same pairing Verify writes at close-out
 (`Dev Completed` with `Resolved`). Setting one without the other leaves the two signals
 disagreeing about whether work has actually started.
@@ -178,7 +179,7 @@ disagreeing about whether work has actually started.
 ]
 ```
 
-**Verify, once the PR is approved:** move `Custom.BoardColumnTitle` to `Dev Completed`,
+**Review, once the PR is approved** (`spec.py handover --tag <version>`): move `Custom.BoardColumnTitle` to `Dev Completed`,
 `System.State` to `Resolved`, and add a tag equal to the version segment already carried in the
 branch name (`references/branching.md`) — the `team/{version}` the branch was cut from, e.g. `2.4`.
 That segment is the one fact the branch, the worktree and the work item all need to agree on, so
@@ -232,14 +233,10 @@ moved on is worse than an empty field.
 
 ## Moving the work item to the current sprint
 
-Done at Verify, when the PR is opened — `System.IterationPath`, another Incidental field.
-
-1. `work action=list_team_iterations project=<project> team=<team> timeframe=current`.
-2. If that returns nothing (a team with no iteration schedule configured), fall back to
-   `work action=list_iterations project=<project>` and pick the child iteration whose
-   `startDate`/`finishDate` bracket today.
-3. Write that iteration's `path` to `System.IterationPath`, `\` separators, e.g.
-   `Internal_DevOps\2026\Sprint 14`.
+Done at Verify, when the PR is opened — `System.IterationPath`, another Incidental field:
+`spec.py sprint --id <id> [--id ...] [--team "<team>"]`. It takes the team's current iteration
+(default team `<project> Team`). For a team with no iteration schedule it takes the iteration
+whose dates hold today, the shortest such range. No iteration holds today: exit 3, ask the user.
 
 An item still sitting in an old sprint — or with no iteration ever set — reads as work nobody is
 doing, even once the PR exists.

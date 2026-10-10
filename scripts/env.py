@@ -37,6 +37,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+from adowrite import mentions
 from sddlib import (AGENT_MODELS, BUG_TYPES, CONFIG_REL, DEFAULTS, STYLE_NAME, TYPE_SEGMENT, ado,
                     bad_agent_models, config_home, developer, die, discover_repos, ensure_ignored,
                     find_env, find_root, get_items, git, install_output_style, load_config, org_url,
@@ -749,6 +750,10 @@ def cmd_pr(a):
     desc = Path(a.description_file).read_text(encoding="utf-8")
     if len(desc) > 4000:
         die(f"description is {len(desc)} chars; ADO allows 4000. Move detail into PR comments")
+    found = mentions(desc) + mentions(a.title)
+    if found:
+        die(f"the PR text names {', '.join(found)}. ADO reads `#<id>` as a mention and posts a comment onto "
+            f"that work item. Write `ADO {found[0][1:]}` instead; AB#<id> in the title is fine")
     wis = [int(x) for x in (a.work_items or str(a.id)).split(",") if x.strip()]
     only = {x.strip() for x in (a.repos or "").split(",") if x.strip()}
     for n, r in data["repos"].items():
