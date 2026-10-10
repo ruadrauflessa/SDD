@@ -237,40 +237,12 @@ the verdict is completed or abandoned, say so and ask before starting the item a
 
 ## Decision briefs — links before every question (mandatory)
 
-**Every time this skill asks the user for input or approval, it asks with `AskUserQuestion`** —
-never as a plain question in the reply, not even a quick one — and the user must first be shown
-links to the spec documents and code the decision rests on. No links, no question.
+Every question to the user in an sdd flow follows **Decision briefs** in
+`references/flow-rules.md`: build the visual page, get the Links block from the script, paste it
+above the question, send the listed files, ask with `AskUserQuestion`. The `question_guard.py` hooks
+enforce it. `/sdd init` install questions and `/sdd help` are exempt — they are about tools, not the
+spec.
 
-**Enforced by two global hooks** (`hooks/question_guard.py`): an `AskUserQuestion`
-without a Links block is blocked, and a turn that ends with a plain-text question is sent back to
-ask it properly. They act only while an sdd flow runs. `/sdd init` installs them.
-
-0. **Build the visual first.** A question that follows an explanation or a plan — requirements,
-   design, tasks, bug cause or fix, impact, a review, a finished change — comes with an
-   **`sdd:visual`** page: `{spec folder}/visuals/<mode>.html`, made with that skill's mode for the
-   moment. Pass it as a `--ref` (`--ref visuals/<mode>.html`) so it lands in the Links block and the
-   send list. The `--status waiting` checkpoint **refuses without an `.html` ref**; only a plain
-   choice with nothing to explain (team version, PR status) passes `--no-visual "<reason>"`.
-   Once the page is sent, do not explain it again in chat: one line naming the page, the Links
-   block, then the question. The page is the summary.
-1. **Get the links from the script, never by hand.**
-   - At a flow gate, the `--status waiting` checkpoint does it: it **refuses to run without
-     `--ref`**, and prints the links.
-   - Anywhere else: `python ${CLAUDE_PLUGIN_ROOT}/scripts/env.py refs --id <id> --ref <ref> ...`
-   - Refs: every spec file the decision rests on (`requirements.md` is added automatically; add
-     `design.md`, `tasks.md`, `questions.md`, `impact.md` as they apply) and every code range the
-     decision is about — the lines you propose to change, the failing test, the callers — as
-     `src/<Repo>/path/file.cs:120-140`. Use `ado` when only the work item itself applies.
-   - A ref that does not exist is an error. Fix the ref; never drop it to get past the check.
-2. **Paste the printed "Links" block into the chat message, above the question.** Every link — the
-   work item, the PR, files, the visual page — goes in the chat. **Never put a link inside the
-   `AskUserQuestion` question or its options**: they hold plain text only. The hook refuses a
-   question that contains a link.
-3. **Send every file listed under "Send with SendUserFile"** (`display: "render"`) when that tool
-   exists. Local links do not open on a phone; sent files and ADO links do.
-4. **Code marked "not pushed": quote those lines** (20 at most) in the message, since only a pushed
-   branch gets an ADO link.
-5. Exempt: `/sdd init` install questions and `/sdd help` — they are about tools, not the spec.
 
 ## Rules shared by every flow
 
@@ -282,4 +254,6 @@ ask it properly. They act only while an sdd flow runs. `/sdd init` installs them
   PRs or remove folders by hand when a script does it.
 - **Every explanation or plan gets an `sdd:visual` page** (requirements, design, tasks, bug cause
   and fix, impact, review, status recap) in `{spec folder}/visuals/`, sent with `SendUserFile`.
-- "abandon" at any point stops the flow; the flow skill says how to clean up.
+- "abandon" at any point stops the flow; Abandon in `references/flow-rules.md` says how to clean up.
+- **The rest of the shared rules** (checkpoints, never skipping a stage, stage guards, proof runs,
+  resuming, sub-agents) are in `references/flow-rules.md`. Each flow skill reads it first.

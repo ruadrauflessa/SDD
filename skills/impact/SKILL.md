@@ -14,7 +14,7 @@ Before any question to the user, run `env.py refs --id <id> --ref <ref> ...` (or
 checkpoint, which requires `--ref`), paste its "Links" block in the chat above the question (never a link inside the question or its options), send the files it
 lists with `SendUserFile` (`display: "render"`) when that tool exists, and quote any code lines
 marked "not pushed". Build the `sdd:visual` **impact** page first (`visuals/impact.html`, or
-`visuals/impact-all.html`) and pass it as a `--ref`. Full rule: "Decision briefs" in the `sdd` skill. No links, no question.
+`visuals/impact-all.html`) and pass it as a `--ref`. Full rule: "Decision briefs" in `${CLAUDE_PLUGIN_ROOT}/skills/sdd/references/flow-rules.md`. No links, no question.
 
 For this skill the refs are the target's `impact.md` (or `impact-all.md`) and the
 `requirements.md` of every Direct item the questions name, as paths taken from `impact.json`.

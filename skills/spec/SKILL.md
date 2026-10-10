@@ -23,6 +23,18 @@ full command table. This file calls them `env.py` and `spec.py`, short for
 `python ${CLAUDE_PLUGIN_ROOT}/scripts/<name>.py`. ADO auth is the `az` login.
 `{specRoot}` is the `specRoot` key in `<workspace>/.claude/sdd.json` (default `docs/spec`).
 
+## Read first
+
+1. **`${CLAUDE_PLUGIN_ROOT}/skills/sdd/references/flow-rules.md`** — the rules every sdd flow
+   shares: Abandon, Decision briefs (links before every question), progress checkpoints, never
+   skipping a stage, stage guards, proof runs, resuming, and the sub-agent rules. Read it once, at
+   the start, and follow it throughout.
+2. **This file** — the outline: the ground rules, the approval gates, the gates, the modes.
+3. **Each mode's own file, when the mode starts.** `env.py can --op phase` prints it (`read:`).
+   Never work a mode from memory of an earlier session.
+
+In this flow `--flow spec`, and the stages are the modes below, by name.
+
 ## Ground rules (read before any mode)
 
 1. **Never invent a requirement.** Anything under *Problem*, *Acceptance criteria* or *Scope* in
@@ -49,7 +61,7 @@ full command table. This file calls them `env.py` and `spec.py`, short for
    one thing this rule doesn't cover. Full mechanics in `references/branching.md`.
 8. **The user can call it off at any point.** Saying "abandon" (or similar) stops the current
    step and triggers cleanup of whatever this run created — never finish the step in progress
-   first. See "Abandon" below.
+   first. See Abandon in `flow-rules.md`.
 9. **Never write a work item as `#12345` in any text ADO stores** — a PR description, a PR
    comment, a work-item comment. ADO reads it as a mention and posts a noisy comment back onto
    that work item. Write `ADO 4471` instead. `AB#4471` stays safe in a commit message or PR title.
@@ -73,27 +85,6 @@ full command table. This file calls them `env.py` and `spec.py`, short for
     (before a write, after a 412 conflict, on resume), refresh it through the sync —
     `spec.py sync --id <id>`, the same script `/sdd:sync` runs — then read it again. The only ADO
     read left is `action=get_type`, for a type's field list, not the item.
-
-## Abandon — the user can call this off at any point
-
-At any mode, the user may say **"abandon"** (or "stop and clean up", "never mind, undo it").
-Stop immediately — mid-step, wherever you are — rather than finishing what's in progress, then
-clean up only what this run actually created:
-
-| If this happened | Do this |
-| --- | --- |
-| Work item claimed (Specify step 2) | Ask whether to unassign and revert the board column and status, or leave it claimed with a comment noting the spec was abandoned. Never touch a field someone else changed since. |
-| Work item folder created (Design step 1) | `env.py remove --id <id> --abandon` — a dry run; show it, then re-run with `--yes` once the user agrees. It removes each worktree, prunes, deletes the local branches and the folder, and leaves remote branches and PRs alone. |
-| Branch pushed | 🛑 **Ask before deleting the remote branch.** Deleting a pushed ref is outward-facing and hard to undo. If they say no, leave it and say so in the report. |
-| PR opened (Verify) | 🛑 **Ask before doing anything to the PR.** Never close or abandon it silently. |
-| Nothing created yet | Nothing to clean up in git. Just confirm whether to release the ADO claim, if one was made. |
-
-**Never discard uncommitted work without saying so first.** `env.py remove` refuses while a repo
-has uncommitted changes — treat that refusal as a prompt to check what would be discarded, not an
-obstacle to route around.
-
-Report plainly once done: what you removed, what you left in place and why, and the current state
-of the work item.
 
 ## Approval gates — use the UI, not free text
 
@@ -129,139 +120,20 @@ Shape every gate the same way:
 | Ready to PR | End of Verify, after the automated checks pass | "Raise the PR" / "Make changes" |
 | PR approved | Review, right after the PR is opened, and whenever this work item is picked back up while it's still open | "Not yet approved" / "Approved" / "Merged" / "Rejected" |
 
-## Repo layout
+## Abandon
 
-The folder tree mirrors the ADO hierarchy, so the join is visible without opening a file.
+Follow Abandon in `flow-rules.md`. In this flow the claim happens at Specify step 2, the work item
+folder at Design step 1, and the PR at Verify.
 
-```
-{specRoot}/
-  4468-FEAT-checkout-rewrite/       # Feature
-    requirements.md                 # written by spec.py sync, never by hand
-    design.md
-    tasks.md
-    4471-US-guest-checkout/         # User Story
-      requirements.md
-      questions.md                  # gaps and open questions: `- [ ]` open, `- [x]` answered
-      impact.json, impact.md        # spec.py impact / sdd:impact
-      design.md
-      tasks.md
-  .index/spec.db                    # the spec index: rev, hash, links, terms per item
-```
+## Checkpoints and gates
 
-Folder names are `<ado-id>-<TYPE>-<slug>`, TYPE being EPIC, FEAT, US, TS, CR, PBI, BUG or ISSUE.
-**The id is authoritative and the slug is cosmetic**, so a retitle in ADO never orphans a folder,
-a retype only renames it, and a story joining a feature months later is just a new
-child folder. Resolve a spec folder by glob — `{specRoot}/**/<id>-*/` — never by remembered path.
-The sync moves a folder when its item is reparented, and everything in it moves along.
-
-Code lives in a separate folder per work item, created by `env.py new`:
-
-```
-<workspace>\.claude\worktrees\4471-guest-checkout\
-  workitem.json  CLAUDE.md
-  src\{Repo}\                      # one git worktree per affected repo
-  graph\                           # graphify code graph of src\
-```
-
-Branches carry the same id in their last segment:
-`dev/{developer}/{version}/{type}/{ado-id}-{slug}`. Full rules in `references/branching.md`.
-
-## Decision briefs — links before every question (mandatory)
-
-**Every time this skill asks the user for input or approval, it asks with `AskUserQuestion`** —
-never as a plain question in the reply, not even a quick one — and the user must first be shown
-links to the spec documents and code the decision rests on. No links, no question.
-
-**Enforced by two global hooks** (`hooks/question_guard.py`): an `AskUserQuestion`
-without a Links block is blocked, and a turn that ends with a plain-text question is sent back to
-ask it properly. They act only while an sdd flow runs. `/sdd init` installs them.
-
-0. **Build the visual first.** A question that follows an explanation or a plan — requirements,
-   design, tasks, bug cause or fix, impact, a review, a finished change — comes with an
-   **`sdd:visual`** page: `{spec folder}/visuals/<mode>.html`, made with that skill's mode for the
-   moment. Pass it as a `--ref` (`--ref visuals/<mode>.html`) so it lands in the Links block and the
-   send list. The `--status waiting` checkpoint **refuses without an `.html` ref**; only a plain
-   choice with nothing to explain (team version, PR status) passes `--no-visual "<reason>"`.
-   Once the page is sent, do not explain it again in chat: one line naming the page, the Links
-   block, then the question. The page is the summary.
-1. **Get the links from the script, never by hand.**
-   - At a flow gate, the `--status waiting` checkpoint does it: it **refuses to run without
-     `--ref`**, and prints the links.
-   - Anywhere else: `python ${CLAUDE_PLUGIN_ROOT}/scripts/env.py refs --id <id> --ref <ref> ...`
-   - Refs: every spec file the decision rests on (`requirements.md` is added automatically; add
-     `design.md`, `tasks.md`, `questions.md`, `impact.md` as they apply) and every code range the
-     decision is about — the lines you propose to change, the failing test, the callers — as
-     `src/<Repo>/path/file.cs:120-140`. Use `ado` when only the work item itself applies.
-   - A ref that does not exist is an error. Fix the ref; never drop it to get past the check.
-2. **Paste the printed "Links" block into the chat message, above the question.** Every link — the
-   work item, the PR, files, the visual page — goes in the chat. **Never put a link inside the
-   `AskUserQuestion` question or its options**: they hold plain text only. The hook refuses a
-   question that contains a link.
-3. **Send every file listed under "Send with SendUserFile"** (`display: "render"`) when that tool
-   exists. Local links do not open on a phone; sent files and ADO links do.
-4. **Code marked "not pushed": quote those lines** (20 at most) in the message, since only a pushed
-   branch gets an ADO link.
-5. Exempt: `/sdd init` install questions and `/sdd help` — they are about tools, not the spec.
-
-## Progress checkpoints — so another session can resume
-
-Work on one item often spans several chat sessions. The work item's `workitem.json` holds where it
-stands, and `/sdd status <id>` reads it. **Write a checkpoint at every point below — it is one
-command, and a missed one means the next session starts blind.**
-
-```
-python ${CLAUDE_PLUGIN_ROOT}/scripts/env.py progress --id <id> --flow spec \
-  --phase "<phase name as headed in this file>" --status active|waiting|blocked|done|skipped|abandoned \
-  [--gate "<question waiting for the user>"] [--next "<next concrete step>"] [--note "<what the next session must know>"]
-```
+The checkpoint rules are in `flow-rules.md`. The rows this flow adds:
 
 | When | `--status` | Also pass |
 | --- | --- | --- |
 | Starting a mode (Specify, Open Questions, Requirements, Design, Decompose, Implement, Verify); in Implement, `--note "task 3/7"` after each task | `active` | `--note` with anything decided so far |
-| Just before asking a gate question | `waiting` | `--gate` (the question), `--next` (what happens on "yes"), `--ref visuals/<mode>.html` (or `--no-visual "<reason>"`) |
-| Stuck on something outside the flow | `blocked` | `--note` (what blocks it) |
-| Abandoned | `abandoned` | `--note` (what was cleaned up and what was left) |
-| Leaving a stage | `done` | `--passed` for any gate it passed |
-| Skipping a stage — only after the user's yes (see below) | `skipped` | `--confirmed "<the user's words>"` |
 | Open Questions with nothing to ask (no `- [ ]` left in `questions.md`) | `skipped` | nothing: no user's words needed; the script refuses the skip while any question is open |
 | Open Questions finished with questions still open, the user chose "Continue with this open" | `done` | `--passed "Open questions" --caveat "<the questions left open>"` |
-| Closed out | `done` | — |
-
-`progress` creates the work item folder when it does not exist yet, so the first checkpoint can
-come before any worktree.
-
-### Never skip a stage on your own
-
-Every stage of the flow is worked, in order (**Open Questions** is the one conditional stage: with no
-open question it records itself skipped, and the script refuses that skip while any question is open) — also a stage whose work happened inside another one
-(record it anyway, with `--note` saying where the work was done). `progress` and `can` refuse a stage
-while an earlier one was never worked and never skipped, and `/sdd done` refuses until every stage
-is done or skipped.
-
-A stage is skipped **only with the user's yes in this chat**:
-
-1. Ask with `AskUserQuestion`: say which stage, why you want to skip it, and what the user loses.
-   Options: "Do the stage" / "Skip it".
-2. Only on "Skip it": `env.py progress --id <id> --flow spec --phase "<stage>" --status skipped
-   --confirmed "<the user's words>"`. A skip passes no gates, so a stage that needs them stays blocked.
-
-Never write `--confirmed` without a real answer from the user, and never take one skip as a yes for
-another stage.
-
-### Phase guards — check before every mode
-
-Before starting any mode (including when resuming into one), ask the script:
-
-```
-python ${CLAUDE_PLUGIN_ROOT}/scripts/env.py can --id <id> --op phase --flow spec --phase "<phase>"
-```
-
-Exit 3 means **do not start it**. Tell the user which gate is missing and what gets it there
-(usually the earlier step, or its approval), then stop. Never skip ahead because the work "looks
-done". `env.py pr` and `env.py remove` also refuse on their own if their gates are missing.
-
-Record a gate **only after the user's actual yes in this session** (or the automated check it
-names really passed), with `--passed` on the checkpoint you write anyway:
 
 | Gate | Pass it when | Needed by |
 | --- | --- | --- |
@@ -271,341 +143,35 @@ names really passed), with `--passed` on the checkpoint you write anyway:
 | `Design agreed` | "Design agreed" gate: the user chose "Approve — start Decompose" | Decompose, Implement |
 | `Ready to PR` | "Ready to PR" gate: the user chose "Raise the PR", and `env.py verify` passed on the current code | the PR |
 
-Gates the script reads from disk, so you never pass them: `Worktree` (every repo's worktree
-exists), `PR raised` (a PR is recorded), `Tasks written` / `Tasks done` (checkboxes in `tasks.md`).
-
 **Revoke** a gate when what it approved has changed — with `--revoke` on the next checkpoint:
 - `spec.py sync` reports MATERIAL for this item or its parent → `--revoke "Open questions" --revoke "Requirements agreed" --revoke "Design agreed" --revoke "Ready to PR"`, and go back to Specify.
 - `design.md` changes materially after approval → `--revoke "Design agreed" --revoke "Ready to PR"`.
 - Code changes after "Raise the PR" was chosen but before the PR is open → `--revoke "Ready to PR"`.
-### Resuming
 
-**After a feedback reopen** (`/sdd <id> feedback <stage>: <text>`, the latest history note starts
-with `Reopened from`) do not ask "Resume / Start over" — the user already chose the stage. Re-check
-the cheap facts (step 2 below), work the feedback into that stage, and stop at its gate again.
+## Sub-agents
 
-When this flow starts and `env.py status --id <id> --json` shows recorded progress, first run
-`env.py can --id <id> --op resume` — if it is not allowed (done, abandoned, nothing recorded), tell
-the user why and stop. Otherwise:
-
-1. Show the user the verdict, the phase, `next` and `note`, then ask with `AskUserQuestion`:
-   "Resume at <phase>" / "Start over".
-2. **On resume, re-check the cheap facts before going on** — the world moved while nobody watched:
-   the worktrees still exist and are on their branches (`env.py status`), and the spec has no
-   MATERIAL change (`spec.py sync --id <id>`). A MATERIAL change sends you back to the phase that
-   reads the spec.
-3. **A gate that was `waiting` is asked again.** An approval never carries over from an earlier
-   session; the user answers it fresh.
-4. Never redo finished steps that wrote to ADO (the claim, a posted comment, an opened PR) — check
-   they happened and move on.
-
-## Sub-agents — evidence and a second opinion
-
-Two of the plugin's agents take read-heavy and review work off this conversation. Start each with
-the `Agent` tool when it exists. Neither one can edit a file, write to ADO or ask the user, so
-neither one can pass a gate or write a checkpoint. Those stay here.
+The shared rules are in `flow-rules.md`. In this flow:
 
 | Agent | Use it at | Hand it |
 | --- | --- | --- |
 | `sdd:investigator` | Design step 2 (what the change touches, every dependent), Verify step 4 (anchor overlap) | The work item folder path, the repos, and one question |
 | `sdd:skeptic` | Design, before the "Design agreed" gate (mode `design`) | The folder path, `requirements.md` and `design.md` — **not your reasoning** |
 
-Pass `model` on the `Agent` call from `agents.models` in the workspace's `.claude/sdd.json`
-(`investigator`, `skeptic`). Defaults: Sonnet for the investigator (fast search), Opus for the
-skeptic (the judgment call). A value missing or not `sonnet`, `opus` or `haiku`? Leave `model` out:
-the agent's own `model:` line applies.
-
-They start cold: every prompt names the work item folder, so neither falls back to the main
-checkout (ground rule 7). A finding is a lead: confirm an anchor by reading it before it goes into
-`design.md`. Implement stays in this conversation, one task at a time. No `Agent` tool (or the
-plugin's agents are missing)? Do the same work here.
+A finding goes into `design.md` only once you have read its anchor yourself. Implement stays in
+this conversation, one task at a time.
 
 ## Modes
 
-| Situation | Mode |
-| --- | --- |
-| Work item picked up, no spec folder yet | **Specify** |
-| `questions.md` has an open `- [ ]` question | **Open Questions** |
-| Requirements mirrored, no open question | **Requirements** |
-| Requirements agreed | **Design** |
-| Design agreed | **Decompose** |
-| `tasks.md` exists | **Implement** |
-| Tasks done, before, during or after PR | **Verify** |
-| Session start, or "is this still current?" | **Sync check** |
-
-### Mode: Specify
-
-1. **Mirror it:** `spec.py sync --id <id>`. It pulls the item, everything under it, its parents
-   and one hop of links out of that tree, and writes each `requirements.md` into place under
-   `{specRoot}`. Never write or edit `requirements.md` yourself — the next sync overwrites it.
-   Don't read the requirement yet.
-2. **Claim the work item, before you read it:** `spec.py claim --id <id>`. It assigns you, sets
-   `Dev In Progress` and `Active` in one rev-tested write, and re-syncs the mirror. **Exit 3 means
-   stop and ask**: the item is someone else's (never take it), or it is already `Resolved` or
-   `Closed` (after the user's yes, `claim --id <id> --reopen`).
-3. **Read the mirrored file** — resolve it by glob, `{specRoot}/**/<id>-*/requirements.md` — and
-   its parent's. Put every gap and open question in `questions.md` next to it, never in
-   `requirements.md`. One question per line, as an unticked checkbox:
-   `- [ ] Q1: <the question> (context: <why it matters>)`. The Open Questions stage counts those
-   lines; a question written any other way is never asked.
-4. **Run the `sdd:impact` flow for this item** (`spec.py impact --id <id>`, then its
-   `impact.md`), so blast-radius gaps against other specs are raised now, before the requirement
-   is agreed, not at PR time. **Copy each blast-radius gap that needs an answer into
-   `questions.md` as a `- [ ]` line**: `impact.md` is read, but only `questions.md` is counted.
-5. **Do not soften a thin work item.** Missing acceptance criteria stay missing and get raised
-   as a question in `questions.md` — inventing them puts intent in the repo that no PM ever agreed to.
-6. **Hand over.** Specify makes no approval. Record `env.py progress --phase Specify --status done`.
-   If `questions.md` has an unticked `- [ ]` line, go to **Open Questions**. If not, record Open
-   Questions as skipped (`--phase "Open Questions" --status skipped`, no user's words needed) and go
-   to **Requirements**.
-
-### Mode: Open Questions (conditional)
-
-Runs only when Specify left open questions: any `- [ ]` line in `questions.md`. That file holds the
-gaps in the work item **and** the blast-radius gaps from `impact.md`, which Specify copied there.
-With none, the stage is skipped. The script refuses a skip while a question is open, and refuses to
-start Requirements until this stage is done.
-
-1. **Start the stage:** `env.py progress --phase "Open Questions" --status active --note "<N> open"`.
-2. **List and explain first. Ask nothing yet.** Build an `sdd:visual` page
-   (`visuals/open-questions.html`) that lists every open question, where it came from (work item gap
-   or impact gap), and the situation: what the requirement says, what is unclear, and what each
-   answer would change. Send it, paste the Links block (see "Decision briefs"), and open the chat
-   with a short intro: how many questions there are, and that you will ask them one at a time. Only
-   then ask the first one.
-3. **Ask one question at a time** with `AskUserQuestion`: one question per call, never batched. Offer
-   the likely answers as options when there are any (the built-in "Other" takes anything else), and
-   **always end with the option "Continue with this open"**. Checkpoint each ask:
-   `--status waiting --gate "Q<n> of <N>: <question>" --ref questions.md --ref visuals/open-questions.html`.
-4. **Record each answer at once.** Tick the line in `questions.md` and put the answer on it:
-   `- [x] Q1: <question> — Answer: <the user's words>`. Never write an answer into `requirements.md`
-   (ground rule 1), and never answer an unclear point yourself.
-5. **"Continue with this open"** ends the questioning. Do not ask the rest. Say in one line which
-   questions stay open, then record `env.py progress --phase "Open Questions" --status done
-   --passed "Open questions" --caveat "<each open question, a few words each>"`. Leave those lines
-   `- [ ]`. Carry them forward: the requirements page, the design and the PR description each list
-   them as **open questions the work continues with**. The script refuses a finish with open
-   questions and no `--caveat`.
-6. **All answered?** Record `--status done --passed "Open questions" --note "all <N> answered"`.
-7. A question that arises while asking is added as a new `- [ ]` line and asked in turn. One that an
-   earlier answer made moot is ticked with "— moot after Q<n>".
-
-### Mode: Requirements
-
-1. **Show where the questions stand** on the requirements page: answered ones with their answers,
-   and, when the user continued with a caveat, every question still open, marked as open.
-2. **Stop and ask.** Build the `sdd:visual` **requirements** page (`visuals/requirements.html`) — the requirement summary, the answered and open questions and the impact gaps go on the page, not in chat — send it, then run the "Requirements agreed" gate
-   with `AskUserQuestion` (see "Approval gates" below). Designing before that answer wastes work
-   if the requirement moves.
-
-### Mode: Design
-
-1. **Create the work item's folder first:** `env.py new --id <id> --repos <affected repos>
-   --version <version>` (`--base Repo=main` for a repo without `team/*` branches). It branches
-   each repo off the freshly fetched `team/{version}` into `src\{Repo}` and builds the graph.
-   Design is read against the branch the change will actually land on, not against whatever the
-   main checkout happens to have. Mechanics in `references/branching.md`.
-2. **Read the code** — inside `src\{Repo}` — the modules, contracts and data the change touches.
-   Start from `graph\GRAPH_REPORT.md`, then `graphify query "<question>" --graph
-   <folder>\graph\graph.json` and `graphify affected "<node>" --graph …` for what depends on it.
-   The graph is a map: confirm everything it says by reading the file. Note what actually
-   exists, not what the requirement implies. Across several modules or repos, hand the survey to
-   **`sdd:investigator`** and keep only its anchored findings. **A second affected repo turns up here?** Re-run
-   `env.py new` with that repo in `--repos` before reading further into it — existing repos are
-   skipped.
-3. **Write `design.md`** from `assets/design.md.template`: approach, affected components,
-   contracts and data changes, risks, rejected alternatives with the reason.
-4. **Name the anchors deliberately** — file paths, exported symbols, API routes, tables,
-   migrations, config and feature-flag keys. These are what overlap detection compares across
-   branches, so vague ones cost you a real gate.
-5. **Run the tech story gate** before closing: enumerate what this design *creates* that didn't
-   exist, search ADO for existing coverage, and propose only what survives. Present what's left
-   as the "Tech story creation" gate — one `AskUserQuestion` option per proposal, `multiSelect:
-   true`. Full procedure in `references/tech-stories.md`. **Nothing is created in ADO without
-   an explicit approval.**
-6. A story spec inherits its parent feature's design **by reference, not by copy**. Link to it.
-
-   **Second opinion.** Hand **`sdd:skeptic`** (mode `design`) `requirements.md` and `design.md`.
-   It checks every criterion is covered, nothing is scope creep, and every anchor exists or is
-   marked new. On `does not hold`, revise `design.md` first. Show any gap you leave open on the
-   design page.
-7. **Stop and ask.** Build the `sdd:visual` **design** page (`visuals/design.html`, tech story
-   proposals included) from `design.md` — the approach and the anchors — and send it (no recap in
-   chat), then run the "Design
-   agreed" gate with `AskUserQuestion` (see "Approval gates" above). Decomposing before that
-   answer risks tasks built against a design that's about to change.
-8. **"Needs changes"?** Revise `design.md` to address what was asked for, then re-run step 7 —
-   present what changed and run the same gate again. Never guess at the fix and move on to
-   Decompose without a fresh approval; a design that changed since it was last agreed to hasn't
-   actually been agreed to.
-
-### Mode: Decompose
-
-1. **Write `tasks.md`** from `assets/tasks.md.template`: ordered units of 2–5 minutes of agent
-   work, each naming the files it touches and how it is verified. **Write a Verify line as a
-   command in backticks wherever one exists** (`` `dotnet test --filter Tags` ``): `env.py verify`
-   runs every one, and Ready to PR needs them all to pass. Write a plain sentence only for what a
-   person must look at. A work item with several repos: add `- Repo: <name>` to a task whose
-   Files path does not name its repo.
-2. Every task traces to an acceptance criterion or to an explicit design decision. A task that
-   traces to neither is scope creep — drop it or raise it.
-3. Tests are tasks, not a trailing afterthought.
-4. **Once `design.md` and `tasks.md` both exist, write the implementation plan back to ADO** —
-   but only if this work item's type actually carries an Implementation Plan field. Never assume
-   it does; check per type and cache the answer. Field lookup, content shape and the write path
-   are in `references/ado-sync.md`.
-5. **Show the plan.** Build the `sdd:visual` **tasks** page (`visuals/tasks.html`) and send it, with no
-   recap in chat. Re-render it with live statuses when the user asks where Implement stands.
-6. **Stop and ask.** Run the "Tasks agreed" gate with `AskUserQuestion` (`--status waiting`,
-   `--ref visuals/tasks.html`). It passes no recorded gate — `Tasks written` is read from disk —
-   but Implement starts only on "Approve — start Implement". On "Needs changes", rework `tasks.md`
-   and ask again.
-
-### Mode: Implement
-
-1. **Edit only inside `src\{Repo}`** of the folder Design created, for every repo this task
-   touches. No repo file is ever edited in the main checkout. If a task needs a repo with no
-   worktree yet — one Design didn't touch — that's a scope surprise: go back to Design rather
-   than adding it silently here.
-2. **One task at a time**, in order. Tick it in `tasks.md` as it lands. After a significant edit
-   (new files, moved symbols), `env.py graph --id <id>` so later graph queries see it.
-3. Re-sync at session start (the Sync check does this for you) — building against a stale mirror
-   is the expensive failure this workflow prevents.
-4. A task that turns out to be wrong goes back to Decompose, not into improvisation.
-5. Commit messages carry the work item id; the branch already does. No Claude attribution line
-   or trailer in the commit message — the developer running this skill owns the commit.
-
-### Mode: Verify
-
-1. **Run every task's Verify command:** `env.py verify --id <id>`. It runs each backticked command in
-   its repo's worktree and records the results. A failure blocks the PR: `progress --passed "Ready to
-   PR"` and `env.py pr` both refuse until every command passes **on the code as it is now** (an
-   edit after the run voids it; a commit of the same files does not). Fix the code or the task, then
-   run it again. The tasks it lists as "check by hand" go into step 2.
-2. Walk the acceptance criteria one by one against observable behaviour, not against the code
-   you wrote. Anything unmet is either an unfinished task or a requirement change.
-3. **Drift check:** `spec.py sync --id <id>`. Any `MATERIAL` line for this item or its parent
-   blocks the PR until it is reviewed against `design.md` and the done tasks.
-4. **Overlap check:** `spec.py impact --id <id>`, then check the design's anchors against the
-   candidates it lists for file and symbol overlap. With more than a few candidates, give the
-   list and the anchors to **`sdd:investigator`** and ask for each overlap with its file:line.
-5. Report what was built, what was skipped and why; no silent scope changes — as an `sdd:visual`
-   **diff-review** page (`visuals/diff-review.html`) per the worktree diff against its base branch.
-6. **Stop and ask.** Implementation and the checks above are done — run the "Ready to PR" gate
-   with `AskUserQuestion`: "Raise the PR" vs "Make changes". Never open a PR on the assumption
-   that passing checks means go-ahead; only the user's answer does.
-7. **"Make changes"?** Go back to Implement (or Decompose, if the fix is really a task-list
-   problem), address it, then re-run step 6. Never guess at the fix and open the PR anyway.
-8. **"Raise the PR"?** Write the description to `<folder>\pr-description.md`, then `env.py pr
-   --id <id> --title "<title>" --description-file <folder>\pr-description.md` — it pushes each
-   repo with commits ahead, opens its PR against the base branch and links the work item. Move the
-   work item to the current sprint as you open it, `spec.py sprint --id <id>` — an item still
-   sitting in an old sprint (or with none set) reads as work nobody is doing. Never write the work
-   item as `#12345` anywhere in the PR text (`env.py pr` refuses it),
-   and never add a Claude attribution line to the title, description or a comment — the
-   developer owns the PR. `references/branching.md` has both rules and why.
-9. Start **Review** at once: `env.py progress --id <id> --flow spec --phase Review --status waiting
-   --gate "PR status: not yet approved / approved / merged / rejected" --ref ado --no-visual "PR status
-   is a plain choice"`. Verify is done; the wait for the reviewers is Review's.
-
-### Mode: Review
-
-The PR is open and waits on its reviewers. The user answers in the chat, or with the **Approved**,
-**Merged** and **Rejected** buttons of the sdd view, which post the answer as the user's own message
-`sdd review for <id>: approved` / `: merged` / `: rejected: <why>`. Treat both the same.
-
-1. **Stop and ask** (when the answer did not come from the view): show the PR's clickable ADO link
-   first (ground rule 12), then ask with `AskUserQuestion`: "Not yet approved" / "Approved" /
-   "Merged" / "Rejected". Don't assume the answer, and don't silently poll ADO for it; ask directly,
-   whenever you next pick this work item back up.
-2. **"Not yet approved"** — nothing changes; Review keeps waiting.
-3. **"Approved" or "Merged"** — `env.py progress --id <id> --flow spec --phase Review --status done
-   --passed "PR approved"`. Then hand over: `spec.py handover --id <id> --tag <version>`, with the
-   version segment the branch carries (the `team/{version}` it was branched from). It sets
-   `Dev Completed` and `Resolved` and appends the tag, in one rev-tested write.
-4. **"Merged" only** — `env.py remove --id <id>` (dry run, shown to the user), then `--yes`, then
-   archive this session: `mcp__ccd_session_mgmt__archive_session`, `session_id: "self"`, `reason`
-   naming the merged PR. This is cleanup, done together, no separate question — the "Merged" answer
-   is already the explicit human confirmation the archive step needs.
-5. **"Rejected"** — the reason is the feedback. Go back to Implement through the feedback route:
-   `env.py reopen --id <id> --phase Implement --note "PR rejected: <why>"` (it revokes Ready to PR and
-   PR approved), read the PR's review comments, fix in `src/{Repo}/`, and come back through Verify's
-   "Ready to PR" gate. The open PR takes the new commits; `env.py pr` is not run again for it.
-   No reason given → ask for it first; never guess what the reviewers want.
-
-### Mode: Sync check
-
-```
-spec.py sync
-```
-
-With no id it refreshes every synced item and scope root and reports `new`, `material` (with the
-fields that changed), `incidental`, `unchanged` and `missing`. Incidental changes (state, tags,
-iteration, assignment) refresh silently. Report every `MATERIAL` and `MISSING` line to the user —
-a material change on an item in flight, or on its parent, needs review before more work. A new
-child is simply mirrored. Classification in `references/ado-sync.md`.
-
-A CI gate that runs this on a pull request is not provided by the shared scripts yet; until it
-is, the Verify drift check is the gate.
-
-## Workspace facts cache
-
-Some facts cost real effort to derive and barely change — per-repo test/build commands not
-already obvious from that repo's own `CLAUDE.md`, which repos actually carry `team/*` branches,
-a trap that cost time. Deriving them again every session is waste, so write the durable ones back
-to the **workspace root** `CLAUDE.md`, under one marked heading, and read that heading back at
-session start alongside the Sync check.
-
-| Record it | Never record it |
-| --- | --- |
-| Per-repo test/build commands, if not already obvious from that repo's own `CLAUDE.md` | `team/*` versions — they change every release; always enumerate live |
-| Which repos actually carry `team/*` branches versus branching straight off `main` | Anything about one work item: ids, branch names, worktree paths |
-| The worktree root convention (`.claude/worktrees/{id}-{slug}/src/{Repo}`) | Passwords, connection strings, tokens, personal data |
-| Which work item types carry an Implementation Plan field, and its reference name | Any work item's actual implementation plan content — that's written to ADO, not cached here |
-| A trap that cost real time and would cost the next run the same | Your analysis of one spec — that lives in `{specRoot}`, not here |
-
-```markdown
-## Claude skills — workspace facts
-
-*Written by the `sdd:spec` skill. Last verified {yyyy-MM-dd}. Check anything cheap before you
-trust it. `team/*` versions are deliberately absent — always enumerate them live.*
-
-| Fact | Value |
-| --- | --- |
-| Worktree root | `<workspace>\.claude\worktrees\{id}-{slug}\src\{Repo}` — confirm it is gitignored |
-| ADO org / projects | From `.claude/sdd.json` — not copied here |
-
-### Per-repo notes
-
-| Repo | Test/build command | `team/*` branches? | Notes |
-| --- | --- | --- | --- |
-| … | … | … | … |
-
-### Implementation Plan field, by work item type
-
-| Type | Present? | Reference name |
+| Situation | Mode | File (read it when the mode starts) |
 | --- | --- | --- |
-| … | yes / no | `Custom.…` or — |
-
-### Traps
-
-- One line each. Only what cost real time.
-```
-
-Rules for writing it:
-
-1. **Ask before the first write.** The root `CLAUDE.md` may be shared outside git — show the
-   block and wait. Later updates need no new permission once the user has agreed once.
-2. **Update in place, never append a duplicate.** One `## Claude skills — workspace facts`
-   heading per file — the same heading `ado-bug-fix` writes in other workspaces, so the two
-   skills never fight over the block if a workspace ever uses both.
-3. **Stamp the date.** A block older than about a month is a hint, not a fact — re-verify it.
-4. **Keep it under 40 lines.** It loads into every session in this workspace; it's a lookup
-   table, not a write-up.
-5. **No workspace `CLAUDE.md`?** Say so and ask whether to create one. Never create it silently.
-
-Skip writing it when nothing new was learned this session — an unchanged block isn't worth a
-commit.
+| Work item picked up, no spec folder yet | **Specify** | `modes/specify.md` |
+| `questions.md` has an open `- [ ]` question | **Open Questions** | `modes/open-questions.md` |
+| Requirements mirrored, no open question | **Requirements** | `modes/requirements.md` |
+| Requirements agreed | **Design** | `modes/design.md` |
+| Design agreed | **Decompose** | `modes/decompose.md` |
+| `tasks.md` exists | **Implement** | `modes/implement.md` |
+| Tasks done, before, during or after PR | **Verify** | `modes/verify.md` |
+| Session start, or "is this still current?" | **Sync check** | `modes/sync-check.md` |
 
 ## Gates at a glance
 
@@ -630,6 +196,9 @@ therefore whatever has an open `dev/*` PR — by construction, not by query.
 
 | File | Read when |
 | --- | --- |
+| `${CLAUDE_PLUGIN_ROOT}/skills/sdd/references/flow-rules.md` | Once, at the start of the flow |
+| `references/repo-layout.md` | Specify and Design — the spec folder tree, folder names, the worktree folder |
+| `references/workspace-facts.md` | Specify (read the cache) and whenever you learn a durable workspace fact |
 | `references/ado-sync.md` | Mirror schema, field classification, drift, write path, claim/close-out fields, implementation plan write-back |
 | `references/branching.md` | Branch naming, work item folder, PR linking, promotion chain, enforcement |
 | `references/spec-authoring.md` | Writing requirements, design or tasks well |

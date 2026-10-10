@@ -334,6 +334,7 @@ def main():
         ok, why, _ = env.check_op(root, cfg, 9, "phase", "spec", "Review")
         assert not ok and "the flow is done" in why, why                                   # the last stage done: flow over
         os.chdir(Path(__file__).parent)
+    stage_docs()
     config_upgrade()
     output_style()
     ado_writes()
@@ -439,6 +440,21 @@ def output_style():
             assert settings.read_text() == '{"a": 1,' and "not valid JSON" in notes[0]
         finally:
             del os.environ["CLAUDE_CONFIG_DIR"]
+
+
+def stage_docs():
+    """Every stage names its own file, the file exists, and starts with the stage's heading."""
+    plugin = Path(__file__).resolve().parent.parent
+    for flow, f in env.FLOWS["flows"].items():
+        for st in f["stages"]:
+            doc = env.stage_doc(flow, st["key"])
+            assert doc and Path(doc).is_file(), (flow, st["key"], doc)
+            first = Path(doc).read_text(encoding="utf-8").split("\n", 1)[0]
+            assert first.startswith("# ") and (st["key"] in first or st["key"].split()[-1] in first), (doc, first)
+            assert str(plugin) in doc
+    assert env.stage_doc("bug", "Phase 9 — Verify").endswith("09-verify.md")
+    assert env.stage_doc("spec", "Implement (task 3/7)").endswith("implement.md")
+    assert env.stage_doc("bug", "Phase 99") is None
 
 
 def config_upgrade():

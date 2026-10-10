@@ -1188,15 +1188,32 @@ def cmd_can(a):
     if a.op == "phase" and not a.phase:
         die("--op phase needs --phase (and --flow when nothing is recorded yet)")
     ok, reasons, notes = check_op(root, cfg, a.id, a.op, a.flow, a.phase)
+    read = stage_doc(a.flow or recorded_flow(root, cfg, a.id), a.phase) if a.op == "phase" and ok else None
     if a.json:
-        print(json.dumps({"id": a.id, "op": a.op, "ok": ok, "reasons": reasons, "notes": notes}, indent=2))
+        print(json.dumps({"id": a.id, "op": a.op, "ok": ok, "reasons": reasons, "notes": notes, "read": read},
+                         indent=2))
     else:
         print(f"{a.op} {a.id}: {'allowed' if ok else 'NOT allowed'}")
         for x in reasons:
             print(f"  because: {x}")
         for x in notes:
             print(f"  note:    {x}")
+        if read:
+            print(f"  read:    {read}   (the stage's steps: read it before you start)")
     sys.exit(0 if ok else 3)
+
+
+def stage_doc(flow, phase):
+    """The stage's own file (flows.json "doc"), as a path to read; None when unknown."""
+    key = phase_key(flow, phase)
+    doc = next((s.get("doc") for s in FLOWS["flows"].get(flow, {}).get("stages", []) if s["key"] == key), None)
+    return str(PLUGIN / doc) if doc else None
+
+
+def recorded_flow(root, cfg, wid):
+    env_dir = find_env(root, cfg, wid)
+    data = read_env(env_dir) if env_dir else {}
+    return (data.get("progress") or {}).get("flow") or data.get("flow")
 
 
 def cmd_reopen(a):

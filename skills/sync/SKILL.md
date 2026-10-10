@@ -18,7 +18,7 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/spec.py sync --all       # every project in
 Before any question to the user, run `env.py refs --id <id> --ref <ref> ...` (or the waiting
 checkpoint, which requires `--ref`), paste its "Links" block above the question, send the files it
 lists with `SendUserFile` (`display: "render"`) when that tool exists, and quote any code lines
-marked "not pushed". Full rule: "Decision briefs" in the `sdd` skill. No links, no question.
+marked "not pushed". Full rule: "Decision briefs" in `${CLAUDE_PLUGIN_ROOT}/skills/sdd/references/flow-rules.md`. No links, no question.
 
 For this skill: before the first big sync, `env.py refs --id <scope root> --ref ado`.
 

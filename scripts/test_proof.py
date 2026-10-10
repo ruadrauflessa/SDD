@@ -59,6 +59,9 @@ def main():
         import env
         import proof
 
+        r = env_py(root, "can", "--id", "5", "--op", "phase", "--flow", "bug", "--phase", "Phase 1")
+        assert "read:" in r.stdout and "01-load-and-claim.md" in r.stdout, r.stdout
+
         def lacks(flow, gate):
             return env.proof_missing(flow, env.read_env(env_dir), env_dir, gate)
 

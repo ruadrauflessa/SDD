@@ -207,7 +207,7 @@ vary by work item type and by project, unlike the fixed fields above.
    the exact string) and record its reference name.
 2. **No such field on this type?** Skip the write. This is the normal case, not an error — most
    types won't carry it. Don't re-check every run: cache the answer, per type, in the workspace
-   facts block (see "Workspace facts cache" in `SKILL.md`) so this lookup happens once per type,
+   facts block (see `references/workspace-facts.md`) so this lookup happens once per type,
    not once per work item.
 3. **Field exists?** Write it with the rev-tested patch, `format=Html`:
 
