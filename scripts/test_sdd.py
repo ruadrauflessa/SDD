@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import env
 import spec
+import sddlib
 from sddlib import parse_remote, renumber_bug_phases, slug
 
 
@@ -332,7 +333,38 @@ def main():
         ok, why, _ = env.check_op(root, cfg, 9, "phase", "spec", "Review")
         assert not ok and "the flow is done" in why, why                                   # the last stage done: flow over
         os.chdir(Path(__file__).parent)
+    config_upgrade()
     print("ok")
+
+
+def config_upgrade():
+    """agents.models: defaults in load_config, written into an existing sdd.json by upgrade-config."""
+    plugin = Path(__file__).resolve().parent.parent
+    for name, model in sddlib.DEFAULTS["agents"]["models"].items():  # the agent file's own default agrees
+        head = (plugin / "agents" / f"{name}.md").read_text(encoding="utf-8").split("---")[1]
+        assert f"\nmodel: {model}\n" in head, (name, model)
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = Path(tmp)
+        (root / ".claude").mkdir()
+        path = root / ".claude" / "sdd.json"
+        before = {"specRoot": "docs/spec", "ado": {"org": "Org", "projects": ["P"]}}
+        path.write_text(json.dumps(before))
+        assert sddlib.load_config(root)["agents"]["models"] == {"investigator": "sonnet", "skeptic": "opus"}
+        assert sddlib.upgrade_config(root) == ["agents.models.investigator", "agents.models.skeptic"]
+        got = json.loads(path.read_text())
+        assert got["agents"] == {"models": {"investigator": "sonnet", "skeptic": "opus"}}
+        assert {k: got[k] for k in before} == before                    # nothing else written or changed
+        assert "view" not in got
+        assert sddlib.upgrade_config(root) == []                         # second run: nothing to do
+        path.write_text(json.dumps({**before, "agents": {"models": {"skeptic": "sonnet"}, "x": 1}}))
+        assert sddlib.upgrade_config(root) == ["agents.models.investigator"]
+        got = json.loads(path.read_text())
+        assert got["agents"] == {"models": {"skeptic": "sonnet", "investigator": "sonnet"}, "x": 1}  # set value kept
+        path.write_text(json.dumps({**before, "agents": "opus"}))       # not an object: left for the person
+        assert sddlib.upgrade_config(root) == [] and json.loads(path.read_text())["agents"] == "opus"
+        assert sddlib.load_config(root)["agents"]["models"]["skeptic"] == "opus"
+        path.write_text(json.dumps({**before, "agents": {"models": {"investigator": "gpt-4"}}}))
+        assert sddlib.bad_agent_models(sddlib.load_config(root)) == ["investigator=gpt-4"]
 
 
 if __name__ == "__main__":

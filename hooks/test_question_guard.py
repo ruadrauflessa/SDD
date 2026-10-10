@@ -45,6 +45,7 @@ def main():
         assert run("stop", [user("hi"), say("Shall I?")], cwd) == 0
         # init/doctor alone is not a flow
         assert run("stop", [user("x"), tool("python .../scripts/env.py doctor"), say("Ok?")], cwd) == 0
+        assert run("stop", [user("x"), tool("python .../scripts/env.py upgrade-config"), say("Ok?")], cwd) == 0
         # the view's snapshot is read-only too
         assert run("stop", [user("x"), tool("python C:/plugins/sdd/scripts/env.py view --id 5 --json"), say("Ok?")], cwd) == 0
         # sdd flow: a question without links is blocked, with links it passes

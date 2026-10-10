@@ -48,15 +48,21 @@ The sdd view opens by itself the first time a chat takes up a work item. In it:
 }
 ```
 
-`skills/workspace/SKILL.md` lists every key.
+```json
+"agents": { "models": { "investigator": "sonnet", "skeptic": "opus" } }
+```
+
+`agents.models` picks the model of each sub-agent (`sonnet`, `opus` or `haiku`). A workspace without
+it gets these defaults written into its `sdd.json` at the first session after the plugin updates;
+values already set are kept. `skills/workspace/SKILL.md` lists every key.
 
 ## Layout
 
 | Path | What |
 | --- | --- |
 | `skills/` | `sdd` (entry), `spec`, `bug`, `sync`, `impact`, `harness`, `visual`, `workspace` |
-| `agents/` | `investigator` (read-only code search, Sonnet) and `skeptic` (independent review of a root cause, a test or a design, Opus), used by the bug and spec flows |
-| `scripts/` | `env.py` (work item folders, state guards, progress), `spec.py` (ADO mirror, impact), `flows.json` (the stages of each flow) |
+| `agents/` | `investigator` (read-only code search) and `skeptic` (independent review of a root cause, a test or a design), used by the bug and spec flows; models from `agents.models` |
+| `scripts/` | `env.py` (work item folders, state guards, progress, config upgrades), `spec.py` (ADO mirror, impact), `flows.json` (the stages of each flow) |
 | `hooks/` | `hooks.json`, `question_guard.py` (links before every question), `agent_guard.py` (keeps the sdd agents read-only: no git writes, no `env.py` / `spec.py` runs), `register.tsx` + `view/` (the sdd view) |
 | `types/` | The view's state contract |
 

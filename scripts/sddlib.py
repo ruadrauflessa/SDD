@@ -37,7 +37,16 @@ DEFAULTS = {
         "line": "#5c6670",       # borders
         "hoverText": "#ffffff",  # the text of the line under the pointer (its icon turns a lighter shade)
     }},
+    # the model each sdd sub-agent runs on: passed as the Agent tool's `model` when a flow starts one
+    "agents": {"models": {"investigator": "sonnet", "skeptic": "opus"}},
 }
+# What the Agent tool's `model` takes.
+AGENT_MODELS = ("sonnet", "opus", "haiku")
+# Keys written into an existing workspace's .claude/sdd.json when missing — by `env.py
+# upgrade-config`, which the plugin's SessionStart hook runs, so a plugin update reaches every
+# workspace on its next session. Settings a person should find in the file and change there.
+# A value already in the file is never changed.
+UPGRADE_KEYS = [("agents", "models", "investigator"), ("agents", "models", "skeptic")]
 
 TYPE_SEGMENT = {
     "User Story": "story", "Product Backlog Item": "story", "Change Request": "story",
@@ -77,7 +86,40 @@ def load_config(root):
     merged["embeddings"] = {**DEFAULTS["embeddings"], **cfg.get("embeddings", {})}
     view = cfg.get("view", {})
     merged["view"] = {**DEFAULTS["view"], **view, "colors": {**DEFAULTS["view"]["colors"], **view.get("colors", {})}}
+    agents = cfg.get("agents") if isinstance(cfg.get("agents"), dict) else {}
+    models = agents.get("models") if isinstance(agents.get("models"), dict) else {}
+    merged["agents"] = {**DEFAULTS["agents"], **agents, "models": {**DEFAULTS["agents"]["models"], **models}}
     return merged
+
+
+def upgrade_config(root):
+    """Write each UPGRADE_KEYS default missing from the workspace's sdd.json into it. -> the keys
+    added, dotted. Never changes a value that is set, and leaves a non-object where an object
+    belongs alone: that is the person's to fix (doctor says so)."""
+    path = root / CONFIG_REL
+    cfg = json.loads(path.read_text(encoding="utf-8"))
+    added = []
+    for keys in UPGRADE_KEYS:
+        node, default = cfg, DEFAULTS
+        for k in keys[:-1]:
+            default = default[k]
+            if k not in node:
+                node[k] = {}
+            if not isinstance(node[k], dict):
+                break
+            node = node[k]
+        else:
+            if keys[-1] not in node:
+                node[keys[-1]] = default[keys[-1]]
+                added.append(".".join(keys))
+    if added:
+        path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+    return added
+
+
+def bad_agent_models(cfg):
+    """agents.models entries the Agent tool would not take, as 'name=value'."""
+    return [f"{k}={v}" for k, v in cfg["agents"]["models"].items() if v not in AGENT_MODELS]
 
 
 def slug(text, limit=48):

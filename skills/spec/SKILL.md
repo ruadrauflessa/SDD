@@ -310,8 +310,10 @@ neither one can pass a gate or write a checkpoint. Those stay here.
 | `sdd:investigator` | Design step 2 (what the change touches, every dependent), Verify step 3 (anchor overlap) | The work item folder path, the repos, and one question |
 | `sdd:skeptic` | Design, before the "Design agreed" gate (mode `design`) | The folder path, `requirements.md` and `design.md` — **not your reasoning** |
 
-`sdd:investigator` runs on Sonnet (fast search), `sdd:skeptic` on Opus (the judgment call). The
-`model:` line in `agents/*.md` sets each one.
+Pass `model` on the `Agent` call from `agents.models` in the workspace's `.claude/sdd.json`
+(`investigator`, `skeptic`). Defaults: Sonnet for the investigator (fast search), Opus for the
+skeptic (the judgment call). A value missing or not `sonnet`, `opus` or `haiku`? Leave `model` out:
+the agent's own `model:` line applies.
 
 They start cold: every prompt names the work item folder, so neither falls back to the main
 checkout (ground rule 7). A finding is a lead: confirm an anchor by reading it before it goes into

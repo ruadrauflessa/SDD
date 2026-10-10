@@ -37,10 +37,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from sddlib import (BUG_TYPES, CONFIG_REL, DEFAULTS, TYPE_SEGMENT, ado, developer, die,
-                    discover_repos, ensure_ignored, find_env, find_root, get_items, git,
-                    load_config, org_url, parse_remote, read_env, read_record, require_root, slug, wt_root,
-                    write_env)
+from sddlib import (AGENT_MODELS, BUG_TYPES, CONFIG_REL, DEFAULTS, TYPE_SEGMENT, ado, bad_agent_models,
+                    developer, die, discover_repos, ensure_ignored, find_env, find_root, get_items, git,
+                    load_config, org_url, parse_remote, read_env, read_record, require_root, slug,
+                    upgrade_config, wt_root, write_env)
 
 GRAPH_IGNORE = "bin/\nobj/\nnode_modules/\ndist/\nbuild/\ncoverage/\n*.min.js\n"
 PLUGIN = Path(__file__).resolve().parent.parent  # the sdd plugin root
@@ -90,6 +90,25 @@ def cmd_init(a):
 def cmd_type(a):
     cfg = load_config(require_root())
     print(json.dumps(item_info(cfg, a.id), indent=2))
+
+
+def cmd_upgrade_config(a):
+    """Add new settings' defaults to this workspace's .claude/sdd.json. Run by the plugin's
+    SessionStart hook: silent outside a workspace, and never fails the session start."""
+    root = find_root()
+    if not root:
+        return
+    try:
+        added = upgrade_config(root)
+        bad = bad_agent_models(load_config(root))
+    except (OSError, ValueError) as e:
+        print(f"sdd: could not check {root / CONFIG_REL}: {e}", file=sys.stderr)
+        return
+    if added:
+        print(f"sdd: added {', '.join(added)} to {root / CONFIG_REL} with the plugin's defaults; change them there")
+    if bad:
+        print(f"sdd: agents.models in {root / CONFIG_REL} has {', '.join(bad)}; use one of "
+              f"{', '.join(AGENT_MODELS)}. The flows leave that agent on its own default until it is fixed.")
 
 
 # ---------------------------------------------------------------- doctor
@@ -184,6 +203,10 @@ def cmd_doctor(a):
             ig = run("git", "-C", str(root), "check-ignore", "-q", wt + "/x")
             add("worktrees ignored", ig and ig.returncode == 0, True, wt,
                 f"add '{wt}/' to {root / '.git' / 'info' / 'exclude'}   (env.py new also does this)")
+        bad = bad_agent_models(cfg)
+        add("agent models", not bad, False, ", ".join(f"{k}={v}" for k, v in cfg["agents"]["models"].items())
+            if not bad else f"not a model the Agent tool takes: {', '.join(bad)}",
+            f"set agents.models in .claude/sdd.json to one of {', '.join(AGENT_MODELS)}")
         cm = root / "CLAUDE.md"
         has = cm.is_file() and CLAUDE_MARK in cm.read_text(encoding="utf-8", errors="replace")
         add("CLAUDE.md sdd block", has, False, str(cm) if has else "no sdd block in the workspace CLAUDE.md",
@@ -1099,6 +1122,7 @@ def main():
     s = sp.add_parser("init"); s.add_argument("--spec-root", default=DEFAULTS["specRoot"])
     s = sp.add_parser("type"); s.add_argument("--id", type=int, required=True)
     s = sp.add_parser("doctor"); s.add_argument("--json", action="store_true")
+    sp.add_parser("upgrade-config", help="add new settings' defaults to .claude/sdd.json (SessionStart hook)")
     s = sp.add_parser("new")
     s.add_argument("--id", type=int, required=True)
     s.add_argument("--repos", required=True, help="comma-separated folder names")
@@ -1154,7 +1178,7 @@ def main():
     s.add_argument("--yes", action="store_true")
     a = ap.parse_args()
     {"init": cmd_init, "doctor": cmd_doctor, "progress": cmd_progress, "refs": cmd_refs, "can": cmd_can, "type": cmd_type, "new": cmd_new, "status": cmd_status, "view": cmd_view, "reopen": cmd_reopen, "graph": cmd_graph,
-     "pr": cmd_pr, "remove": cmd_remove}[a.cmd](a)
+     "pr": cmd_pr, "remove": cmd_remove, "upgrade-config": cmd_upgrade_config}[a.cmd](a)
 
 
 if __name__ == "__main__":

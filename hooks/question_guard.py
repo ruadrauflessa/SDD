@@ -21,7 +21,7 @@ SCRIPT = re.compile(r"""^\s*(?:&\s*)?(?:uv\s+run\s+)?"""
                     r"""(?:"(?:[^"]*[\\/])?(?:python3?|py)(?:\.exe)?"|'(?:[^']*[\\/])?(?:python3?|py)(?:\.exe)?'"""
                     r"""|(?:[^\s"']*[\\/])?(?:python3?|py)(?:\.exe)?)"""
                     r"""(?:\s+-\S+)*\s+(?:"(?:[^"]*[\\/])?|'(?:[^']*[\\/])?|(?:[^\s"']*[\\/])?)scripts[\\/]+(env|spec)\.py["']?\s+(\w+)""")
-EXEMPT = {"doctor", "init", "type", "view"}  # read-only: they never mean a flow is running
+EXEMPT = {"doctor", "init", "type", "view", "upgrade"}  # never mean a flow is running (upgrade = upgrade-config)
 ENV_PY = (Path(__file__).resolve().parent.parent / "scripts" / "env.py").as_posix()
 HOW = (f"Run `python {ENV_PY} refs --id <id> --ref <spec file or "
        "code path:line> ...` (or the `--status waiting` checkpoint with `--ref`), paste its Links block "
