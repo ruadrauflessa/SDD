@@ -26,9 +26,10 @@ Writes to ADO (rev-tested, retried on a conflict; adowrite.py; exit 3 = stop and
     (--dry-run on any of them prints the patch and writes nothing)
 
 Which item to take next (nextpick.py; read-only, from the index — sync the scope first):
-    next       --scope N --version V [--email E] [--json]
-                                    the items under epic/feature N tagged V, ranked: bugs and issues
-                                    first, then by dev priority; plus what needs a judgement first
+    next       --scope N --version V [--email E] [--json] [--no-sync]
+                                    syncs N first, then ranks the items under epic/feature N tagged V:
+                                    bugs and issues first, then by dev priority; plus what needs a
+                                    judgement first
     next-judge --scope N --id M (--blocked yes|no | --complexity 1-5) --reason TEXT
                                     record the agent's judgement; it holds while its evidence holds
 
@@ -41,6 +42,7 @@ impact.* in a spec folder are never overwritten, and move with the folder on a r
 """
 import argparse
 import array
+import contextlib
 import hashlib
 import html
 import json
@@ -363,7 +365,11 @@ def write_metrics(ctx, changes, scope, keep_changes=False):
     lk = {}
     for r in ctx.db.execute("SELECT src, dst, rel FROM links"):
         lk.setdefault(r["src"], []).append((r["rel"], r["dst"]))
-    out = metrics.build(rows, lk, prev.get("changes", []) if keep_changes else changes, prev, ctx.cfg, scope)
+    # `changes` is the delta of the last sync that changed something: a sync that found nothing new
+    # (next runs one every time) keeps the delta before it, with the time it was found
+    keep = keep_changes or not changes
+    out = metrics.build(rows, lk, prev.get("changes", []) if keep else changes, prev, ctx.cfg, scope)
+    out["changesAt"] = (prev.get("changesAt") or (prev.get("sync") or {}).get("at")) if keep else out["sync"]["at"]
     if keep_changes and prev.get("sync"):
         out["sync"] = prev["sync"]
     path.write_text(json.dumps(out, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -841,6 +847,13 @@ def _next_state(ctx):
 
 
 def cmd_next(a):
+    if not a.no_sync:
+        # others claim items all day: rank from the scope as ADO has it now. A failed sync stops here
+        # rather than ranking from an old mirror. With --json its report goes to stderr.
+        with contextlib.redirect_stdout(sys.stderr if a.json else sys.stdout):
+            print(f"syncing {a.scope} first (--no-sync ranks from the last sync)")
+            cmd_sync(argparse.Namespace(id=a.scope, all=False, no_embed=True))
+            print()
     ctx = Ctx()
     if not ctx.item(a.scope):
         die(f"{a.scope} is not synced. Run: spec.py sync --id {a.scope}")
@@ -1027,6 +1040,7 @@ def main():
     s.add_argument("--version", required=True, help="the team branch version the items are tagged with")
     s.add_argument("--email", help="default: git config user.email")
     s.add_argument("--json", action="store_true")
+    s.add_argument("--no-sync", action="store_true", help="rank from the last sync instead of syncing the scope first")
     s = sp.add_parser("next-judge", help="record whether an item is blocked, or its estimated complexity")
     s.add_argument("--scope", type=int, required=True)
     s.add_argument("--id", type=int, required=True)

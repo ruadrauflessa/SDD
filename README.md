@@ -33,7 +33,7 @@ pandoc, Ollama (meaning search).
 
 | You type | What happens |
 | --- | --- |
-| `/sdd next <epic or feature id> [version]` | Ranks what to take next under your epic or feature: items with your version that nobody is working on, blocked ones judged from the requirements, bugs and issues first, then a dev priority from priority, severity and complexity |
+| `/sdd next <epic or feature id> [version]` | Syncs the epic or feature from ADO, then ranks what to take next under it: items with your version that nobody is working on, blocked ones judged from the requirements, bugs and issues first, then a dev priority from priority, severity and complexity |
 | `/sdd <id>` | Starts or resumes the work item, in the bug or spec flow by its type |
 | `/sdd <id> short` / `full` | A spec item on the short path (one stop approves design and tasks together) or the full one; without it, the flow asks |
 | `/sdd help` | A short tour |

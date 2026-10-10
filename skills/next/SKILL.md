@@ -38,13 +38,15 @@ claim is the first step of the flow the user starts with the item they choose.
    (`/sdd next 600 1.1.0`); if it did not, ask with `AskUserQuestion` — the team versions are the
    `team/*` branches of the workspace repos (`git branch -r`), two options at most plus "Other".
    Paste the Links block from `env.py refs --id <scope> --ref ado` above the question.
-2. **Fresh states.** `spec.py sync --id <scope>`. Others claim items all day: never rank from an
-   old mirror.
-3. **The list.** `spec.py next --scope <scope> --version <version>`. For more context on any item —
-   what it blocks, what changed on it last, its epic chain — read its entry in
-   `{specRoot}/.index/metrics.json` (the sync just wrote it) rather than asking ADO. It prints what is ready, what
-   needs a judgement first, what is blocked and what is not available, with why.
-4. **Judge what it asks for**, every one, then record it — one sentence that cites what you read:
+2. **The list.** `spec.py next --scope <scope> --version <version>`. It **syncs the scope first**
+   (others claim items all day: it never ranks from an old mirror), then prints what is ready, what
+   needs a judgement first, what is blocked and what is not available, with why. The sync fails (no
+   `az` login, ADO down)? It stops: tell the user, and do not fall back to `--no-sync` unless they
+   say to rank from the last sync. For more context on any item — what it blocks, what changed on it
+   last, its epic chain — read its entry in `{specRoot}/.index/metrics.json` (the sync just wrote
+   it) rather than asking ADO. The sync report's MATERIAL lines matter here too: a requirement that
+   just changed is worth a word to the user before they pick it.
+3. **Judge what it asks for**, every one, then record it — one sentence that cites what you read:
    - **blocked?** Read the item's `requirements.md` and the `requirements.md` of each item in its
      evidence (resolve them by glob: `{specRoot}/**/<id>-*/`). Blocked means this item **cannot be
      built or tested** until the other lands: it needs code, data, a contract or a decision the
@@ -61,13 +63,14 @@ claim is the first step of the flow the user starts with the item they choose.
 
    A judgement holds while its evidence holds: once a blocker is done, or the item's requirement
    changes, the script asks again.
-5. **The list again.** `spec.py next --scope <scope> --version <version>` — nothing left to judge.
-6. **Let the user pick.** In chat: the top five ready items as a short table — id, type, title,
+4. **The list again.** `spec.py next --scope <scope> --version <version> --no-sync` — nothing left to
+   judge. `--no-sync` here: step 2 synced a moment ago, and your judgements are about that state.
+5. **Let the user pick.** In chat: the top five ready items as a short table — id, type, title,
    dev priority, P / S / C, and a note (yours, unassigned, or on someone else's name and not
    started) — then one line on each blocked item and why. Paste the Links block (`env.py refs --id
    <scope> --ref ado`), then ask with `AskUserQuestion`: the top three as options, best first, and
    "None of these". Say in one sentence which you would take and why — usually the first.
-7. **Start it.** On a pick, hand over to `/sdd <id>` (the `sdd` skill routes it to its flow). The
+6. **Start it.** On a pick, hand over to `/sdd <id>` (the `sdd` skill routes it to its flow). The
    flow's first step is the claim. When the item is on someone else's name and not started, the
    user's pick is the yes the claim needs: tell the flow so, and it claims with `--take`.
 

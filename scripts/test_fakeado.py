@@ -217,9 +217,13 @@ def main():
         assert c606["kind"] == "material" and c606["fields"] == ["Title"], c606
         assert c606["diff"]["title"] == ["Show currency symbol", "Show the currency symbol on totals"]
         assert 600 in [x["id"] for x in c606["affects"]], c606["affects"]           # its feature, by link
-        before = json.loads(mpath.read_text())["changes"]
+        before = json.loads(mpath.read_text())
         run(root, "spec.py", "metrics")
-        assert json.loads(mpath.read_text())["changes"] == before                  # a rebuild keeps them
+        assert json.loads(mpath.read_text())["changes"] == before["changes"]       # a rebuild keeps them
+        run(root, "spec.py", "sync", "--id", "600", "--no-embed")                  # nothing new in ADO
+        after = json.loads(mpath.read_text())
+        assert after["changes"] == before["changes"] and after["changesAt"] == before["changesAt"]
+        assert after["sync"]["at"] >= before["sync"]["at"]
         # taking an item: never someone's work in progress; one on another name only with --take
         w = json.loads(world.read_text())
         w["items"]["603"]["fields"]["System.State"] = "New"
@@ -231,6 +235,20 @@ def main():
         assert f["System.AssignedTo"] == "dev@x.co" and f["Custom.BoardColumnTitle"] == "Dev In Progress"
         r = run(root, "spec.py", "claim", "--id", "602", "--take", check=False)
         assert r.returncode == 3 and "working on it" in r.stdout, r.stdout
+
+        # next syncs its scope first; --no-sync ranks from the last sync; a failed sync stops it
+        w = json.loads(world.read_text())
+        w["items"]["608"]["fields"][P] = 1
+        w["items"]["608"]["rev"] += 1
+        world.write_text(json.dumps(w))
+        prio = lambda *extra: {r["id"]: r["priority"] for r in json.loads(run(
+            root, "spec.py", "next", "--scope", "600", "--version", "1.1.0", "--json", *extra).stdout)["ranked"]}
+        assert prio("--no-sync")[608] == 3                       # the mirror still has the old priority
+        assert prio()[608] == 1                                  # the default synced first (and --json stays clean)
+        os.environ["SDD_FAKE_ADO"] = str(root / "no-such-world.json")
+        r = run(root, "spec.py", "next", "--scope", "600", "--version", "1.1.0", check=False)
+        assert r.returncode != 0 and "Ready" not in r.stdout, r.stdout
+        os.environ["SDD_FAKE_ADO"] = str(world)
 
         view = json.loads(run(root, "env.py", "view", "--json", "--id", "502").stdout)
         assert {i["id"]: i.get("path") for i in view["items"]}[502] == "full", view["items"]

@@ -8,9 +8,11 @@ other — `/sdd next`, a status question, "what changed?".
 It is a snapshot: as current as the last sync of each item. Items outside every synced scope are
 not in it.
 
-## `changes` — the delta of the last sync
+## `changes` — the delta of the last sync that changed something
 
-One entry per item the sync found changed:
+One entry per item that sync found changed. A sync that finds nothing new (`/sdd next` runs one
+every time) keeps the delta before it: `changesAt` says when that delta was found, `sync.at` when
+the last sync ran.
 
 | Field | Meaning |
 | --- | --- |
