@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import env
 import spec
-from sddlib import parse_remote, slug
+from sddlib import parse_remote, renumber_bug_phases, slug
 
 
 def wi(i, title, parent=None, rels=(), desc="", typ="User Story", rev=1, state="Active"):
@@ -45,20 +45,35 @@ def main():
     assert "has not started" in env.reopen_plan(early, "Implement")[1][0]
     assert not env.reopen_plan({**item, "progress": {**item["progress"], "status": "done"}}, "Design")[0]
     bug = {"id": 6, "flow": "bug", "gates": {"Claimed": "t", "Approval": "t", "Red test": "t"},
-           "progress": {"flow": "bug", "phase": "Phase 7 — Apply fix", "status": "blocked"}}
-    assert env.reopen_plan(bug, "Phase 4")[2] == ["Approval", "Red test"]
-    assert not env.reopen_plan(bug, "Phase 7")[0]
+           "progress": {"flow": "bug", "phase": "Phase 8 — Apply fix", "status": "blocked"}}
+    assert env.reopen_plan(bug, "Phase 5")[2] == ["Approval", "Red test"]
+    assert not env.reopen_plan(bug, "Phase 8")[0]
     # review stages: wait on the PR once it is raised; a rejected PR goes back to the reworkTo stage
-    assert env.PHASE_NEEDS["spec"]["Review"] == ["PR raised"] and env.PHASE_NEEDS["bug"]["Phase 13"] == ["PR raised"]
-    assert env.phase_key("bug", "Phase 13 — PR review") == "Phase 13"
+    assert env.PHASE_NEEDS["spec"]["Review"] == ["PR raised"] and env.PHASE_NEEDS["bug"]["Phase 15"] == ["PR raised"]
+    assert env.phase_key("bug", "Phase 15 — PR review") == "Phase 15"
+    # a record from the old bug numbering (Phase 0 … Phase 13, with 9a) reads in the new one
+    old = {"stages": {f"Phase {n}": {"status": "done"} for n in ("0", "1", "5", "9", "9a", "10", "13")},
+           "progress": {"flow": "bug", "phase": "Phase 9a — Manual verification", "status": "waiting",
+                        "note": "Phase 9a is where we stopped"},
+           "history": [{"phase": "Phase 0"}, {"phase": "Phase 12 — Record learnings"}]}
+    got = renumber_bug_phases(json.loads(json.dumps(old)))
+    assert list(got["stages"]) == ["Phase 1", "Phase 2", "Phase 6", "Phase 10", "Phase 11", "Phase 12", "Phase 15"], got
+    assert got["progress"]["phase"] == "Phase 11 — Manual verification"
+    assert got["progress"]["note"] == "Phase 9a is where we stopped"          # free text is left as written
+    assert [h["phase"] for h in got["history"]] == ["Phase 1", "Phase 14 — Record learnings"]
+    new = {"stages": {"Phase 1": {}, "Phase 6": {}}, "progress": {"flow": "bug", "phase": "Phase 6"}, "history": []}
+    assert renumber_bug_phases(json.loads(json.dumps(new))) == new           # the new numbering is left alone
+    spec_rec = {"stages": {"Design": {}}, "progress": {"flow": "spec", "phase": "Design"}}
+    assert renumber_bug_phases(dict(spec_rec)) == spec_rec
+    assert env.phase_key("bug", "Phase 9a") is None and env.phase_key("bug", "Phase 0") is None
     review = {"id": 7, "flow": "spec", "gates": {"Requirements agreed": "t", "Design agreed": "t", "Ready to PR": "t"},
               "progress": {"flow": "spec", "phase": "Review", "status": "waiting"}}
     assert env.reopen_plan(review, "Implement")[2] == ["Ready to PR"]
     passed = {**review, "gates": {**review["gates"], "PR approved": "t"}}
     assert env.reopen_plan(passed, "Implement")[2] == ["Ready to PR", "PR approved"]
     bugrev = {"id": 8, "flow": "bug", "gates": {"Approval": "t", "Red test": "t", "Verified": "t", "Manual verification": "t"},
-              "progress": {"flow": "bug", "phase": "Phase 13", "status": "waiting"}}
-    assert env.reopen_plan(bugrev, "Phase 7")[2] == ["Verified", "Manual verification"]
+              "progress": {"flow": "bug", "phase": "Phase 15", "status": "waiting"}}
+    assert env.reopen_plan(bugrev, "Phase 8")[2] == ["Verified", "Manual verification"]
     assert {s["key"]: s.get("reworkTo") for s in env.FLOWS["flows"]["spec"]["stages"]}["Review"] == "Implement"
     # a waiting gate needs an .html sdd-visual ref, or --no-visual with a reason
     import argparse, contextlib, io
@@ -157,28 +172,28 @@ def main():
         from sddlib import load_config as lc
         cfg = lc(root)
         pk = env.phase_key
-        assert pk("bug", "Phase 10 — Pull request") == "Phase 10" and pk("bug", "Phase 9a") == "Phase 9a"
-        assert pk("bug", "Phase 1 — Pick") == "Phase 1" and pk("spec", "Implement (task 3/7)") == "Implement"
-        assert env.check_op(root, cfg, 5, "phase", "bug", "Phase 0")[0]            # nothing needed, no folder yet
-        assert not env.check_op(root, cfg, 5, "phase", "bug", "Phase 6")[0]        # no folder, needs Approval
-        assert not env.check_op(root, cfg, 5, "phase", None, "Phase 0")[0]         # flow unknown
+        assert pk("bug", "Phase 12 — Pull request") == "Phase 12" and pk("bug", "Phase 11") == "Phase 11"
+        assert pk("bug", "Phase 2 — Pick") == "Phase 2" and pk("spec", "Implement (task 3/7)") == "Implement"
+        assert env.check_op(root, cfg, 5, "phase", "bug", "Phase 1")[0]            # nothing needed, no folder yet
+        assert not env.check_op(root, cfg, 5, "phase", "bug", "Phase 7")[0]        # no folder, needs Approval
+        assert not env.check_op(root, cfg, 5, "phase", None, "Phase 1")[0]         # flow unknown
         wdir = root / ".claude/worktrees/5-x"
         wdir.mkdir(parents=True)
-        early = {f"Phase {n}": {"at": "t", "status": "done"} for n in range(5)}
+        early = {f"Phase {n}": {"at": "t", "status": "done"} for n in range(1, 6)}
         rec = {"id": 5, "flow": "bug", "repos": {}, "gates": {"Claimed": "t"},
-              "stages": {**early, "Phase 5": {"at": "t", "status": "worked"}},
-              "progress": {"flow": "bug", "phase": "Phase 5", "status": "waiting"}}
+              "stages": {**early, "Phase 6": {"at": "t", "status": "worked"}},
+              "progress": {"flow": "bug", "phase": "Phase 6", "status": "waiting"}}
         (wdir / "workitem.json").write_text(json.dumps(rec))
-        ok, why, _ = env.check_op(root, cfg, 5, "phase", None, "Phase 7 — Apply the fix")
+        ok, why, _ = env.check_op(root, cfg, 5, "phase", None, "Phase 8 — Apply the fix")
         assert not ok and any("Approval" in w for w in why) and any("Red test" in w for w in why)
         rec["gates"].update({"Approval": "t", "Red test": "t"})
         (wdir / "workitem.json").write_text(json.dumps(rec))
-        ok, why, _ = env.check_op(root, cfg, 5, "phase", None, "Phase 7")
-        assert not ok and any("Phase 6 was never worked" in w for w in why), why  # no jumping past a stage
-        rec["stages"]["Phase 6"] = {"at": "t", "status": "done"}
+        ok, why, _ = env.check_op(root, cfg, 5, "phase", None, "Phase 8")
+        assert not ok and any("Phase 7 was never worked" in w for w in why), why  # no jumping past a stage
+        rec["stages"]["Phase 7"] = {"at": "t", "status": "done"}
         (wdir / "workitem.json").write_text(json.dumps(rec))
-        assert env.check_op(root, cfg, 5, "phase", None, "Phase 7")[0]
-        assert not env.check_op(root, cfg, 5, "phase", None, "Phase 3")[0]         # derived Worktree missing
+        assert env.check_op(root, cfg, 5, "phase", None, "Phase 8")[0]
+        assert not env.check_op(root, cfg, 5, "phase", None, "Phase 4")[0]         # derived Worktree missing
 
         # progress: a stage is never skipped silently, only with the user's recorded yes
         import argparse as _ap, contextlib, io
@@ -200,21 +215,21 @@ def main():
                 return err.getvalue()
             raise AssertionError("progress should have refused")
 
-        msg = refused("Phase 9a — Manual verification")  # the 93347 jump
-        assert "Phase 7, Phase 8, Phase 9 were never worked" in msg, msg
-        assert "--confirmed" in refused("Phase 7", "skipped")                              # skip needs the user's yes
-        assert "unknown bug stage" in refused("Phase 99")
-        got = progress("Phase 7 — Apply the fix")
-        assert got["stages"]["Phase 7"]["status"] == "worked"
-        got = progress("Phase 8 — Verify", "skipped", confirmed="yes, skip it")
-        assert got["stages"]["Phase 7"]["status"] == "done"                               # moving on finishes it
-        assert got["stages"]["Phase 8"] == {"at": got["stages"]["Phase 8"]["at"], "status": "skipped",
+        msg = refused("Phase 11 — Manual verification")  # the 93347 jump
+        assert "Phase 8, Phase 9, Phase 10 were never worked" in msg, msg
+        assert "--confirmed" in refused("Phase 8", "skipped")                              # skip needs the user's yes
+        assert "unknown bug stage" in refused("Phase 101")
+        got = progress("Phase 8 — Apply the fix")
+        assert got["stages"]["Phase 8"]["status"] == "worked"
+        got = progress("Phase 9 — Verify", "skipped", confirmed="yes, skip it")
+        assert got["stages"]["Phase 8"]["status"] == "done"                               # moving on finishes it
+        assert got["stages"]["Phase 9"] == {"at": got["stages"]["Phase 9"]["at"], "status": "skipped",
                                             "confirmed": "yes, skip it"}
-        progress("Phase 9 — Commit and push")
-        got = progress("Phase 4 — Prove the root cause")                                   # going back
-        assert "Phase 7" not in got["stages"] and "Phase 9" not in got["stages"]          # later stages are redone
-        assert "Phase 5" in refused("Phase 6")
-        assert not env.check_op(root, cfg, 5, "phase", None, "Phase 99")[0]        # unknown phase
+        progress("Phase 10 — Commit and push")
+        got = progress("Phase 5 — Prove the root cause")                                   # going back
+        assert "Phase 8" not in got["stages"] and "Phase 10" not in got["stages"]          # later stages are redone
+        assert "Phase 6" in refused("Phase 7")
+        assert not env.check_op(root, cfg, 5, "phase", None, "Phase 101")[0]        # unknown phase
 
         # /sdd done after close-out: status "done" must not block the clean-up (ADO and PRs faked)
         pr_state = {"status": "completed"}
@@ -224,14 +239,14 @@ def main():
         ddir.mkdir(parents=True)
         drec = {"id": 6, "flow": "bug", "gates": {"Claimed": "t"},
                 "repos": {"app": {"path": "app", "source": "app", "branch": "bug/6", "base": "main", "pr": {"id": 1, "url": "pr/1"}}},
-                "progress": {"flow": "bug", "phase": "Phase 11 — Write back to the work item", "status": "done"},
-                "history": [{"at": "t", "phase": p} for p in ("Phase 0", "Phase 1", "Phase 2", "Phase 5", "Phase 6",
-                                                               "Phase 7", "Phase 8", "Phase 9a", "Phase 10", "Phase 11")]}
+                "progress": {"flow": "bug", "phase": "Phase 13 — Write back to the work item", "status": "done"},
+                "history": [{"at": "t", "phase": p} for p in ("Phase 1", "Phase 2", "Phase 3", "Phase 6", "Phase 7",
+                                                               "Phase 8", "Phase 9", "Phase 11", "Phase 12", "Phase 13")]}
         (ddir / "workitem.json").write_text(json.dumps(drec))
         ok, why, _ = env.check_op(root, cfg, 6, "done")                             # 93347: stages left out
-        assert not ok and any("Phase 3, Phase 4, Phase 9, Phase 12, Phase 13" in w for w in why), why
+        assert not ok and any("Phase 4, Phase 5, Phase 10, Phase 14, Phase 15" in w for w in why), why
         drec["stages"] = {k: {"at": "t", "status": "done"} for k in env.BUG_PHASES}
-        drec["stages"]["Phase 12"] = {"at": "t", "status": "skipped", "confirmed": "skip it"}
+        drec["stages"]["Phase 14"] = {"at": "t", "status": "skipped", "confirmed": "skip it"}
         (ddir / "workitem.json").write_text(json.dumps(drec))
         ok, why, _ = env.check_op(root, cfg, 6, "done")
         assert ok, why
@@ -240,7 +255,7 @@ def main():
             env.cmd_remove(_ap.Namespace(id=6, abandon=False, yes=False))
         assert "will remove" in out.getvalue() and ddir.name in out.getvalue() and "dry run" in out.getvalue() and ddir.is_dir(), out.getvalue()
         assert not env.check_op(root, cfg, 6, "resume")[0]                          # resume still refused
-        assert not env.check_op(root, cfg, 6, "phase", None, "Phase 7")[0]          # phase still refused
+        assert not env.check_op(root, cfg, 6, "phase", None, "Phase 8")[0]          # phase still refused
         assert v(None, drec, [{"pr_live": pr_state}]) == "PRs merged — run /sdd done to clean up"
         assert v(None, drec, []) == "closed out — run /sdd done to clean up"
         pr_state["status"] = "active"

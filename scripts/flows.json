@@ -120,7 +120,7 @@
       ],
       "stages": [
         {
-          "key": "Phase 0",
+          "key": "Phase 1",
           "label": "Load + claim",
           "needs": [],
           "passes": [
@@ -128,7 +128,7 @@
           ]
         },
         {
-          "key": "Phase 1",
+          "key": "Phase 2",
           "label": "Branch + worktree",
           "needs": [
             "Claimed"
@@ -138,7 +138,7 @@
           ]
         },
         {
-          "key": "Phase 2",
+          "key": "Phase 3",
           "label": "Validate against story",
           "needs": [
             "Claimed",
@@ -147,7 +147,7 @@
           "passes": []
         },
         {
-          "key": "Phase 3",
+          "key": "Phase 4",
           "label": "Reproduce and locate",
           "needs": [
             "Claimed",
@@ -156,7 +156,7 @@
           "passes": []
         },
         {
-          "key": "Phase 4",
+          "key": "Phase 5",
           "label": "Prove root cause",
           "needs": [
             "Claimed",
@@ -165,7 +165,7 @@
           "passes": []
         },
         {
-          "key": "Phase 5",
+          "key": "Phase 6",
           "label": "Approval gate",
           "needs": [
             "Claimed",
@@ -177,7 +177,7 @@
           "stop": true
         },
         {
-          "key": "Phase 6",
+          "key": "Phase 7",
           "label": "Failing regression test",
           "needs": [
             "Approval"
@@ -187,7 +187,7 @@
           ]
         },
         {
-          "key": "Phase 7",
+          "key": "Phase 8",
           "label": "Apply fix",
           "needs": [
             "Approval",
@@ -196,7 +196,7 @@
           "passes": []
         },
         {
-          "key": "Phase 8",
+          "key": "Phase 9",
           "label": "Verify",
           "needs": [
             "Approval",
@@ -207,7 +207,7 @@
           ]
         },
         {
-          "key": "Phase 9",
+          "key": "Phase 10",
           "label": "Commit and push",
           "needs": [
             "Approval",
@@ -216,7 +216,7 @@
           "passes": []
         },
         {
-          "key": "Phase 9a",
+          "key": "Phase 11",
           "label": "Manual verification",
           "needs": [
             "Approval",
@@ -228,7 +228,7 @@
           "stop": true
         },
         {
-          "key": "Phase 10",
+          "key": "Phase 12",
           "label": "Pull request",
           "needs": [
             "Approval",
@@ -240,7 +240,7 @@
           ]
         },
         {
-          "key": "Phase 11",
+          "key": "Phase 13",
           "label": "Write back to ADO",
           "needs": [
             "PR raised"
@@ -248,13 +248,13 @@
           "passes": []
         },
         {
-          "key": "Phase 12",
+          "key": "Phase 14",
           "label": "Record learnings",
           "needs": [],
           "passes": []
         },
         {
-          "key": "Phase 13",
+          "key": "Phase 15",
           "label": "PR review",
           "needs": [
             "PR raised"
@@ -263,7 +263,7 @@
             "PR approved"
           ],
           "stop": true,
-          "reworkTo": "Phase 7"
+          "reworkTo": "Phase 8"
         }
       ]
     }

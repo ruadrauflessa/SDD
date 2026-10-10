@@ -64,7 +64,7 @@ All of it runs **inside the worktree** (`<workspace root>\.claude\worktrees\{id}
 never in the main checkout. A fresh worktree has no `bin/`/`obj/`, so the first run is a cold build — don't
 pass `--no-build` until something has been built at least once.
 
-### 1. Red (Phase 6, before the fix)
+### 1. Red (Phase 7, before the fix)
 
 ```bash
 dotnet test <solution> --filter "FullyQualifiedName~<TestName>"
@@ -81,7 +81,7 @@ expected-vs-actual. These mean the test is broken, not the code, and must be fix
 
 Save the failure message verbatim. It goes in the PR.
 
-### 2. Green (Phase 8)
+### 2. Green (Phase 9)
 
 Same command after the fix. It must pass.
 

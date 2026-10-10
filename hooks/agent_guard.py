@@ -1,10 +1,13 @@
 """Claude Code hook: the sdd sub-agents (investigator, skeptic) may read a repository, never change it.
 
-    pre  (PreToolUse, matcher Bash|PowerShell) -> blocks a git command that is not on the read list
+    pre  (PreToolUse, matcher Bash|PowerShell) -> blocks a git command that is not on the read list,
+                                                  and any run of the plugin's env.py or spec.py
 
 Acts only on a tool call made inside one of this plugin's agents: the hook input carries `agent_id`
 there, and `agent_type` names the agent. The main conversation and every other agent pass untouched.
 An allowlist, not a blocklist: a git subcommand this file does not know is treated as a write.
+env.py and spec.py write the flow's state and ADO; only the main conversation runs them. Reading
+either file (cat, grep) is fine: only running one with a Python interpreter is blocked.
 Exit 2 = block, stderr goes to the agent.
 """
 import json
@@ -84,6 +87,36 @@ def git_calls(command):
     return calls
 
 
+PYTHON = re.compile(r"(?:python3?(?:\.\d+)?|py|pythonw?)(?:\.exe)?", re.I)
+SDD_SCRIPTS = ("env.py", "spec.py")
+
+
+def basename(token):
+    return re.split(r"[\\/]", token.strip("\"'`$();&|"))[-1]
+
+
+def sdd_script_runs(command):
+    """The sdd scripts the command runs: `python .../env.py progress`, `uv run python spec.py sync`,
+    `& "C:/Python/python.exe" -X utf8 env.py`, or the script as the program itself."""
+    toks = tokens(command)
+    runs = []
+    for i, t in enumerate(toks):
+        name = basename(t).lower()
+        if name not in SDD_SCRIPTS:
+            continue
+        j = i - 1  # back over the interpreter's flags: -u, -I, -X utf8, -W ignore
+        while j >= 0:
+            if toks[j].startswith("-"):
+                j -= 1
+            elif j >= 1 and toks[j - 1] in ("-X", "-W"):
+                j -= 2
+            else:
+                break
+        if (j >= 0 and PYTHON.fullmatch(basename(toks[j]))) or in_command_position(toks, i):
+            runs.append(name)
+    return runs
+
+
 def writes(sub, args):
     flags = {a.split("=", 1)[0] for a in args if a.startswith("-")}
     positional = [a for a in args if not a.startswith("-")]
@@ -112,6 +145,11 @@ def main():
     if not data.get("agent_id") or agent not in AGENTS:
         return 0
     command = (data.get("tool_input") or {}).get("command") or ""
+    for name in sdd_script_runs(command):
+        print(f"sdd: the {agent} agent does not run {name}: it writes the flow's progress, gates and ADO, "
+              "and only the agent that called you runs it. Read the files it would read (requirements.md, "
+              "workitem.json, the spec folder) instead, or say in your report what you need.", file=sys.stderr)
+        return 2
     for sub, args in git_calls(command):
         if writes(sub, args):
             print(f"sdd: the {agent} agent is read-only, and `git {sub}` can change the repository. "

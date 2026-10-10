@@ -31,6 +31,10 @@ ALLOWED = [
     "git config user.email", "git config --get remote.origin.url",
     "graphify query \"where is Foo\" --graph C:/ws/graph/graph.json",
     "grep -rn git src/",
+    "cat C:/plugins/sdd/scripts/env.py",
+    "grep -n phase_key scripts/env.py scripts/spec.py",
+    "python -c \"print('env.py')\"",
+    "ls scripts/ | grep spec.py",
     "cat .gitignore | grep git",
     "git log --format=%H -1 | xargs git show",
     "echo $(git rev-parse HEAD)",
@@ -53,6 +57,14 @@ BLOCKED = [
     "& \"C:\\Program Files\\Git\\bin\\git.exe\" -C src/Repo stash",
     "env GIT_DIR=x git commit -m y",
     "git some-unknown-thing",
+    "python C:/plugins/sdd/scripts/env.py progress --id 5 --flow bug --phase \"Phase 6\" --status done",
+    "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/spec.py\" sync --id 5",
+    "py -3 scripts/env.py status --id 5",
+    "uv run python scripts/spec.py query show --id 5",
+    "& \"C:\\Python312\\python.exe\" -X utf8 C:\\plugins\\sdd\\scripts\\env.py can --id 5",
+    "cd C:/ws && python -u scripts/env.py view --json",
+    "git log -1; python scripts/spec.py sync --id 5",
+    "./scripts/env.py status --id 5",
 ]
 
 fails = []
@@ -65,7 +77,7 @@ for c in BLOCKED:
     if run(c, agent="sdd:skeptic", tool="PowerShell") != 2:
         fails.append(f"skeptic passed: {c!r}")
 # only this plugin's agents, and only inside a sub-agent
-for c in ("git commit -m x", "git push"):
+for c in ("git commit -m x", "git push", "python scripts/env.py progress --id 5 --flow bug --phase \"Phase 1\" --status active"):
     if run(c, agent=None, agent_id=None) != 0:
         fails.append(f"main conversation blocked: {c!r}")
     if run(c, agent="general-purpose") != 0:

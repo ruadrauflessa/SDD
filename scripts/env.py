@@ -39,7 +39,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from sddlib import (BUG_TYPES, CONFIG_REL, DEFAULTS, TYPE_SEGMENT, ado, developer, die,
                     discover_repos, ensure_ignored, find_env, find_root, get_items, git,
-                    load_config, org_url, parse_remote, read_env, require_root, slug, wt_root,
+                    load_config, org_url, parse_remote, read_env, read_record, require_root, slug, wt_root,
                     write_env)
 
 GRAPH_IGNORE = "bin/\nobj/\nnode_modules/\ndist/\nbuild/\ncoverage/\n*.min.js\n"
@@ -540,7 +540,7 @@ def cmd_status(a):
     data = read_env(env_dir) if env_dir else None
     rec = done_dir(root, cfg) / f"{a.id}.json"
     if not data and rec.is_file():
-        data = json.loads(rec.read_text(encoding="utf-8"))
+        data = read_record(rec)
     out = {"id": a.id, "ado": None, "folder": str(env_dir) if env_dir else None,
            "progress": (data or {}).get("progress"), "history": ((data or {}).get("history") or [])[-5:],
            "repos": [], "spec": spec_state(root, cfg, a.id)}
@@ -644,7 +644,7 @@ def cmd_view(a):
     recs = sorted(done_dir(root, cfg).glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
     for rec in recs:
         try:
-            data = json.loads(rec.read_text(encoding="utf-8"))
+            data = read_record(rec)
         except (OSError, ValueError):
             continue
         if len(done) < 8 or a.id == data.get("id"):
@@ -751,9 +751,9 @@ SPEC_PHASES = [s["key"] for s in FLOWS["flows"]["spec"]["stages"]]
 
 
 def phase_key(flow, phase):
-    """'Phase 10 — Pull request' -> 'Phase 10'; 'Implement (task 3/7)' -> 'Implement'."""
+    """'Phase 12 — Pull request' -> 'Phase 12'; 'Implement (task 3/7)' -> 'Implement'."""
     if flow == "bug":
-        m = re.match(r"\s*Phase\s+(\d+a?)\b", phase or "", re.I)
+        m = re.match(r"\s*Phase\s+(\d+)\b", phase or "", re.I)
         key = f"Phase {m.group(1).lower()}" if m else None
         return key if key in BUG_PHASES else None
     for k in SPEC_PHASES:
@@ -887,7 +887,7 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
     data = read_env(env_dir) if env_dir else None
     rec = done_dir(root, cfg) / f"{wid}.json"
     if not data and rec.is_file():
-        data = json.loads(rec.read_text(encoding="utf-8"))
+        data = read_record(rec)
     prog = (data or {}).get("progress") or {}
     status, cur_phase = prog.get("status"), prog.get("phase", "")
     reasons, notes = [], []
@@ -1113,7 +1113,7 @@ def main():
     s = sp.add_parser("progress")
     s.add_argument("--id", type=int, required=True)
     s.add_argument("--flow", required=True, choices=["bug", "spec"])
-    s.add_argument("--phase", required=True, help="e.g. \"Phase 5 — Approval gate\" or \"Implement\"")
+    s.add_argument("--phase", required=True, help="e.g. \"Phase 6 — Approval gate\" or \"Implement\"")
     s.add_argument("--status", required=True, choices=PROGRESS_STATUS)
     s.add_argument("--gate", help="the question waiting for the user, when --status waiting")
     s.add_argument("--next", help="the next concrete step, so a new session can pick it up")
@@ -1142,7 +1142,7 @@ def main():
     s.add_argument("--json", action="store_true")
     s = sp.add_parser("reopen", help="back to a done or waiting stage for the person's feedback")
     s.add_argument("--id", type=int, required=True)
-    s.add_argument("--phase", required=True, help="the stage to go back to (Design, Phase 4, ...)")
+    s.add_argument("--phase", required=True, help="the stage to go back to (Design, Phase 5, ...)")
     s.add_argument("--note", required=True, help="the person's feedback, as they wrote it")
     s = sp.add_parser("view")
     s.add_argument("--id", type=int, help="also the full history of this item")

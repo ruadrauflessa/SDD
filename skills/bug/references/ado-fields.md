@@ -43,11 +43,11 @@ a fix. Reading `State` alone hides that completely.
 
 | When | Value | Why |
 | --- | --- | --- |
-| **Phase 0b** — on claiming the item | `Dev In Progress` | Tells the team the defect is being worked |
-| **Phase 11** — once the PR exists | `Dev Completed` | **The hand-over to QA.** The QA queue is driven off this field — skip it and the fix is never tested |
+| **Phase 1.2** — on claiming the item | `Dev In Progress` | Tells the team the defect is being worked |
+| **Phase 13** — once the PR exists | `Dev Completed` | **The hand-over to QA.** The QA queue is driven off this field — skip it and the fix is never tested |
 
 Both values are confirmed in live use. `Dev Completed` pairs with `System.State = Resolved` on real
-items (79406, 80074), which is exactly the pair Phase 11 writes.
+items (79406, 80074), which is exactly the pair Phase 13 writes.
 
 ### Values observed in this project
 

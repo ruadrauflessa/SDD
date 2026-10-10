@@ -231,8 +231,39 @@ def find_env(root, cfg, wid):
     return hits[0] if hits else None
 
 
+# The bug flow was numbered Phase 0 … Phase 13 with a Phase 9a; it is now Phase 1 … Phase 15.
+OLD_BUG_PHASE = re.compile(r"^(\s*Phase\s+)(\d+a?)\b", re.I)
+
+
+def _old_bug_number(n):
+    n = n.lower()
+    return "11" if n == "9a" else str(int(n) + 1 if int(n) <= 9 else int(n) + 2)
+
+
+def renumber_bug_phases(data):
+    """A work item record written under the old bug numbering, moved to the new one in place.
+    Old records always hold a Phase 0 stage (every later stage needs it worked or skipped first),
+    and the new numbering never writes one, so that is the tell. Free-text notes keep what they said."""
+    rows = [data.get("progress") or {}] + list(data.get("history") or [])
+    phases = list((data.get("stages") or {})) + [r.get("phase") or "" for r in rows]
+    if not any(re.match(r"^\s*Phase\s+(0|9a)\b", p, re.I) for p in phases):
+        return data
+    fix = lambda p: OLD_BUG_PHASE.sub(lambda m: m.group(1) + _old_bug_number(m.group(2)), p or "")
+    if data.get("stages") is not None:
+        data["stages"] = {fix(k): v for k, v in data["stages"].items()}
+    for r in rows:
+        if r.get("phase"):
+            r["phase"] = fix(r["phase"])
+    return data
+
+
+def read_record(path):
+    """A workitem.json, or a removed item's .done/<id>.json, in the current bug numbering."""
+    return renumber_bug_phases(json.loads(Path(path).read_text(encoding="utf-8")))
+
+
 def read_env(env_dir):
-    return json.loads((env_dir / "workitem.json").read_text(encoding="utf-8"))
+    return read_record(env_dir / "workitem.json")
 
 
 def write_env(env_dir, data):

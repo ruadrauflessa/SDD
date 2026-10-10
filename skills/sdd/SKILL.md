@@ -175,7 +175,7 @@ or "wait for the PR to merge"). Never work around a refusal by calling the under
 
 Typed by the user, or sent by the feedback box in the sdd view (`/sdd-view`) as the user's own
 message `sdd feedback for <id>, stage <stage>: <text>` — treat both the same. `<stage>` is a stage
-key from `${CLAUDE_PLUGIN_ROOT}/scripts/flows.json` (`Design`, `Phase 4`, …); `<text>` is the user's
+key from `${CLAUDE_PLUGIN_ROOT}/scripts/flows.json` (`Design`, `Phase 5`, …); `<text>` is the user's
 own words.
 
 1. `env.py can --id <id> --op reopen --phase "<stage>"`. Not allowed → say why in one line and stop.
@@ -194,8 +194,8 @@ own words.
 ## `sdd review for <id>: approved | merged | rejected: <why>` — the PR's review result
 
 Posted as the user's own message by the review buttons of the sdd view. It is the user's answer to
-the PR review gate — spec flow `Review`, bug flow `Phase 13`. Hand over to the item's flow skill
-(`progress.flow`) with that answer: `sdd:spec` "Mode: Review", or `sdd:bug` "Phase 13 — PR review".
+the PR review gate — spec flow `Review`, bug flow `Phase 15`. Hand over to the item's flow skill
+(`progress.flow`) with that answer: `sdd:spec` "Mode: Review", or `sdd:bug` "Phase 15 — PR review".
 The view only sends it while the item waits at that stage.
 
 ## `sdd answer for <id>, stage <stage>: "<question>" = "<answer>"; …` — an answer from the view
