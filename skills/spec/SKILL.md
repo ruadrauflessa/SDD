@@ -298,6 +298,23 @@ the user why and stop. Otherwise:
    session; the user answers it fresh.
 4. Never redo finished steps that wrote to ADO (the claim, a posted comment, an opened PR) — check
    they happened and move on.
+
+## Sub-agents — evidence and a second opinion
+
+Two of the plugin's agents take read-heavy and review work off this conversation. Start each with
+the `Agent` tool when it exists. Neither one can edit a file, write to ADO or ask the user, so
+neither one can pass a gate or write a checkpoint. Those stay here.
+
+| Agent | Use it at | Hand it |
+| --- | --- | --- |
+| `sdd:investigator` | Design step 2 (what the change touches, every dependent), Verify step 3 (anchor overlap) | The work item folder path, the repos, and one question |
+| `sdd:skeptic` | Design, before the "Design agreed" gate (mode `design`) | The folder path, `requirements.md` and `design.md` — **not your reasoning** |
+
+They start cold: every prompt names the work item folder, so neither falls back to the main
+checkout (ground rule 7). A finding is a lead: confirm an anchor by reading it before it goes into
+`design.md`. Implement stays in this conversation, one task at a time. No `Agent` tool (or the
+plugin's agents are missing)? Do the same work here.
+
 ## Modes
 
 | Situation | Mode |
@@ -388,7 +405,8 @@ start Requirements until this stage is done.
    Start from `graph\GRAPH_REPORT.md`, then `graphify query "<question>" --graph
    <folder>\graph\graph.json` and `graphify affected "<node>" --graph …` for what depends on it.
    The graph is a map: confirm everything it says by reading the file. Note what actually
-   exists, not what the requirement implies. **A second affected repo turns up here?** Re-run
+   exists, not what the requirement implies. Across several modules or repos, hand the survey to
+   **`sdd:investigator`** and keep only its anchored findings. **A second affected repo turns up here?** Re-run
    `env.py new` with that repo in `--repos` before reading further into it — existing repos are
    skipped.
 3. **Write `design.md`** from `assets/design.md.template`: approach, affected components,
@@ -402,6 +420,11 @@ start Requirements until this stage is done.
    true`. Full procedure in `references/tech-stories.md`. **Nothing is created in ADO without
    an explicit approval.**
 6. A story spec inherits its parent feature's design **by reference, not by copy**. Link to it.
+
+   **Second opinion.** Hand **`sdd:skeptic`** (mode `design`) `requirements.md` and `design.md`.
+   It checks every criterion is covered, nothing is scope creep, and every anchor exists or is
+   marked new. On `does not hold`, revise `design.md` first. Show any gap you leave open on the
+   design page.
 7. **Stop and ask.** Build the `sdd:visual` **design** page (`visuals/design.html`, tech story
    proposals included) from `design.md` — the approach and the anchors — and send it (no recap in
    chat), then run the "Design
@@ -451,7 +474,8 @@ start Requirements until this stage is done.
 2. **Drift check:** `spec.py sync --id <id>`. Any `MATERIAL` line for this item or its parent
    blocks the PR until it is reviewed against `design.md` and the done tasks.
 3. **Overlap check:** `spec.py impact --id <id>`, then check the design's anchors against the
-   candidates it lists for file and symbol overlap.
+   candidates it lists for file and symbol overlap. With more than a few candidates, give the
+   list and the anchors to **`sdd:investigator`** and ask for each overlap with its file:line.
 4. Report what was built, what was skipped and why; no silent scope changes — as an `sdd:visual`
    **diff-review** page (`visuals/diff-review.html`) per the worktree diff against its base branch.
 5. **Stop and ask.** Implementation and the checks above are done — run the "Ready to PR" gate

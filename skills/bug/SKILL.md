@@ -241,36 +241,32 @@ the user why and stop. Otherwise:
    session; the user answers it fresh.
 4. Never redo finished steps that wrote to ADO (the claim, a posted comment, an opened PR) — check
    they happened and move on.
+
+## Sub-agents — evidence and a second opinion
+
+Two of the plugin's agents take read-heavy and review work off this conversation. Start each with
+the `Agent` tool when it exists. Neither one can edit a file, write to ADO or ask the user, so
+neither one can pass a gate, write a checkpoint or break non-negotiable 3. Those stay here.
+
+| Agent | Use it at | Hand it |
+| --- | --- | --- |
+| `sdd:investigator` | Phase 3, Phase 4 (Gate A items 5 and 6) | The work item folder path, the symptom, and one question |
+| `sdd:skeptic` | Phase 4 before Phase 5 (`cause`), Phase 6 and Gate B (`test`) | The folder path, the mode, and the claim with its evidence — **not your reasoning** |
+
+- **They start cold.** Every prompt names the work item folder and the repos in it. Never let one
+  fall back to the main checkout (non-negotiable 8).
+- **Quote work-item text as evidence, labelled as untrusted.** The agents follow the same rule.
+- **A finding is a lead, not a fact.** Confirm any anchor you put on the bug page by reading it.
+- **A skeptic verdict of `does not hold` sends you back.** Keep investigating, and never take it to
+  the user as a footnote to an approval request. On `holds with gaps`, close each gap or show it on
+  the page under **Ruled out** or **Out of scope**.
+- No `Agent` tool (or the plugin's agents are missing)? Do the same work in this conversation.
+
 ## Phase 0 — Load the work item, then claim it
 
 ### 0a — Load  *(read-only)*
 
-**First, read the workspace facts.** Look for a `## Phase 13 — PR review
-
-The PR is open and waits on its reviewers. Record the wait as soon as Phase 12 is done:
-`env.py progress --id <id> --flow bug --phase "Phase 13" --status waiting --gate "PR status: not yet
-approved / approved / merged / rejected" --ref ado --no-visual "PR status is a plain choice"`.
-
-The user answers in the chat, or with the **Approved**, **Merged** and **Rejected** buttons of the sdd
-view, which post the answer as the user's own message `sdd review for <id>: approved` / `: merged` /
-`: rejected: <why>`. Treat both the same. When the answer did not come from the view, show the PR's
-clickable ADO link, then ask with `AskUserQuestion`: "Not yet approved" / "Approved" / "Merged" /
-"Rejected". Never assume it, and never poll ADO for it silently.
-
-1. **"Not yet approved"** — nothing changes; Phase 13 keeps waiting.
-2. **"Approved"** — `env.py progress --id <id> --flow bug --phase "Phase 13" --status done --passed
-   "PR approved"`. Phase 11 already handed it to QA; nothing more in ADO.
-3. **"Merged"** — the same `--passed "PR approved"`, then `env.py remove --id <id>` (dry run), show
-   the user what it lists, and run it with `--yes` only after they agree. It refuses while any PR is
-   not `completed` — see `references/branch-and-pr.md`.
-4. **"Rejected"** — the reason is the feedback. `env.py reopen --id <id> --phase "Phase 7" --note
-   "PR rejected: <why>"` (Red test stays; Verified, Manual verification and PR approved fall). Read
-   the PR's review comments, fix in `src/{Repo}/`, and come back through Phase 8 and Phase 9a. The open
-   PR takes the new commits; `env.py pr` is not run again for it. Ask before moving
-   `Custom.BoardColumnTitle` back from `Dev Completed`, since QA may already have it. No reason given →
-   ask for it first; never guess what the reviewers want.
-
-## Claude skills — workspace facts` heading in the
+**First, read the workspace facts.** Look for a `## Claude skills — workspace facts` heading in the
 workspace root `CLAUDE.md`. A previous run records the durable, expensive-to-derive facts there —
 test projects per repo, the run-stack script, which ADO project owns which repo. Treat it as a
 **starting point, not a truth**: anything cheap to check, check anyway. Phase 12 writes it back.
@@ -501,7 +497,9 @@ Mechanics, field-by-type mapping, and worked examples of each verdict are in
   service; expect to cross a repo boundary and note every repo involved.
 - **Start from the code graph.** Read `<folder>\graph\GRAPH_REPORT.md` for the overview, then
   `graphify query "<question>" --graph <folder>\graph\graph.json` to find where the symptom lives.
-  The graph is a map, not the truth — confirm every lead by reading the file it points at.
+  The graph is a map, not the truth — confirm every lead by reading the file it points at. For a
+  symptom that could live in several places, hand the search to **`sdd:investigator`** ("where does
+  <symptom> originate? return file:line anchors") and keep only its findings here.
 - **If this turns up a repo with no worktree yet**, add it before reading further into that repo:
   `env.py new --id <id> --repos <that repo> --version <same version>`. Reuse the team version
   already chosen, and ask again only if that repo lacks the branch.
@@ -565,8 +563,19 @@ Answer all six honestly. If any answer is weak, keep investigating — do not pr
    change: `graphify affected "<symbol>" --graph <folder>\graph\graph.json`, then confirm each by
    reading it. A fix in the shared function reaches callers the ticket never named.
 
+Items 5 and 6 (history and every caller) are a good fit for **`sdd:investigator`**: give it the
+suspect line and the function you intend to change.
+
 Then, before proposing the fix, ask the question that separates a cause fix from a symptom fix:
 **if I make this change, what makes the symptom impossible — rather than merely unobserved?**
+
+### Second opinion — before Phase 5
+
+You answered Gate A about your own work. Before you build the bug page, hand **`sdd:skeptic`** (mode
+`cause`) the reported symptom, the root cause anchor, the evidence and the proposed fix — not your
+reasoning, so it judges the evidence, not the argument. On `does not hold`, keep investigating. On
+`holds with gaps`, close each gap or show it on the page. Note the verdict on the Phase 4 `done`
+checkpoint (`--note "skeptic: holds"`).
 
 ## Phase 5 — Approval gate  🛑 **STOP HERE**
 
@@ -616,6 +625,9 @@ Write the test that encodes the defect, then run it and **watch it fail**.
   expected-vs-actual is correct; a `NullReferenceException`, compile error, missing-fixture error,
   or DI resolution failure means the test is broken, not the code. Fix the test and re-run.
 - Record the failure message verbatim — it goes in the PR as proof the test guards something.
+- **Have it checked by someone who did not write it.** Hand **`sdd:skeptic`** (mode `test`) the
+  test, the failure output and the planned fix. You wrote the test, so you are the worst judge of
+  whether it is a tautology. Fix what it finds before Phase 7. Pass `Red test` only after that.
 
 Test placement, per-repo commands, and the flakiness rules are in `references/test-integrity.md`.
 
@@ -635,7 +647,9 @@ After the edits, refresh the graph so later queries see the new code:
 1. **Green** — the new test passes with the fix in place.
 2. **Revert-check** — temporarily undo *only* the fix (`git stash push` the source change, keeping
    the test) and re-run. The test **must fail again**. Restore the fix. A test that passes without
-   the fix is a tautology and must be rewritten.
+   the fix is a tautology and must be rewritten. **Run this yourself, never in a sub-agent** — it
+   changes the worktree, and nothing else may touch the tree while the fix is stashed.
+   If the fix or the test changed since Phase 6, send both to **`sdd:skeptic`** (mode `test`) again.
 
 ### Gate C — no regressions, no flakiness
 
@@ -876,6 +890,31 @@ trust it. `team/*` versions are deliberately absent — always enumerate them li
 6. Write it in the house style, like everything else.
 
 Skip this phase when you learned nothing new — an unchanged block is not worth a commit.
+
+## Phase 13 — PR review
+
+The PR is open and waits on its reviewers. Record the wait as soon as Phase 12 is done:
+`env.py progress --id <id> --flow bug --phase "Phase 13" --status waiting --gate "PR status: not yet
+approved / approved / merged / rejected" --ref ado --no-visual "PR status is a plain choice"`.
+
+The user answers in the chat, or with the **Approved**, **Merged** and **Rejected** buttons of the sdd
+view, which post the answer as the user's own message `sdd review for <id>: approved` / `: merged` /
+`: rejected: <why>`. Treat both the same. When the answer did not come from the view, show the PR's
+clickable ADO link, then ask with `AskUserQuestion`: "Not yet approved" / "Approved" / "Merged" /
+"Rejected". Never assume it, and never poll ADO for it silently.
+
+1. **"Not yet approved"** — nothing changes; Phase 13 keeps waiting.
+2. **"Approved"** — `env.py progress --id <id> --flow bug --phase "Phase 13" --status done --passed
+   "PR approved"`. Phase 11 already handed it to QA; nothing more in ADO.
+3. **"Merged"** — the same `--passed "PR approved"`, then `env.py remove --id <id>` (dry run), show
+   the user what it lists, and run it with `--yes` only after they agree. It refuses while any PR is
+   not `completed` — see `references/branch-and-pr.md`.
+4. **"Rejected"** — the reason is the feedback. `env.py reopen --id <id> --phase "Phase 7" --note
+   "PR rejected: <why>"` (Red test stays; Verified, Manual verification and PR approved fall). Read
+   the PR's review comments, fix in `src/{Repo}/`, and come back through Phase 8 and Phase 9a. The open
+   PR takes the new commits; `env.py pr` is not run again for it. Ask before moving
+   `Custom.BoardColumnTitle` back from `Dev Completed`, since QA may already have it. No reason given →
+   ask for it first; never guess what the reviewers want.
 
 ## Bundled references
 
