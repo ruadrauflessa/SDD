@@ -55,7 +55,7 @@ The sdd view opens by itself the first time a chat takes up a work item. In it:
 | Path | What |
 | --- | --- |
 | `skills/` | `sdd` (entry), `spec`, `bug`, `sync`, `impact`, `harness`, `visual`, `workspace` |
-| `agents/` | `investigator` (read-only code search) and `skeptic` (independent review of a root cause, a test or a design), used by the bug and spec flows |
+| `agents/` | `investigator` (read-only code search, Sonnet) and `skeptic` (independent review of a root cause, a test or a design, Opus), used by the bug and spec flows |
 | `scripts/` | `env.py` (work item folders, state guards, progress), `spec.py` (ADO mirror, impact), `flows.json` (the stages of each flow) |
 | `hooks/` | `hooks.json`, `question_guard.py` (links before every question), `agent_guard.py` (keeps the sdd agents read-only: no git writes, no `env.py` / `spec.py` runs), `register.tsx` + `view/` (the sdd view) |
 | `types/` | The view's state contract |

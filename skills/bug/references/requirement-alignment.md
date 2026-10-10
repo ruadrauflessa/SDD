@@ -90,7 +90,7 @@ conflict with both texts side by side; a product owner resolves it, not a commit
 Note the same CR also says UI filtering "must not constitute the sole enforcement mechanism" — so a
 ticket reporting that a *direct API call* bypasses an organisation boundary is **Consistent** with
 it, and a fix that only hardens the dropdown would satisfy the ticket while still violating the CR.
-This is exactly what Gate C's requirement re-check is for.
+This is exactly what Gate 4's requirement re-check is for.
 
 ### Withdrawn → stop
 

@@ -22,7 +22,7 @@ Make a visual whenever you:
 | Present requirements, open questions, gaps (sdd:spec Specify) | `requirements` |
 | Present a design / approach (sdd:spec Design, tech story gate) | `design` |
 | Present a decomposition / task list / implementation plan | `tasks` (or `plan` outside sdd) |
-| Explain a bug: Gate 0 verdict, root cause, proposed fix (sdd:bug, ado-bug-fix) | `bug` |
+| Explain a bug: Gate 1 verdict, root cause, proposed fix (sdd:bug, ado-bug-fix) | `bug` |
 | Report a finished fix before PR / manual verification | `diff-review` |
 | Review code or a PR (ado-pr-review, `/code-review`, any review) | `review` |
 | Present an impact / blast-radius analysis (sdd:impact) | `impact` |

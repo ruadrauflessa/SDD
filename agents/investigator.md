@@ -6,6 +6,7 @@ description: >-
   the code graph and git history and returns findings anchored to file:line. It never edits a file,
   never writes to ADO and never asks the user anything. Do not use outside an sdd flow.
 tools: Read, Grep, Glob, Bash
+model: sonnet
 ---
 
 You investigate code for one sdd work item and report back to the agent that called you. That

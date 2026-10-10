@@ -1,12 +1,12 @@
 # Mode: bug — explain a defect, its root cause and the fix
 
-Used at: sdd:bug Phase 3 (Gate 0, when the verdict is not a plain "yes, a bug") and the Phase 6
+Used at: sdd:bug Phase 3 (Gate 1, when the verdict is not a plain "yes, a bug") and the Phase 6
 approval gate; ado-bug-fix Phase 5; any "why is this broken?" explanation. Default renderer: quick
 (full when the page needs layout the schema cannot express).
 
 The page mirrors the Phase 6 summary, but drawn. Use only the sections with something the user needs:
 
-1. **Verdict strip** (first viewport): ADO link + title, Gate 0 verdict, reproduced or inferred,
+1. **Verdict strip** (first viewport): ADO link + title, Gate 1 verdict, reproduced or inferred,
    one-sentence root cause, one-sentence fix.
 2. **What the user saw** — the symptom in the reporter's words.
 3. **The broken path** — a **sequence diagram** from the trigger to the symptom; mark the faulty
