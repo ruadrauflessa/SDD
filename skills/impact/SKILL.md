@@ -19,6 +19,14 @@ marked "not pushed". Build the `sdd:visual` **impact** page first (`visuals/impa
 For this skill the refs are the target's `impact.md` (or `impact-all.md`) and the
 `requirements.md` of every Direct item the questions name, as paths taken from `impact.json`.
 
+## After a sync — the delta
+
+Every sync writes `{specRoot}/.index/metrics.json`. Its `changes` list is the delta: each new,
+MATERIAL, incidental or MISSING item, with the fields before and after, and for new and MATERIAL
+items the candidates they likely affect (`affects`, the script half of Step 2 below). Asked "what
+does the last sync change?", start there: report the delta from the file (no tokens), then run
+this skill's full analysis only on the items the user picks.
+
 ## Step 1 — make sure the item is synced and current
 
 ```

@@ -160,6 +160,16 @@ def main():
         run(root, "env.py", "path", "--id", "502", "--set", "full", "--confirmed", "back to full")
         # the next item under feature 600 for version 1.1.0
         run(root, "spec.py", "sync", "--id", "600", "--no-embed")
+        mpath = root / "docs" / "spec" / ".index" / "metrics.json"
+        m = json.loads(mpath.read_text())
+        it = m["items"]
+        assert [b["id"] for b in it["605"]["blockers"]] == [603] and it["603"]["blocking"] == [605]
+        assert [b["id"] for b in it["606"]["blockers"]] == [601] and it["601"]["blocking"] == [606]
+        assert it["605"]["ancestors"] == [{"id": 600, "type": "Feature", "title": "Invoice export v2"}]
+        assert it["600"]["children"] == {"total": 8, "open": 7, "done": 1, "inProgress": 1, "bugsOpen": 3}, it["600"]["children"]
+        assert it["602"]["inProgress"] and it["607"]["done"] and it["601"]["versions"] == ["1.1.0"]
+        assert it["603"]["complexity"] == 5 and it["601"]["complexity"] is None
+        assert {c["kind"] for c in m["changes"]} == {"new"} and len(m["changes"]) == 9
         nxt = lambda: json.loads(run(root, "spec.py", "next", "--scope", "600", "--version", "1.1.0", "--json").stdout)
         res = nxt()
         why = {r["id"]: r["why"] for r in res["unavailable"]}
@@ -186,10 +196,30 @@ def main():
         # the evidence changes (603 is done): the old judgement no longer applies, 605 is free
         w = json.loads(world.read_text())
         w["items"]["603"]["fields"]["System.State"] = "Closed"
+        w["items"]["603"]["rev"] += 1                                  # ADO bumps rev on every change
         world.write_text(json.dumps(w))
         run(root, "spec.py", "sync", "--id", "600", "--no-embed")
         res = nxt()
         assert 605 in [r["id"] for r in res["ranked"]] and not res["blocked"], res
+        m = json.loads(mpath.read_text())
+        ch = {c["id"]: c for c in m["changes"]}
+        assert set(ch) == {603} and ch[603]["kind"] == "incidental", m["changes"]   # only what moved
+        assert ch[603]["diff"] == {"state": ["New", "Closed"]}, ch[603]
+        assert m["items"]["605"]["blockers"] == [] and m["items"]["603"]["lastChange"]["diff"]["state"][1] == "Closed"
+        assert m["items"]["601"]["lastChange"]["kind"] == "new"                    # carried from the sync before
+        # a requirement change: material, with what it likely affects
+        w = json.loads(world.read_text())
+        w["items"]["606"]["fields"]["System.Title"] = "Show the currency symbol on totals"
+        w["items"]["606"]["rev"] += 1
+        world.write_text(json.dumps(w))
+        run(root, "spec.py", "sync", "--id", "600", "--no-embed")
+        c606 = next(c for c in json.loads(mpath.read_text())["changes"] if c["id"] == 606)
+        assert c606["kind"] == "material" and c606["fields"] == ["Title"], c606
+        assert c606["diff"]["title"] == ["Show currency symbol", "Show the currency symbol on totals"]
+        assert 600 in [x["id"] for x in c606["affects"]], c606["affects"]           # its feature, by link
+        before = json.loads(mpath.read_text())["changes"]
+        run(root, "spec.py", "metrics")
+        assert json.loads(mpath.read_text())["changes"] == before                  # a rebuild keeps them
         # taking an item: never someone's work in progress; one on another name only with --take
         w = json.loads(world.read_text())
         w["items"]["603"]["fields"]["System.State"] = "New"

@@ -75,7 +75,7 @@ values already set are kept. `skills/workspace/SKILL.md` lists every key.
 | --- | --- |
 | `skills/` | `sdd` (entry; `references/flow-rules.md` holds the rules both flows share), `spec` (outline + `modes/`), `bug` (outline + `phases/`), `next` (what to take next), `sync`, `impact`, `harness`, `visual`, `workspace` |
 | `agents/` | `investigator` (read-only code search) and `skeptic` (independent review of a root cause, a test or a design), used by the bug and spec flows; models from `agents.models` |
-| `scripts/` | `env.py` (work item folders, state guards, progress, config upgrades), `spec.py` (ADO mirror, impact, rev-tested writes: claim, handover, sprint, comment), `adowrite.py` (those writes), `proof.py` (recorded test runs that gates need), `nextpick.py` (the next-item rules), `flows.json` (the stages of each flow) |
+| `scripts/` | `env.py` (work item folders, state guards, progress, config upgrades), `spec.py` (ADO mirror, impact, rev-tested writes: claim, handover, sprint, comment), `adowrite.py` (those writes), `proof.py` (recorded test runs that gates need), `nextpick.py` (the next-item rules), `metrics.py` (`.index/metrics.json`: every item's decision facts and what the last sync changed), `flows.json` (the stages of each flow) |
 | `hooks/` | `hooks.json`, `question_guard.py` (links before every question), `agent_guard.py` (keeps the sdd agents read-only: no git writes, no `env.py` / `spec.py` runs), `edit_guard.py` (no edits in the main checkout during a flow), `register.tsx` + `view/` (the sdd view) |
 | `assets/output-styles/` | `ELI5.md`, the output style the plugin installs globally |
 | `types/` | The view's state contract |

@@ -32,6 +32,10 @@ Which item to take next (nextpick.py; read-only, from the index — sync the sco
     next-judge --scope N --id M (--blocked yes|no | --complexity 1-5) --reason TEXT
                                     record the agent's judgement; it holds while its evidence holds
 
+Every sync also writes {specRoot}/.index/metrics.json (metrics.py): every work item with its state,
+board, planning fields, versions, epic/feature chain, child counts, blockers and what it blocks, plus
+what this sync changed and what each change likely affects. `metrics` rebuilds it without a sync.
+
 Only the files sync writes are touched: requirements.md. design.md, tasks.md, questions.md and
 impact.* in a spec folder are never overwritten, and move with the folder on a reparent.
 """
@@ -54,6 +58,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import adowrite
+import metrics
 import nextpick
 from sddlib import die, get_items, load_config, org_url, require_root, slug, wiql
 
@@ -320,12 +325,61 @@ def cmd_sync(a):
         print(f"  MISSING  {wid}: deleted in ADO, moved to a project you cannot read, or no access")
     if not a.no_embed:
         embed(ctx)
+    path = write_metrics(ctx, sync_changes(ctx, report), f"all:{','.join(all_projects)}" if all_projects and a.all
+                         else a.id or "refresh")
+    print(f"metrics: {path}")
+
+
+# ---------------------------------------------------------------- metrics.json
+
+def sync_changes(ctx, report):
+    """This sync's changes, each with what it likely affects — the script half of an impact analysis
+    (links two hops out, the five strongest shared-term matches). No model; sdd:impact judges on demand."""
+    at, out = now(), []
+    material = dict(report["material_detail"])
+    for kind in ("new", "material", "incidental", "missing"):
+        for wid in report[kind]:
+            r = ctx.item(wid)
+            d = report["diffs"].get(wid, {})
+            if kind == "incidental" and not d:
+                continue  # a comment or a field nobody tracks: rev moved, nothing to weigh
+            c = {"id": wid, "type": r["type"] if r else "", "title": r["title"] if r else "", "kind": kind,
+                 "at": at, "fields": material.get(wid, []), "diff": d, "affects": []}
+            if kind in ("new", "material") and r:
+                seen = {}
+                for x in links(ctx, wid, 2):
+                    seen.setdefault(x["id"], f"link: {x['rel']}" + (f" (via {x['via']})" if x["hops"] > 1 else ""))
+                for x in overlap(ctx, wid, top=5):
+                    seen.setdefault(x["id"], f"shared terms: {', '.join(x['terms'][:4])}")
+                c["affects"] = [{"id": i, "why": why} for i, why in seen.items()]
+            out.append(c)
+    return out
+
+
+def write_metrics(ctx, changes, scope, keep_changes=False):
+    path = ctx.spec / ".index" / "metrics.json"
+    prev = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    rows = {r["id"]: dict(r) for r in ctx.db.execute("SELECT * FROM items")}
+    lk = {}
+    for r in ctx.db.execute("SELECT src, dst, rel FROM links"):
+        lk.setdefault(r["src"], []).append((r["rel"], r["dst"]))
+    out = metrics.build(rows, lk, prev.get("changes", []) if keep_changes else changes, prev, ctx.cfg, scope)
+    if keep_changes and prev.get("sync"):
+        out["sync"] = prev["sync"]
+    path.write_text(json.dumps(out, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return path
+
+
+def cmd_metrics(a):
+    """Rebuild metrics.json from the index without a sync; the last sync's changes stay."""
+    ctx = Ctx()
+    print(f"wrote {write_metrics(ctx, [], None, keep_changes=True)}")
 
 
 def write_items(ctx, items, other=None):
     other = other or {}
     report = {k: [] for k in ("new", "material", "incidental", "unchanged", "missing")}
-    report["material_detail"], pending = [], {}
+    report["material_detail"], report["diffs"], pending = [], {}, {}
     frags = [w["fields"].get(f) or "" for w in items for f, _ in TEXT_FIELDS]
     md = to_markdown(frags)
     titles = {w["id"]: w["fields"]["System.Title"] for w in items}
@@ -368,6 +422,8 @@ def write_items(ctx, items, other=None):
                    removed=int(f["System.State"] == "Removed"), missing=0,
                    changed=f.get("System.ChangedDate", ""), synced_at=now(), body=body,
                    other=json.dumps(extra, sort_keys=True), assigned_email=email, **planning(f))
+        if old:
+            report["diffs"][w["id"]] = metrics.diff(old, row)
         ctx.db.execute(f"INSERT OR REPLACE INTO items({','.join(row)}) VALUES({','.join('?' * len(row))})",
                        list(row.values()))
         ctx.db.execute("DELETE FROM links WHERE src=?", (w["id"],))
@@ -965,6 +1021,7 @@ def main():
     s.add_argument("--id", type=int, required=True)
     s.add_argument("--file", required=True, help="the comment, as HTML")
     s.add_argument("--dry-run", action="store_true")
+    sp.add_parser("metrics", help="rebuild .index/metrics.json from the index (every sync writes it too)")
     s = sp.add_parser("next", help="which item under an epic or feature to take next")
     s.add_argument("--scope", type=int, required=True, help="the epic or feature the dev is assigned")
     s.add_argument("--version", required=True, help="the team branch version the items are tagged with")
@@ -991,7 +1048,7 @@ def main():
         a.text = a.text or die("query similar needs --id or TEXT")
     {"sync": cmd_sync, "embed": cmd_embed, "query": cmd_query, "impact": cmd_impact, "claim": cmd_claim,
      "handover": cmd_handover, "sprint": cmd_sprint, "comment": cmd_comment, "next": cmd_next,
-     "next-judge": cmd_next_judge}[a.cmd](a)
+     "next-judge": cmd_next_judge, "metrics": cmd_metrics}[a.cmd](a)
 
 
 if __name__ == "__main__":

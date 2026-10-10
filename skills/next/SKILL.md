@@ -40,7 +40,9 @@ claim is the first step of the flow the user starts with the item they choose.
    Paste the Links block from `env.py refs --id <scope> --ref ado` above the question.
 2. **Fresh states.** `spec.py sync --id <scope>`. Others claim items all day: never rank from an
    old mirror.
-3. **The list.** `spec.py next --scope <scope> --version <version>`. It prints what is ready, what
+3. **The list.** `spec.py next --scope <scope> --version <version>`. For more context on any item —
+   what it blocks, what changed on it last, its epic chain — read its entry in
+   `{specRoot}/.index/metrics.json` (the sync just wrote it) rather than asking ADO. It prints what is ready, what
    needs a judgement first, what is blocked and what is not available, with why.
 4. **Judge what it asks for**, every one, then record it — one sentence that cites what you read:
    - **blocked?** Read the item's `requirements.md` and the `requirements.md` of each item in its
