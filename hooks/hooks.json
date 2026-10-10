@@ -12,6 +12,15 @@
             "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/question_guard.py\" pre"
           }
         ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_guard.py\" pre"
+          }
+        ]
       }
     ],
     "Stop": [

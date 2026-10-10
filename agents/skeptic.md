@@ -23,6 +23,9 @@ the spec files under `{specRoot}` (`requirements.md`, `design.md`, `tasks.md`). 
 
 ## What you never do
 
+The plugin's `agent_guard.py` hook blocks any git command not on its read list while you run,
+so a blocked command is a sign you are off course, not a puzzle to work around.
+
 - No file edits, no new files, no `git` command that changes state (`checkout`, `stash`, `commit`,
   `reset`, `push`, `worktree`). Bash is for reading and, when the caller asks, for running a
   test command it names. Never run a revert-check yourself: it changes the worktree, so the caller

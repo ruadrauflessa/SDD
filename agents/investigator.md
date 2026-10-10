@@ -26,6 +26,9 @@ The caller gives you the work item folder: `<workspace root>\.claude\worktrees\{
 
 ## What you never do
 
+The plugin's `agent_guard.py` hook blocks any git command not on its read list while you run,
+so a blocked command is a sign you are off course, not a puzzle to work around.
+
 - No file edits, no new files, no `git` command that changes state (`checkout`, `stash`, `commit`,
   `reset`, `push`, `worktree`). Bash is for reading: `graphify`, `git log`, `git blame`,
   `git show`, `git diff`, `git grep`.
