@@ -82,7 +82,7 @@ clean up only what this run actually created:
 
 | If this happened | Do this |
 | --- | --- |
-| Work item claimed (Specify step 1) | Ask whether to unassign and revert the board column and status, or leave it claimed with a comment noting the spec was abandoned. Never touch a field someone else changed since. |
+| Work item claimed (Specify step 2) | Ask whether to unassign and revert the board column and status, or leave it claimed with a comment noting the spec was abandoned. Never touch a field someone else changed since. |
 | Work item folder created (Design step 1) | `env.py remove --id <id> --abandon` — a dry run; show it, then re-run with `--yes` once the user agrees. It removes each worktree, prunes, deletes the local branches and the folder, and leaves remote branches and PRs alone. |
 | Branch pushed | 🛑 **Ask before deleting the remote branch.** Deleting a pushed ref is outward-facing and hard to undo. If they say no, leave it and say so in the report. |
 | PR opened (Verify) | 🛑 **Ask before doing anything to the PR.** Never close or abandon it silently. |
@@ -265,11 +265,11 @@ names really passed), with `--passed` on the checkpoint you write anyway:
 
 | Gate | Pass it when | Needed by |
 | --- | --- | --- |
-| `Claimed` | Specify step 1: assigned, `Active`, `Dev In Progress` written | Design |
+| `Claimed` | Specify step 2: assigned, `Active`, `Dev In Progress` written | Design |
 | `Open questions` | Open Questions: every question answered, or the user chose "Continue with this open" (with `--caveat`) | Requirements, while `questions.md` has open questions |
 | `Requirements agreed` | "Requirements agreed" gate: the user chose "Approve — start Design" | Design, Decompose, Implement, the PR |
 | `Design agreed` | "Design agreed" gate: the user chose "Approve — start Decompose" | Decompose, Implement |
-| `Ready to PR` | "Ready to PR" gate: the user chose "Raise the PR" | the PR |
+| `Ready to PR` | "Ready to PR" gate: the user chose "Raise the PR", and `env.py verify` passed on the current code | the PR |
 
 Gates the script reads from disk, so you never pass them: `Worktree` (every repo's worktree
 exists), `PR raised` (a PR is recorded), `Tasks written` / `Tasks done` (checkboxes in `tasks.md`).
@@ -307,7 +307,7 @@ neither one can pass a gate or write a checkpoint. Those stay here.
 
 | Agent | Use it at | Hand it |
 | --- | --- | --- |
-| `sdd:investigator` | Design step 2 (what the change touches, every dependent), Verify step 3 (anchor overlap) | The work item folder path, the repos, and one question |
+| `sdd:investigator` | Design step 2 (what the change touches, every dependent), Verify step 4 (anchor overlap) | The work item folder path, the repos, and one question |
 | `sdd:skeptic` | Design, before the "Design agreed" gate (mode `design`) | The folder path, `requirements.md` and `design.md` — **not your reasoning** |
 
 Pass `model` on the `Agent` call from `agents.models` in the workspace's `.claude/sdd.json`
@@ -442,7 +442,11 @@ start Requirements until this stage is done.
 ### Mode: Decompose
 
 1. **Write `tasks.md`** from `assets/tasks.md.template`: ordered units of 2–5 minutes of agent
-   work, each naming the files it touches and how it is verified.
+   work, each naming the files it touches and how it is verified. **Write a Verify line as a
+   command in backticks wherever one exists** (`` `dotnet test --filter Tags` ``): `env.py verify`
+   runs every one, and Ready to PR needs them all to pass. Write a plain sentence only for what a
+   person must look at. A work item with several repos: add `- Repo: <name>` to a task whose
+   Files path does not name its repo.
 2. Every task traces to an acceptance criterion or to an explicit design decision. A task that
    traces to neither is scope creep — drop it or raise it.
 3. Tests are tasks, not a trailing afterthought.
@@ -473,21 +477,26 @@ start Requirements until this stage is done.
 
 ### Mode: Verify
 
-1. Walk the acceptance criteria one by one against observable behaviour, not against the code
+1. **Run every task's Verify command:** `env.py verify --id <id>`. It runs each backticked command in
+   its repo's worktree and records the results. A failure blocks the PR: `progress --passed "Ready to
+   PR"` and `env.py pr` both refuse until every command passes **on the code as it is now** (an
+   edit after the run voids it; a commit of the same files does not). Fix the code or the task, then
+   run it again. The tasks it lists as "check by hand" go into step 2.
+2. Walk the acceptance criteria one by one against observable behaviour, not against the code
    you wrote. Anything unmet is either an unfinished task or a requirement change.
-2. **Drift check:** `spec.py sync --id <id>`. Any `MATERIAL` line for this item or its parent
+3. **Drift check:** `spec.py sync --id <id>`. Any `MATERIAL` line for this item or its parent
    blocks the PR until it is reviewed against `design.md` and the done tasks.
-3. **Overlap check:** `spec.py impact --id <id>`, then check the design's anchors against the
+4. **Overlap check:** `spec.py impact --id <id>`, then check the design's anchors against the
    candidates it lists for file and symbol overlap. With more than a few candidates, give the
    list and the anchors to **`sdd:investigator`** and ask for each overlap with its file:line.
-4. Report what was built, what was skipped and why; no silent scope changes — as an `sdd:visual`
+5. Report what was built, what was skipped and why; no silent scope changes — as an `sdd:visual`
    **diff-review** page (`visuals/diff-review.html`) per the worktree diff against its base branch.
-5. **Stop and ask.** Implementation and the checks above are done — run the "Ready to PR" gate
+6. **Stop and ask.** Implementation and the checks above are done — run the "Ready to PR" gate
    with `AskUserQuestion`: "Raise the PR" vs "Make changes". Never open a PR on the assumption
    that passing checks means go-ahead; only the user's answer does.
-6. **"Make changes"?** Go back to Implement (or Decompose, if the fix is really a task-list
-   problem), address it, then re-run step 5. Never guess at the fix and open the PR anyway.
-7. **"Raise the PR"?** Write the description to `<folder>\pr-description.md`, then `env.py pr
+7. **"Make changes"?** Go back to Implement (or Decompose, if the fix is really a task-list
+   problem), address it, then re-run step 6. Never guess at the fix and open the PR anyway.
+8. **"Raise the PR"?** Write the description to `<folder>\pr-description.md`, then `env.py pr
    --id <id> --title "<title>" --description-file <folder>\pr-description.md` — it pushes each
    repo with commits ahead, opens its PR against the base branch and links the work item. Move the
    work item to the current sprint as you open it, `spec.py sprint --id <id>` — an item still
@@ -495,7 +504,7 @@ start Requirements until this stage is done.
    item as `#12345` anywhere in the PR text (`env.py pr` refuses it),
    and never add a Claude attribution line to the title, description or a comment — the
    developer owns the PR. `references/branching.md` has both rules and why.
-8. Start **Review** at once: `env.py progress --id <id> --flow spec --phase Review --status waiting
+9. Start **Review** at once: `env.py progress --id <id> --flow spec --phase Review --status waiting
    --gate "PR status: not yet approved / approved / merged / rejected" --ref ado --no-visual "PR status
    is a plain choice"`. Verify is done; the wait for the reviewers is Review's.
 

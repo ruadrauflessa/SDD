@@ -1,5 +1,5 @@
 {
-  "_": "The stages of each sdd flow, in order. env.py reads it for its state guards and the view draws it. key = what progress --phase starts with; needs = gates that must be met before the stage may start; passes = gates the stage records; stop = the flow stops here for the user. conditional = the stage runs only when there is something to do (spec flow Open Questions: unanswered questions in questions.md); inferFromGates = a stage added after items were started: with its gates already passed, it needs no record. A conditional stage is recorded skipped without the user's words when there is nothing to do. reworkTo = on a review stage, the stage a rejected PR goes back to.",
+  "_": "The stages of each sdd flow, in order. env.py reads it for its state guards and the view draws it. key = what progress --phase starts with; needs = gates that must be met before the stage may start; passes = gates the stage records; stop = the flow stops here for the user. conditional = the stage runs only when there is something to do (spec flow Open Questions: unanswered questions in questions.md); inferFromGates = a stage added after items were started: with its gates already passed, it needs no record. A conditional stage is recorded skipped without the user's words when there is nothing to do. reworkTo = on a review stage, the stage a rejected PR goes back to. proofs = gates that pass only on a recorded run (env.py run / revert-check / verify, see proof.py): needs lists the runs; current = the runs must be on the code as it is now.",
   "derived": [
     "Worktree",
     "PR raised",
@@ -109,7 +109,17 @@
           "stop": true,
           "reworkTo": "Implement"
         }
-      ]
+      ],
+      "proofs": {
+        "Ready to PR": {
+          "current": true,
+          "needs": [
+            {
+              "kind": "verify"
+            }
+          ]
+        }
+      }
     },
     "bug": {
       "label": "Bug flow",
@@ -265,7 +275,33 @@
           "stop": true,
           "reworkTo": "Phase 8"
         }
-      ]
+      ],
+      "proofs": {
+        "Red test": {
+          "current": false,
+          "needs": [
+            {
+              "expect": "fail"
+            }
+          ]
+        },
+        "Verified": {
+          "current": true,
+          "needs": [
+            {
+              "kind": "revert-check"
+            },
+            {
+              "expect": "pass",
+              "repeat": 5
+            },
+            {
+              "expect": "pass",
+              "suite": true
+            }
+          ]
+        }
+      }
     }
   }
 }

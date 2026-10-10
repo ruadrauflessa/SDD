@@ -23,6 +23,11 @@ Commands (run from anywhere inside the workspace):
     can    --id N --op start|resume|phase|pr|done|abandon [--flow F --phase P] [--json]
                                              is the operation allowed now? exit 0 yes, 3 no, with reasons
     remove --id N [--abandon] [--yes]        dry run unless --yes; enforces `can --op done` (or abandon)
+    run    --id N --gate G --expect pass|fail [--repo R] [--repeat N] [--suite] -- COMMAND
+                                             run a test command in the worktree and record it as proof
+    revert-check --id N --gate G [--repo R] --fix PATH [--fix PATH ...] -- COMMAND
+                                             the test fails with the fix files at base, passes with them
+    verify --id N                            run every tasks.md Verify command; proof for Ready to PR
 """
 import argparse
 import json
@@ -37,6 +42,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import proof
 from adowrite import mentions
 from sddlib import (AGENT_MODELS, BUG_TYPES, CONFIG_REL, DEFAULTS, STYLE_NAME, TYPE_SEGMENT, ado,
                     bad_agent_models, config_home, developer, die, discover_repos, ensure_ignored,
@@ -482,6 +488,11 @@ def cmd_progress(a):
         _, _, bad = build_refs(root, cfg, a.id, a.ref)
         if bad:
             die("\n".join(bad) + "\nFix the refs before recording the gate.")
+    for g in a.passed:
+        lack = proof_missing(a.flow, data, env_dir, g)
+        if lack:
+            die(f"'{g}' passes only on recorded runs, and these are missing:\n  " + "\n  ".join(lack)
+                + "\nRun them (env.py run / revert-check / verify), then record the gate again.")
     entry = {"at": now(), "flow": a.flow, "phase": a.phase, "status": a.status,
              "gate": a.gate or "", "next": a.next or "", "note": a.note or "", "refs": a.ref}
     if a.status == "skipped":
@@ -794,12 +805,116 @@ def _force(func, path, _):
 
 OPS = ("start", "resume", "phase", "pr", "done", "abandon", "reopen")
 
+
+def repo_dirs(env_dir, data):
+    """{repo: (worktree dir, base branch)} of a work item folder."""
+    return {n: (env_dir / r["path"], r["base"]) for n, r in ((data or {}).get("repos") or {}).items()}
+
+
+def proof_missing(flow, data, env_dir, gate):
+    """What `gate` still needs before it may pass, from flows.json "proofs"; [] when it needs no proof."""
+    rule = PROOFS.get(flow, {}).get(gate)
+    if not rule:
+        return []
+    try:
+        return proof.missing(data, gate, rule, repo_dirs(env_dir, data) if env_dir else {})
+    except RuntimeError as e:
+        return [f"'{gate}': could not check the worktree ({e})"]
+
+
+def pick_repo(data, want):
+    repos = list((data.get("repos") or {}))
+    if want:
+        return want if want in repos else die(f"no repo {want} in this work item; it has {', '.join(repos) or 'none'}")
+    if len(repos) == 1:
+        return repos[0]
+    die(f"this work item has {', '.join(repos) or 'no repos'}: say which one with --repo")
+
+
+def command_of(a):
+    cmd = [c for c in (a.command or [])]
+    if cmd and cmd[0] == "--":
+        cmd = cmd[1:]
+    if not cmd:
+        die("no command: put it after --, e.g. env.py run --id 5 --gate \"Red test\" --expect fail -- dotnet test ...")
+    return cmd[0] if len(cmd) == 1 else subprocess.list2cmdline(cmd) if sys.platform == "win32" else " ".join(
+        c if re.fullmatch(r"[\w@%+=:,./-]+", c) else "'" + c.replace("'", "'\\''") + "'" for c in cmd)
+
+
+def show_run(rec):
+    print(f"{rec['repo']}: {rec['gate']} / {rec.get('kind', 'run')}: {'OK' if rec['ok'] else 'NOT OK'} "
+          f"(exit {', '.join(str(x) for x in rec.get('exits', []))})")
+    if rec.get("tail"):
+        print(rec["tail"])
+
+
+def cmd_run(a):
+    root = require_root()
+    cfg = load_config(root)
+    env_dir = env_or_die(root, cfg, a.id)
+    data = read_env(env_dir)
+    repo = pick_repo(data, a.repo)
+    d, _ = repo_dirs(env_dir, data)[repo]
+    rec = proof.run(data, repo, d, a.gate, command_of(a), a.expect, a.repeat, a.suite, a.timeout)
+    write_env(env_dir, data)
+    show_run(rec)
+    if not rec["ok"]:
+        sys.exit(1)
+
+
+def cmd_revert_check(a):
+    root = require_root()
+    cfg = load_config(root)
+    env_dir = env_or_die(root, cfg, a.id)
+    data = read_env(env_dir)
+    repo = pick_repo(data, a.repo)
+    d, base = repo_dirs(env_dir, data)[repo]
+    try:
+        rec = proof.revert_check(data, repo, d, base, a.gate, command_of(a), a.fix, a.timeout)
+    except RuntimeError as e:
+        die(str(e))
+    write_env(env_dir, data)
+    show_run(rec)
+    if not rec["ok"]:
+        print("The test must fail without the fix and pass with it. A test that passes without the fix "
+              "guards nothing: rewrite it.")
+        sys.exit(1)
+
+
+def cmd_verify(a):
+    root = require_root()
+    cfg = load_config(root)
+    env_dir = env_or_die(root, cfg, a.id)
+    data = read_env(env_dir)
+    sp = spec_folder(root, cfg, a.id)
+    tasks_md = sp / "tasks.md" if sp else None
+    if not tasks_md or not tasks_md.is_file():
+        die("no tasks.md for this work item: Decompose writes it")
+    tasks = proof.parse_tasks(tasks_md.read_text(encoding="utf-8"))
+    recs, manual, unclear = proof.verify(data, repo_dirs(env_dir, data), tasks, a.gate, a.timeout)
+    write_env(env_dir, data)
+    for r in recs:
+        for t in r["tasks"]:
+            print(f"task {t['task']} ({r['repo']}): {'pass' if t['ok'] else 'FAIL'}  {t['command']}")
+            if not t["ok"]:
+                print("    " + t["tail"].replace("\n", "\n    "))
+    for t in manual:
+        print(f"task {t['n']}: check by hand — {t['verify'] or 'no Verify line'}")
+    for t in unclear:
+        print(f"task {t['n']}: not run — say which repo with a `- Repo: <name>` line under it")
+    bad = [t for r in recs for t in r["tasks"] if not t["ok"]]
+    print(f"{sum(len(r['tasks']) for r in recs) - len(bad)} passed, {len(bad)} failed, {len(manual)} by hand, "
+          f"{len(unclear)} unclear")
+    if bad or unclear:
+        sys.exit(1)
+
 # The stages of each flow live in flows.json, which the view draws too. What each phase needs before
 # it may start: recorded gates are passed with `progress --passed` only after the user said yes; the
 # DERIVED ones are read from the facts on disk.
 FLOWS = json.loads((Path(__file__).with_name("flows.json")).read_text(encoding="utf-8"))
 PHASE_NEEDS = {f: {s["key"]: s["needs"] for s in v["stages"] if s["needs"]} for f, v in FLOWS["flows"].items()}
 PR_GATE = {f: v["prGates"] for f, v in FLOWS["flows"].items()}
+PROOFS = {f: v.get("proofs", {}) for f, v in FLOWS["flows"].items()}
 DERIVED = tuple(FLOWS["derived"])
 BUG_PHASES = [s["key"] for s in FLOWS["flows"]["bug"]["stages"]]
 SPEC_PHASES = [s["key"] for s in FLOWS["flows"]["spec"]["stages"]]
@@ -1023,6 +1138,9 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
         for g in PR_GATE.get(prog.get("flow") or data.get("flow"), []):
             if g not in met:
                 reasons.append(f"the PR needs '{g}' first — not recorded as passed")
+            elif env_dir:
+                reasons += [f"{m}: the PR needs it" for m in
+                            proof_missing(prog.get("flow") or data.get("flow"), data, env_dir, g)]
         if not any(ahead not in ("0", "") and not r.get("pr") for _, r, _, _, _, ahead in repos):
             reasons.append("no repo has commits without a PR — nothing to raise")
         for n, r, pth, exists, dirty, ahead in repos:
@@ -1204,13 +1322,34 @@ def main():
     s.add_argument("--id", type=int, help="also the full history of this item")
     s.add_argument("--json", action="store_true", help="always json; accepted for symmetry")
     s.add_argument("--compact", action="store_true")
+    s = sp.add_parser("run", help="run a test command in the worktree and record it as proof for a gate")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--gate", required=True, help='the gate this run proves, e.g. "Red test" or "Verified"')
+    s.add_argument("--expect", required=True, choices=["pass", "fail"])
+    s.add_argument("--repo", help="needed when the work item has more than one repo")
+    s.add_argument("--repeat", type=int, default=1, help="run it N times; every run must end as expected")
+    s.add_argument("--suite", action="store_true", help="this command is the repo's full test suite")
+    s.add_argument("--timeout", type=int, default=1800, help="seconds per run")
+    s.add_argument("command", nargs=argparse.REMAINDER, help="-- then the command")
+    s = sp.add_parser("revert-check", help="the test fails with the fix files at base, passes with the fix")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--gate", default="Verified")
+    s.add_argument("--repo")
+    s.add_argument("--fix", action="append", required=True, help="a file of the fix, relative to the repo; repeat")
+    s.add_argument("--timeout", type=int, default=1800)
+    s.add_argument("command", nargs=argparse.REMAINDER, help="-- then the test command")
+    s = sp.add_parser("verify", help="run every tasks.md Verify command; the proof for Ready to PR")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--gate", default="Ready to PR")
+    s.add_argument("--timeout", type=int, default=1800)
     s = sp.add_parser("remove")
     s.add_argument("--id", type=int, required=True)
     s.add_argument("--abandon", action="store_true")
     s.add_argument("--yes", action="store_true")
     a = ap.parse_args()
     {"init": cmd_init, "doctor": cmd_doctor, "progress": cmd_progress, "refs": cmd_refs, "can": cmd_can, "type": cmd_type, "new": cmd_new, "status": cmd_status, "view": cmd_view, "reopen": cmd_reopen, "graph": cmd_graph,
-     "pr": cmd_pr, "remove": cmd_remove, "upgrade-config": cmd_upgrade_config}[a.cmd](a)
+     "pr": cmd_pr, "remove": cmd_remove, "upgrade-config": cmd_upgrade_config, "run": cmd_run,
+     "revert-check": cmd_revert_check, "verify": cmd_verify}[a.cmd](a)
 
 
 if __name__ == "__main__":

@@ -212,8 +212,8 @@ names really passed), with `--passed` on the checkpoint you write anyway:
 | --- | --- | --- |
 | `Claimed` | Phase 1: assigned, `Active`, `Dev In Progress` written | Phase 2–6 |
 | `Approval` | Phase 6: the user approved the problem / cause / fix summary | Phase 7–12, the PR |
-| `Red test` | Phase 7: the new test ran and failed for the right reason | Phase 8–9 |
-| `Verified` | Phase 9: Gate 3 and Gate 4 both passed | Phase 10–12, the PR |
+| `Red test` | Phase 7: the new test failed for the right reason — a recorded `env.py run --expect fail` | Phase 8–9 |
+| `Verified` | Phase 9: Gate 3 and Gate 4 both passed — recorded `revert-check`, `--repeat 5` and `--suite` runs on the current code | Phase 10–12, the PR |
 | `Manual verification` | Phase 11: the user said it works — or explicitly chose to skip it (say so in `--note`) | Phase 12, the PR |
 
 Gates the script reads from disk, so you never pass them: `Worktree` (every repo's worktree
@@ -614,7 +614,15 @@ diff.
 
 ## Phase 7 — Failing regression test  *(before the fix)*
 
-Write the test that encodes the defect, then run it and **watch it fail**.
+Write the test that encodes the defect, then run it and **watch it fail** — through the script, so
+the failure is on record:
+
+```bash
+python ${CLAUDE_PLUGIN_ROOT}/scripts/env.py run --id <id> --gate "Red test" --expect fail [--repo <Repo>] -- <test command>
+```
+
+It runs the command in the worktree, prints the last 40 lines and saves them with the exit code in
+`workitem.json`. `progress --passed "Red test"` refuses until such a run exists.
 
 - Target the *cause*, not the click-path: assert on the unit that misbehaves.
 - Where a story or CR governs the behaviour, assert what **it** specifies — the acceptance criterion
@@ -622,7 +630,7 @@ Write the test that encodes the defect, then run it and **watch it fail**.
 - **Verify it fails for the right reason.** Read the failure output. An assertion failure showing
   expected-vs-actual is correct; a `NullReferenceException`, compile error, missing-fixture error,
   or DI resolution failure means the test is broken, not the code. Fix the test and re-run.
-- Record the failure message verbatim — it goes in the PR as proof the test guards something.
+- The recorded output is the failure message the PR quotes as proof the test guards something.
 - **Have it checked by someone who did not write it.** Hand **`sdd:skeptic`** (mode `test`) the
   test, the failure output and the planned fix. You wrote the test, so you are the worst judge of
   whether it is a tautology. Fix what it finds before Phase 8. Pass `Red test` only after that.
@@ -640,21 +648,33 @@ After the edits, refresh the graph so later queries see the new code:
 
 ## Phase 9 — Verify  *(Gate 3 + Gate 4)*
 
+`progress --passed Verified` refuses until every repo with a change has the three recorded runs
+below **on its code as it is now**. An edit after a run voids it (a commit of the same files does
+not), and `env.py pr` checks again. So re-run them after any change.
+
 ### Gate 3 — the test actually guards the defect
 
-1. **Green** — the new test passes with the fix in place.
-2. **Revert-check** — temporarily undo *only* the fix (`git stash push` the source change, keeping
-   the test) and re-run. The test **must fail again**. Restore the fix. A test that passes without
-   the fix is a tautology and must be rewritten. **Run this yourself, never in a sub-agent** — it
-   changes the worktree, and nothing else may touch the tree while the fix is stashed.
+1. **Green** and 2. **Revert-check** in one command:
+
+   ```bash
+   python ${CLAUDE_PLUGIN_ROOT}/scripts/env.py revert-check --id <id> [--repo <Repo>] \
+     --fix <fix file> [--fix <fix file> ...] -- <test command>
+   ```
+
+   `--fix` names the files of the fix, not the test. The script puts them back to the base branch,
+   runs the test (it **must fail**), restores them byte for byte, and runs it again (it **must
+   pass**). A test that passes without the fix is a tautology and must be rewritten. **Run this
+   yourself, never in a sub-agent** — it changes the worktree while it runs.
    If the fix or the test changed since Phase 7, send both to **`sdd:skeptic`** (mode `test`) again.
 
 ### Gate 4 — no regressions, no flakiness
 
-3. **Repeat run** — run the new test 5× consecutively. Any variation means it is flaky; fix it
-   before proceeding (causes and remedies in `references/test-integrity.md`).
-4. **Full suite** — `dotnet test <solution>` for every affected repo. Unit + ArchUnit must pass.
-   Pre-existing unrelated failures: report them, don't silently absorb them.
+3. **Repeat run** — `env.py run --id <id> --gate Verified --expect pass --repeat 5 -- <test command>`.
+   Any variation means it is flaky; fix it before proceeding (causes and remedies in
+   `references/test-integrity.md`).
+4. **Full suite** — `env.py run --id <id> --gate Verified --expect pass --suite -- dotnet test <solution>`
+   for every affected repo. Unit + ArchUnit must pass. Pre-existing unrelated failures: report them,
+   don't silently absorb them.
 5. **Symptom re-check** — confirm the *original reported symptom* is gone, not just that the test
    is green. Where Phase 4 reproduced it end-to-end, re-run that path. **When the symptom is
    UI-visible, re-run the same real-browser check with the Claude in Chrome plugin** used in
@@ -668,7 +688,8 @@ After the edits, refresh the graph so later queries see the new code:
    sibling acceptance criterion has traded one defect for another.
 
 Report all six outcomes with real output — one short line each, carrying the real number or the real
-message. Never claim a gate passed without running it, and never write "tests pass".
+message. Never claim a gate passed without running it, and never write "tests pass". Items 1–4 are
+in `workitem.json` "runs"; quote them from there.
 
 ## Phase 10 — Commit and push
 
