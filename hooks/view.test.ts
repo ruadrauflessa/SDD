@@ -54,7 +54,8 @@ test('phase keys match env.py', () => {
 })
 
 test('stages: done before the current one, the current one waiting', () => {
-  expect(stageRows(SPEC, ITEM).map(r => r.mark)).toEqual(['done', 'done', 'done', 'done', 'waiting'])
+  // Specify, Open Questions, Requirements, Design, Decompose, Implement before Verify, which waits
+  expect(stageRows(SPEC, ITEM).map(r => r.mark)).toEqual(['done', 'done', 'done', 'done', 'done', 'done', 'waiting'])
   const done = { ...ITEM, progress: { ...ITEM.progress!, phase: 'removed', status: 'done' as const } }
   expect(stageRows(SPEC, done).every(r => r.mark === 'done')).toBe(true)
 })
