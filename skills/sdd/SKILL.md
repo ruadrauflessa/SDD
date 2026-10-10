@@ -106,7 +106,9 @@ set up for sdd, and offer `/sdd init`.
 
 ## Step 2 — route
 
-With a flow word, go straight to that skill and pass it the id. With only an id:
+With a flow word, go straight to that skill and pass it the id. A path word (`short` or `full`, as in
+`/sdd 4471 short` or `/sdd spec 4471 full`) goes with it: pass it on, and the spec flow records it
+as the user's choice instead of asking. With only an id:
 
 ```
 python ${CLAUDE_PLUGIN_ROOT}/scripts/env.py type --id <id>

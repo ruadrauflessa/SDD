@@ -28,6 +28,8 @@ Commands (run from anywhere inside the workspace):
     revert-check --id N --gate G [--repo R] --fix PATH [--fix PATH ...] -- COMMAND
                                              the test fails with the fix files at base, passes with them
     verify --id N                            run every tasks.md Verify command; proof for Ready to PR
+    path   --id N --set full|short --confirmed WORDS
+                                             the way through the spec flow the user chose
 """
 import argparse
 import json
@@ -673,7 +675,7 @@ def view_item(root, cfg, data, env_dir, full):
         sp["path"] = str((root / sp["folder"]).resolve())
     project = data.get("project") or (cfg["ado"]["projects"] or [""])[0]
     out = {k: data.get(k) for k in ("id", "type", "title", "state", "project", "flow", "slug", "created",
-                                     "removed", "repos", "gates", "progress")}
+                                     "removed", "repos", "gates", "progress", "path")}
     out.update(folder=str(env_dir) if env_dir else None, spec=sp,
                met=sorted(gates_met(root, cfg, wid, data, env_dir)) if env_dir else sorted(data.get("gates") or {}),
                url=f"{org_url(cfg)}/{urllib.parse.quote(project)}/_workitems/edit/{wid}" if cfg["ado"]["org"] else None)
@@ -915,6 +917,26 @@ FLOWS = json.loads((Path(__file__).with_name("flows.json")).read_text(encoding="
 PHASE_NEEDS = {f: {s["key"]: s["needs"] for s in v["stages"] if s["needs"]} for f, v in FLOWS["flows"].items()}
 PR_GATE = {f: v["prGates"] for f, v in FLOWS["flows"].items()}
 PROOFS = {f: v.get("proofs", {}) for f, v in FLOWS["flows"].items()}
+PATHS = {f: v.get("paths") for f, v in FLOWS["flows"].items() if v.get("paths")}
+
+
+def flow_path(flow, data):
+    """The way through the flow the user chose (flows.json "paths"), or None while nobody has. An item
+    started before paths existed and already past Design counts as the full path."""
+    if flow not in PATHS:
+        return None
+    data = data or {}
+    if data.get("path"):
+        return data["path"]
+    if "Design agreed" in (data.get("gates") or {}) or set(data.get("stages") or {}) & {"Decompose", "Implement", "Verify", "Review"}:
+        return "full"
+    return None
+
+
+def stage_needs(flow, data, key):
+    """The gates `key` needs on this item's path."""
+    drop = set(((PATHS.get(flow) or {}).get(flow_path(flow, data) or "", {}) or {}).get("dropNeeds", {}).get(key, []))
+    return [g for g in PHASE_NEEDS.get(flow, {}).get(key, []) if g not in drop]
 DERIVED = tuple(FLOWS["derived"])
 BUG_PHASES = [s["key"] for s in FLOWS["flows"]["bug"]["stages"]]
 SPEC_PHASES = [s["key"] for s in FLOWS["flows"]["spec"]["stages"]]
@@ -1104,7 +1126,12 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
             return False, [f"the flow is {status}"], []
         reasons += [f"{k} was never worked and never skipped — do it first, or ask the user to skip it"
                     for k in unaccounted(flow, data, key, open_questions(root, cfg, wid))]
-        missing = [g for g in PHASE_NEEDS.get(flow, {}).get(key, []) if g not in met]
+        rule = PATHS.get(flow)
+        if rule and key != rule["choose"] and keys.index(key) > keys.index(rule["choose"]) and not flow_path(flow, data):
+            choices = " / ".join(k for k in rule if k != "choose")
+            reasons.append(f"no path chosen for this item ({choices}). Ask the user which, then record their answer: "
+                           f"env.py path --id {wid} --set <path> --confirmed \"<the user's words>\"")
+        missing = [g for g in stage_needs(flow, data, key) if g not in met]
         reasons += [f"{key} needs '{g}' first — " + ("not true on disk yet" if g in DERIVED else "not recorded as passed")
                     for g in missing]
         return not reasons, reasons, notes
@@ -1214,6 +1241,27 @@ def recorded_flow(root, cfg, wid):
     env_dir = find_env(root, cfg, wid)
     data = read_env(env_dir) if env_dir else {}
     return (data.get("progress") or {}).get("flow") or data.get("flow")
+
+
+def cmd_path(a):
+    """Record the way through the flow the user chose. Short only before Decompose starts."""
+    root = require_root()
+    cfg = load_config(root)
+    env_dir, data = ensure_env(root, cfg, a.id)
+    flow = (data.get("progress") or {}).get("flow") or data.get("flow")
+    rule = PATHS.get(flow)
+    if not rule:
+        die(f"the {flow or 'unknown'} flow has one path only")
+    if a.set not in rule or a.set == "choose":
+        die(f"no path '{a.set}'; the {flow} flow has {', '.join(k for k in rule if k != 'choose')}")
+    if not (a.confirmed or "").strip():
+        die("a path is the user's choice: ask them, then pass their words with --confirmed")
+    if a.set != "full" and set(data.get("stages") or {}) & {"Decompose", "Implement", "Verify", "Review"}:
+        die(f"too late for the {a.set} path: Decompose has started. It stays {flow_path(flow, data) or 'full'}")
+    data["path"] = a.set
+    data["pathChosen"] = {"at": now(), "path": a.set, "confirmed": a.confirmed.strip()}
+    write_env(env_dir, data)
+    print(f"{a.id}: {rule[a.set]['label']}")
 
 
 def cmd_reopen(a):
@@ -1331,6 +1379,10 @@ def main():
     s.add_argument("--flow", choices=["bug", "spec"])
     s.add_argument("--phase", help="with --op phase: the phase about to start; with --op reopen: the stage to go back to")
     s.add_argument("--json", action="store_true")
+    s = sp.add_parser("path", help="record the way through the flow the user chose (spec: full or short)")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--set", required=True, help="full or short")
+    s.add_argument("--confirmed", metavar="WORDS", help="the user's own words choosing it")
     s = sp.add_parser("reopen", help="back to a done or waiting stage for the person's feedback")
     s.add_argument("--id", type=int, required=True)
     s.add_argument("--phase", required=True, help="the stage to go back to (Design, Phase 5, ...)")
@@ -1366,7 +1418,7 @@ def main():
     a = ap.parse_args()
     {"init": cmd_init, "doctor": cmd_doctor, "progress": cmd_progress, "refs": cmd_refs, "can": cmd_can, "type": cmd_type, "new": cmd_new, "status": cmd_status, "view": cmd_view, "reopen": cmd_reopen, "graph": cmd_graph,
      "pr": cmd_pr, "remove": cmd_remove, "upgrade-config": cmd_upgrade_config, "run": cmd_run,
-     "revert-check": cmd_revert_check, "verify": cmd_verify}[a.cmd](a)
+     "revert-check": cmd_revert_check, "verify": cmd_verify, "path": cmd_path}[a.cmd](a)
 
 
 if __name__ == "__main__":

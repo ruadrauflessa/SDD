@@ -304,6 +304,9 @@ def token():
 
 
 def ado(method, url, body=None, content_type="application/json"):
+    import fakeado  # an offline stand-in, only when SDD_FAKE_ADO names a world file (evals, tests)
+    if fakeado.active():
+        return fakeado.request(method, url, body)
     data = None if body is None else json.dumps(body).encode("utf-8")
     req = urllib.request.Request(url, data=data, method=method, headers={
         "Authorization": f"Bearer {token()}", "Content-Type": content_type,

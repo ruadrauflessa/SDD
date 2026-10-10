@@ -21,6 +21,7 @@ make the decisions.
 - `/sdd <id>` — Bug or Issue → bug flow. Story, feature or epic → spec flow.
 - `/sdd bug <id>` — force the bug flow.
 - `/sdd spec <id>` — force the spec flow.
+- `/sdd <id> short` — a small spec item: one stop approves the design and the tasks together. `full` keeps every stop. Say neither and the flow asks.
 
 **5. Check on it**
 - `/sdd status <id>` — where it stands: ADO state, the step the flow reached, tasks done, PRs.

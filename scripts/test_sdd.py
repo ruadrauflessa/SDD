@@ -280,7 +280,7 @@ def main():
         assert env.count_questions("- [ ] Q1\n- [x] Q2 - answered\n* [ ] Q3\nplain") == (2, 3)
         qdir = root / ".claude/worktrees/9-asks"
         qdir.mkdir(parents=True)
-        qrec = {"id": 9, "flow": "spec", "repos": {}, "gates": {"Claimed": "t"}, "stages": {"Specify": {"at": "t", "status": "done"}},
+        qrec = {"id": 9, "flow": "spec", "path": "full", "repos": {}, "gates": {"Claimed": "t"}, "stages": {"Specify": {"at": "t", "status": "done"}},
                 "progress": {"flow": "spec", "phase": "Specify", "status": "active"}}
 
         def spec_progress(phase, status="active", **kw):
@@ -335,6 +335,7 @@ def main():
         assert not ok and "the flow is done" in why, why                                   # the last stage done: flow over
         os.chdir(Path(__file__).parent)
     stage_docs()
+    short_path()
     config_upgrade()
     output_style()
     ado_writes()
@@ -440,6 +441,17 @@ def output_style():
             assert settings.read_text() == '{"a": 1,' and "not valid JSON" in notes[0]
         finally:
             del os.environ["CLAUDE_CONFIG_DIR"]
+
+
+def short_path():
+    """The spec flow's short path lifts Design agreed from Decompose, and only that."""
+    full = env.stage_needs("spec", {"path": "full"}, "Decompose")
+    short = env.stage_needs("spec", {"path": "short"}, "Decompose")
+    assert "Design agreed" in full and "Design agreed" not in short and set(full) - set(short) == {"Design agreed"}
+    assert env.stage_needs("spec", {"path": "short"}, "Implement") == env.stage_needs("spec", {"path": "full"}, "Implement")
+    assert "Design agreed" in env.stage_needs("spec", {"path": "short"}, "Implement")
+    assert env.flow_path("spec", {}) is None and env.flow_path("bug", {}) is None
+    assert env.flow_path("spec", {"gates": {"Design agreed": "t"}}) == "full"      # started before paths existed
 
 
 def stage_docs():

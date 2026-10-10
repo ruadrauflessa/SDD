@@ -34,6 +34,7 @@ pandoc, Ollama (meaning search).
 | You type | What happens |
 | --- | --- |
 | `/sdd <id>` | Starts or resumes the work item, in the bug or spec flow by its type |
+| `/sdd <id> short` / `full` | A spec item on the short path (one stop approves design and tasks together) or the full one; without it, the flow asks |
 | `/sdd help` | A short tour |
 | `/sdd status <id>` | Where the item stands |
 | `/sdd <id> feedback <stage>: <text>` | Back to a done or waiting stage with your feedback |
@@ -82,8 +83,30 @@ python hooks/test_question_guard.py
 python hooks/test_agent_guard.py
 python hooks/test_edit_guard.py
 python scripts/test_proof.py
+python scripts/test_fakeado.py
+python scripts/check_evals.py
 claude plugin validate .
 claude plugin test .
 ```
 
 `skills/visual` is a fork of visual-explainer 0.11.0 (MIT, see `skills/visual/LICENSE`).
+
+### Evals
+
+`evals/` holds scenario tests that run the real flows with a model: a bug that contradicts its
+change request must stop at Gate 1; the regression test must fail on record before the fix; a spec
+item must ask full or short; a spec item started with `short` must record it and go on. Each case
+builds its own workspace (`evals/_fixtures/workspace.py`) and talks to an offline ADO
+(`scripts/fakeado.py`, switched on by `SDD_FAKE_ADO`), so no ADO login is needed and the graders
+can read what the flow wrote.
+
+```
+claude plugin eval . --runs 1 --scaffold --no-publish      # one run per case, to try it
+claude plugin eval . --scaffold --ablation with-without    # the full suite, with and without the plugin
+```
+
+`--scaffold` runs each case's `scaffold.sh`, and the first run asks you to trust this plugin
+directory. Each case is a full agent run, so a run costs real tokens: run the suite before a
+release, not on every commit. `python scripts/check_evals.py` checks the case files without
+running anything.
+

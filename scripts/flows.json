@@ -1,5 +1,5 @@
 {
-  "_": "The stages of each sdd flow, in order. env.py reads it for its state guards and the view draws it. key = what progress --phase starts with; needs = gates that must be met before the stage may start; passes = gates the stage records; stop = the flow stops here for the user. conditional = the stage runs only when there is something to do (spec flow Open Questions: unanswered questions in questions.md); inferFromGates = a stage added after items were started: with its gates already passed, it needs no record. A conditional stage is recorded skipped without the user's words when there is nothing to do. reworkTo = on a review stage, the stage a rejected PR goes back to. proofs = gates that pass only on a recorded run (env.py run / revert-check / verify, see proof.py): needs lists the runs; current = the runs must be on the code as it is now. doc = the stage's own file (from the plugin root): env.py can --op phase prints it as `read:`.",
+  "_": "The stages of each sdd flow, in order. env.py reads it for its state guards and the view draws it. key = what progress --phase starts with; needs = gates that must be met before the stage may start; passes = gates the stage records; stop = the flow stops here for the user. conditional = the stage runs only when there is something to do (spec flow Open Questions: unanswered questions in questions.md); inferFromGates = a stage added after items were started: with its gates already passed, it needs no record. A conditional stage is recorded skipped without the user's words when there is nothing to do. reworkTo = on a review stage, the stage a rejected PR goes back to. proofs = gates that pass only on a recorded run (env.py run / revert-check / verify, see proof.py): needs lists the runs; current = the runs must be on the code as it is now. doc = the stage's own file (from the plugin root): env.py can --op phase prints it as `read:`. paths = ways through a flow the user picks (env.py path): every stage after `choose` needs one; a path's dropNeeds lifts gates a stage would otherwise need.",
   "derived": [
     "Worktree",
     "PR raised",
@@ -126,6 +126,20 @@
               "kind": "verify"
             }
           ]
+        }
+      },
+      "paths": {
+        "choose": "Specify",
+        "full": {
+          "label": "Full path: Design and Decompose each stop for approval"
+        },
+        "short": {
+          "label": "Short path: one stop approves the design and the tasks together",
+          "dropNeeds": {
+            "Decompose": [
+              "Design agreed"
+            ]
+          }
         }
       }
     },

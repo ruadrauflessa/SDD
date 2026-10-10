@@ -38,6 +38,10 @@
    chat), then run the "Design
    agreed" gate with `AskUserQuestion` (see "Approval gates" in `../SKILL.md`). Decomposing before that
    answer risks tasks built against a design that's about to change.
+   **Short path** (`env.py status` shows `path: short`): do not stop here. Build the design page,
+   record Design `done` with **no** `--passed "Design agreed"`, and go straight to Decompose — its
+   one stop approves the design and the tasks together. The tech story gate (step 5) still asks,
+   because it writes to ADO.
 8. **"Needs changes"?** Revise `design.md` to address what was asked for, then re-run step 7 —
    present what changed and run the same gate again. Never guess at the fix and move on to
    Decompose without a fresh approval; a design that changed since it was last agreed to hasn't

@@ -4,6 +4,18 @@
 > (`${CLAUDE_PLUGIN_ROOT}/skills/sdd/references/flow-rules.md`) hold here too. Paths like
 > `references/…` and `assets/…` are in the spec skill's folder.
 
+0. **Full or short path — settle it first.** The user picks how many stops the flow makes:
+   - **Full** — Design and Decompose each stop for approval.
+   - **Short** — Design runs straight into Decompose, and one stop approves the design and the tasks
+     together. For a small, well-understood change.
+
+   Did the user already say which (`/sdd <id> short`, `/sdd spec <id> full`, "do this one on the
+   short path")? Record it with their words: `env.py path --id <id> --set short|full --confirmed
+   "<their words>"`. If not, **ask before anything else**: show the work item's ADO link
+   (`env.py refs --id <id> --ref ado`), then `AskUserQuestion` with "Full path" / "Short path", one
+   sentence on each, and record the answer the same way. Never pick it for the user, and never
+   infer it from the size of the change. No later stage starts until it is recorded (`env.py can`
+   refuses). Short can change to full at any point; full to short only before Decompose starts.
 1. **Mirror it:** `spec.py sync --id <id>`. It pulls the item, everything under it, its parents
    and one hop of links out of that tree, and writes each `requirements.md` into place under
    `{specRoot}`. Never write or edit `requirements.md` yourself — the next sync overwrites it.

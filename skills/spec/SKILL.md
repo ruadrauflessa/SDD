@@ -35,6 +35,20 @@ full command table. This file calls them `env.py` and `spec.py`, short for
 
 In this flow `--flow spec`, and the stages are the modes below, by name.
 
+## Path — full or short
+
+Every spec item goes one of two ways, and **the user picks which** — in the command
+(`/sdd <id> short`) or when Specify asks, before anything else (`modes/specify.md` step 0):
+
+| Path | Stops for approval |
+| --- | --- |
+| Full | Requirements, Design, Decompose, Verify, Review |
+| Short | Requirements, Decompose (it approves the design and the tasks together), Verify, Review |
+
+`env.py path` records the choice and the user's words; `env.py can` refuses every stage after
+Specify until it is recorded, and on the short path lets Decompose start without "Design agreed".
+Nothing else changes: the short path skips a stop, never a check.
+
 ## Ground rules (read before any mode)
 
 1. **Never invent a requirement.** Anything under *Problem*, *Acceptance criteria* or *Scope* in
@@ -113,10 +127,11 @@ Shape every gate the same way:
 | Gate | Mode | Options |
 | --- | --- | --- |
 | Open questions | Open Questions, one question at a time while any are open | The question's own options, plus "Continue with this open" (see "Mode: Open Questions") |
+| Path | Specify step 0, unless the user already said | "Full path" / "Short path" |
 | Requirements agreed | End of Requirements | "Approve — start Design" / "Needs changes" |
 | Design agreed | End of Design — asked again after any requested changes are incorporated | "Approve — start Decompose" / "Needs changes" |
 | Tech story creation | Design, tech story gate | One option per proposal, `multiSelect: true` — the user picks which, if any, get created |
-| Tasks agreed | End of Decompose | "Approve — start Implement" / "Needs changes" |
+| Tasks agreed | End of Decompose (on the short path it approves the design too) | "Approve — start Implement" / "Needs changes" |
 | Ready to PR | End of Verify, after the automated checks pass | "Raise the PR" / "Make changes" |
 | PR approved | Review, right after the PR is opened, and whenever this work item is picked back up while it's still open | "Not yet approved" / "Approved" / "Merged" / "Rejected" |
 
