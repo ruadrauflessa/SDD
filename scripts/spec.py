@@ -54,6 +54,30 @@ TEXT_FIELDS = [("System.Description", "Description"),
                ("Microsoft.VSTS.TCM.ReproSteps", "Repro steps")]
 MATERIAL = ["System.WorkItemType", "System.Title"] + [f for f, _ in TEXT_FIELDS]
 HIER_FWD = "System.LinkTypes.Hierarchy-Forward"
+# Planning fields: what a person (or the next-item skill) weighs to pick work. Incidental — a change
+# never blocks a flow. Process templates name some differently: each takes the first field present.
+PLANNING = {
+    "board": ["Custom.BoardColumnTitle"],                       # the team's real workflow column
+    "priority": ["Microsoft.VSTS.Common.Priority"],
+    "severity": ["Microsoft.VSTS.Common.Severity"],
+    "rank": ["Microsoft.VSTS.Common.StackRank", "Microsoft.VSTS.Common.BacklogPriority"],  # backlog order
+    "effort": ["Microsoft.VSTS.Scheduling.StoryPoints", "Microsoft.VSTS.Scheduling.Effort",
+               "Microsoft.VSTS.Scheduling.Size", "Microsoft.VSTS.Scheduling.OriginalEstimate"],
+    "target": ["Microsoft.VSTS.Scheduling.TargetDate", "Microsoft.VSTS.Scheduling.DueDate"],
+    "blocked": ["Microsoft.VSTS.CMMI.Blocked"],
+    "created": ["System.CreatedDate"],
+}
+PLANNING_LABELS = [("board", "Board column"), ("priority", "Priority"), ("severity", "Severity"),
+                   ("effort", "Effort"), ("target", "Target date"), ("blocked", "Blocked")]
+
+
+def planning(f):
+    """{column: value} of the planning fields, '' where the item has none of the field's names."""
+    out = {}
+    for col, names in PLANNING.items():
+        v = next((f[n] for n in names if f.get(n) not in (None, "")), "")
+        out[col] = v if isinstance(v, (int, float)) else str(v)
+    return out
 
 
 def now():
@@ -94,6 +118,12 @@ class Ctx:
         CREATE TABLE IF NOT EXISTS emb(id INTEGER PRIMARY KEY, hash TEXT, model TEXT, vec BLOB);
         CREATE TABLE IF NOT EXISTS scopes(root TEXT PRIMARY KEY, synced_at TEXT);
         """)
+        # columns added after an index was first built: add them in place; the next sync fills them
+        have = {r["name"] for r in self.db.execute("PRAGMA table_info(items)")}
+        for col in ["assigned_email", *PLANNING]:
+            if col not in have:
+                self.db.execute(f"ALTER TABLE items ADD COLUMN {col}")
+        self.db.commit()
 
     def item(self, wid):
         return self.db.execute("SELECT * FROM items WHERE id=?", (wid,)).fetchone()
@@ -316,8 +346,11 @@ def write_items(ctx, items, other=None):
             report["incidental"].append(w["id"])
         else:
             report["unchanged"].append(w["id"])
-        assigned = (f.get("System.AssignedTo") or {}).get("displayName", "") if isinstance(
-            f.get("System.AssignedTo"), dict) else str(f.get("System.AssignedTo") or "")
+        who = f.get("System.AssignedTo")
+        assigned = who.get("displayName", "") if isinstance(who, dict) else str(who or "")
+        m = re.search(r"<([^>]+)>", assigned)
+        email = (who.get("uniqueName", "") if isinstance(who, dict) else m.group(1) if m
+                 else assigned if "@" in assigned else "").lower()
         row = dict(id=w["id"], project=f["System.TeamProject"], type=f["System.WorkItemType"],
                    title=f["System.Title"], state=f["System.State"], area=f.get("System.AreaPath", ""),
                    iteration=f.get("System.IterationPath", ""), tags=f.get("System.Tags", ""),
@@ -325,7 +358,7 @@ def write_items(ctx, items, other=None):
                    fhash=json.dumps(fh, sort_keys=True), path=old["path"] if old else None,
                    removed=int(f["System.State"] == "Removed"), missing=0,
                    changed=f.get("System.ChangedDate", ""), synced_at=now(), body=body,
-                   other=json.dumps(extra, sort_keys=True))
+                   other=json.dumps(extra, sort_keys=True), assigned_email=email, **planning(f))
         ctx.db.execute(f"INSERT OR REPLACE INTO items({','.join(row)}) VALUES({','.join('?' * len(row))})",
                        list(row.values()))
         ctx.db.execute("DELETE FROM links WHERE src=?", (w["id"],))
@@ -351,8 +384,8 @@ def render(row):
     url = f"https://dev.azure.com/{row['_org']}/{row['project']}/_workitems/edit/{row['id']}"
     meta = [("Type", row["type"]), ("State", row["state"]), ("Project", row["project"]),
             ("Area", row["area"]), ("Iteration", row["iteration"]), ("Tags", row["tags"]),
-            ("Assigned to", row["assigned"])]
-    table = "\n".join(f"| {k} | {v} |" for k, v in meta if v)
+            ("Assigned to", row["assigned"])] + [(label, row.get(col)) for col, label in PLANNING_LABELS]
+    table = "\n".join(f"| {k} | {v} |" for k, v in meta if v not in (None, ""))
     return (f"---\nid: {row['id']}\ntype: {row['type']}\nproject: {row['project']}\nstate: {row['state']}\n"
             f"parent: {row['parent'] or ''}\nfields_hash: {row['hash']}\nsynced_by: {SYNCED_BY}\n"
             f"links:\n{links or '  []'}\n---\n\n"
@@ -529,6 +562,7 @@ def describe(ctx, wid):
     if not r:
         return {"id": wid, "synced": False}
     return {"id": wid, "type": r["type"], "state": r["state"], "title": r["title"], "project": r["project"],
+            "board": r["board"] or "", "priority": r["priority"], "assigned": r["assigned"] or "",
             "removed": bool(r["removed"]), "missing": bool(r["missing"]), "path": r["path"]}
 
 

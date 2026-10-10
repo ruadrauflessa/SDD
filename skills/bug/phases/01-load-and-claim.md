@@ -30,7 +30,8 @@ Record from `query show`: `type` (**Bug** vs **Issue** changes the write-back ob
 `assigned` (an empty value means unassigned), `title`, `tags`, `area`, `iteration`. From
 `requirements.md`: the Description, the Repro steps and the `## Links` list. Also
 `wit_work_item action=list_comments` — the sync does not mirror comments, and repro detail and
-environment traces usually live there. Severity is not in the mirror; the flow never changes it.
+environment traces usually live there. `query show` also gives `board`, `priority` and `severity`;
+the flow reads severity and never changes it.
 The only other ADO reads left are `get_type` (a type's field list) and searches for items that are
 not linked yet.
 

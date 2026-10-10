@@ -20,8 +20,8 @@ links:
 ---
 ```
 
-The body follows: title, a link to the item in ADO, a metadata table (type, state, project, area,
-iteration, tags, assignee), then `## Description`, `## Acceptance criteria` and `## Repro steps`
+The body follows: title, a link to the item in ADO, a field table (type, state, project, area,
+iteration, tags, assignee, and the planning fields below where the item has them), then `## Description`, `## Acceptance criteria` and `## Repro steps`
 converted from ADO's HTML to Markdown by pandoc, and `## Links`. Sections ADO leaves empty are
 omitted. `design.md`, `tasks.md`, `questions.md` and `impact.*` in the same folder are never
 touched by the sync and move with the folder when the item is reparented.
@@ -52,14 +52,32 @@ A rev bump alone must never block; within two sprints that gate would be ignored
 | `Microsoft.VSTS.Common.AcceptanceCriteria` | Material | Block, show diff |
 | `System.WorkItemType` | Material | Block |
 | Relations (Parent, Child, Related) | Material | Block, re-run link walk |
-| `System.State` | Incidental | Refresh frontmatter |
-| `System.AssignedTo` | Incidental | Refresh frontmatter |
-| `System.IterationPath` | Incidental | Refresh frontmatter |
-| `Microsoft.VSTS.Common.Priority` | Incidental | Refresh frontmatter |
-| `System.Tags` | Incidental | Refresh frontmatter |
-| `Custom.BoardColumnTitle` | Incidental | Refresh frontmatter |
-| `System.History` (comments) | Incidental | Ignore |
-| Effort, story points | Incidental | Ignore |
+| `System.State` | Incidental | Refresh the index, the field table and the frontmatter `state:` |
+| `System.AssignedTo` | Incidental | Refresh the index (`assigned`, `assigned_email`) and the field table |
+| `System.IterationPath`, `System.AreaPath`, `System.Tags` | Incidental | Refresh the index and the field table |
+| Planning fields (see below) | Incidental | Refresh the index and the field table |
+| `System.History` (comments) | Incidental | Ignore — not mirrored |
+
+### Planning fields
+
+What someone weighs to pick the next item. Each is a column in the index (`spec.py query show`
+prints it) and a row in the field table when the item has it. Process templates name some fields
+differently, so each column takes the first of its fields the item carries (`PLANNING` in
+`spec.py`):
+
+| Index column | ADO field(s) |
+| --- | --- |
+| `board` | `Custom.BoardColumnTitle` — the team's workflow column, not the board-managed `System.BoardColumn` |
+| `priority` | `Microsoft.VSTS.Common.Priority` |
+| `severity` | `Microsoft.VSTS.Common.Severity` |
+| `rank` | `Microsoft.VSTS.Common.StackRank`, else `Microsoft.VSTS.Common.BacklogPriority` (backlog order; index only) |
+| `effort` | `Microsoft.VSTS.Scheduling.StoryPoints`, `.Effort`, `.Size`, else `.OriginalEstimate` |
+| `target` | `Microsoft.VSTS.Scheduling.TargetDate`, else `.DueDate` |
+| `blocked` | `Microsoft.VSTS.CMMI.Blocked` |
+| `created` | `System.CreatedDate` (index only) |
+
+They are snapshots, as of the last sync. An index built before these columns existed gets them on
+its next sync.
 
 Only material fields feed `fields_hash`. An incidental change bumps `rev`, leaves the hash equal,
 and the sync records the new rev and reports it as `incidental` without a human needing to act.

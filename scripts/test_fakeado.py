@@ -23,6 +23,11 @@ WORLD = {
                                      "System.Title": "Show cents on the export", "System.State": "New"}},
         "501": {"rev": 7, "fields": {"System.WorkItemType": "Bug", "System.TeamProject": "Proj",
                                      "System.Title": "Export drops cents", "System.State": "New",
+                                     "Custom.BoardColumnTitle": "New", "Microsoft.VSTS.Common.Priority": 1,
+                                     "Microsoft.VSTS.Common.Severity": "2 - High",
+                                     "Microsoft.VSTS.Scheduling.StoryPoints": 3,
+                                     "Microsoft.VSTS.Scheduling.TargetDate": "2026-10-20T00:00:00Z",
+                                     "System.CreatedDate": "2026-09-01T08:00:00Z",
                                      "Microsoft.VSTS.TCM.ReproSteps": "<div>Export shows 12 not 12.40</div>"},
                 "relations": [{"rel": "System.LinkTypes.Related", "url": "https://x/_apis/wit/workItems/500"}]},
     },
@@ -49,12 +54,31 @@ def main():
         cfg.write_text("[user]\n\temail = dev@x.co\n\tname = Dev\n")
         os.environ["GIT_CONFIG_GLOBAL"] = str(cfg)
 
+        # an index built before the planning fields existed gets their columns in place
+        idx = root / "docs" / "spec" / ".index"
+        idx.mkdir(parents=True)
+        import sqlite3
+        old = sqlite3.connect(idx / "spec.db")
+        old.execute("CREATE TABLE items(id INTEGER PRIMARY KEY, project TEXT, type TEXT, title TEXT, state TEXT, "
+                    "area TEXT, iteration TEXT, tags TEXT, assigned TEXT, parent INTEGER, rev INTEGER, hash TEXT, "
+                    "fhash TEXT, path TEXT, removed INTEGER DEFAULT 0, missing INTEGER DEFAULT 0, changed TEXT, "
+                    "synced_at TEXT, body TEXT, other TEXT)")
+        old.commit()
+        old.close()
+
         run(root, "spec.py", "sync", "--id", "501", "--no-embed")
         req = next((root / "docs" / "spec").rglob("501-*/requirements.md")).read_text(encoding="utf-8")
         assert "Export drops cents" in req and "12.40" in req, req
         assert any((root / "docs" / "spec").rglob("500-*/requirements.md")), "the linked CR was not mirrored"
         show = json.loads(run(root, "spec.py", "query", "show", "--id", "501", "--json").stdout)
         assert show and "Bug" in json.dumps(show), show
+        row = show[0]
+        assert (row["board"], row["priority"], row["severity"], row["effort"]) == ("New", 1, "2 - High", 3), row
+        assert row["target"].startswith("2026-10-20") and row["created"].startswith("2026-09-01"), row
+        assert row["assigned_email"] == "" and row["blocked"] == "", row
+        for cell in ("| Board column | New |", "| Priority | 1 |", "| Severity | 2 - High |", "| Effort | 3 |"):
+            assert cell in req, (cell, req)
+        assert "| Blocked |" not in req                                   # absent fields stay out of the table
 
         out = run(root, "spec.py", "claim", "--id", "501").stdout
         assert "claimed" in out, out
@@ -63,6 +87,8 @@ def main():
         assert f["System.AssignedTo"] == "dev@x.co" and f["System.State"] == "Active"
         assert f["Custom.BoardColumnTitle"] == "Dev In Progress" and w["items"]["501"]["rev"] == 8
         assert w["writes"][0]["ops"][0] == {"op": "test", "path": "/rev", "value": 7}
+        row = json.loads(run(root, "spec.py", "query", "show", "--id", "501", "--json").stdout)[0]
+        assert (row["board"], row["state"], row["assigned_email"]) == ("Dev In Progress", "Active", "dev@x.co"), row
 
         w["items"]["500"]["fields"]["System.AssignedTo"] = {"displayName": "Ann", "uniqueName": "ann@x.co"}
         world.write_text(json.dumps(w))
