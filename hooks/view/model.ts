@@ -7,10 +7,24 @@ export type Mark = 'done' | 'skipped' | 'missed' | 'active' | 'waiting' | 'block
 export type StageRow = { stage: SddStage; mark: Mark }
 
 
-/** 'Phase 10 — Pull request' -> 'Phase 10'; 'Implement (task 3/7)' -> 'Implement'. As env.py phase_key. */
+/** Which flow an item runs, and for a flow with paths (the spec flow) which one the user chose.
+ *  `text` for the pane ("Spec flow · short path"), `brief` for the one-line band ("spec · short");
+ *  `open` while the user has not chosen a path yet. */
+export type FlowTag = { flow: string; path: string | null; text: string; brief: string; open: boolean }
+
+export function flowTag(flow: SddFlow | undefined, item: SddItem): FlowTag {
+  const name = flow?.label ?? `${item.flow} flow`
+  const word = name.replace(/\s*flow$/i, '').toLowerCase()
+  if (!flow?.paths) return { flow: name, path: null, text: name, brief: word, open: false }
+  const chosen = item.path && item.path !== 'choose' && flow.paths[item.path] ? item.path : null
+  const path = chosen ? `${chosen} path` : 'path not chosen'
+  return { flow: name, path, text: `${name} · ${path}`, brief: `${word} · ${chosen ?? 'path?'}`, open: !chosen }
+}
+
+/** 'Phase 12 — Pull request' -> 'Phase 12'; 'Implement (task 3/7)' -> 'Implement'. As env.py phase_key. */
 export function phaseKey(flow: SddFlow, name: string | undefined): string | null {
   const phase = (name ?? '').trim()
-  const bug = /^Phase\s+(\d+a?)\b/i.exec(phase)
+  const bug = /^Phase\s+(\d+)\b/i.exec(phase)
   if (bug) {
     const key = `Phase ${bug[1].toLowerCase()}`
     return flow.stages.some(s => s.key === key) ? key : null
@@ -78,9 +92,9 @@ const DOCS: Record<string, string[]> = {
   Decompose: ['tasks.md'],
   Implement: ['tasks.md'],
   Verify: ['tasks.md', 'design.md'],
-  'Phase 0': ['requirements.md'],
-  'Phase 2': ['requirements.md', 'questions.md'],
-  'Phase 4': ['design.md'],
+  'Phase 1': ['requirements.md'],
+  'Phase 3': ['requirements.md', 'questions.md'],
+  'Phase 5': ['design.md'],
 }
 
 /** The spec documents a stage reads, those that exist. */

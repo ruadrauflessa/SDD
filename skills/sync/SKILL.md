@@ -18,7 +18,7 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/spec.py sync --all       # every project in
 Before any question to the user, run `env.py refs --id <id> --ref <ref> ...` (or the waiting
 checkpoint, which requires `--ref`), paste its "Links" block above the question, send the files it
 lists with `SendUserFile` (`display: "render"`) when that tool exists, and quote any code lines
-marked "not pushed". Full rule: "Decision briefs" in the `sdd` skill. No links, no question.
+marked "not pushed". Full rule: "Decision briefs" in `${CLAUDE_PLUGIN_ROOT}/skills/sdd/references/flow-rules.md`. No links, no question.
 
 For this skill: before the first big sync, `env.py refs --id <scope root> --ref ado`.
 
@@ -41,6 +41,12 @@ The scope root is remembered, so a plain `sync` later refreshes it. Only the typ
   Acceptance criteria, Repro steps (HTML converted by pandoc) and the link list.
 - `{specRoot}/.index/spec.db` — SQLite: items, links, key terms, full-text index, embeddings,
   scopes. Rebuilt per item only when the item changed.
+- `{specRoot}/.index/metrics.json` — every synced work item with what a decision needs (state,
+  board column, assignee, planning fields, versions, its epic/feature chain, child counts, what
+  blocks it and what it blocks, its last change), and **what this sync changed**: `changes`, each
+  with the fields before and after (`diff`) and, for a new or MATERIAL item, what it likely affects
+  (`affects`: links two hops out, the strongest shared-term matches). No model, no tokens.
+  `spec.py metrics` rebuilds it from the index without a sync. Fields in `references/metrics.md`.
 - Nothing else. `design.md`, `tasks.md`, `questions.md` and `impact.*` are never touched. A folder
   keeps its slug when the title changes, is renamed when the type changes, and moves (with those
   files) when the item is reparented. An old `{id}-{slug}` folder gets its type code on the next sync.
@@ -70,7 +76,12 @@ The script prints counts, then one line per problem:
 | `MISSING <id>` | ADO no longer returns it | Tell the user; a human decides |
 | `moved N folders` | Items reparented in ADO | Nothing; files moved with them |
 
-Report the counts and every MATERIAL / MISSING line to the user in plain words. Never edit a
+Report the counts and every MATERIAL / MISSING line to the user in plain words. For what changed
+beyond the requirement text — a state, a board column, an assignee, a priority — read `changes` in
+`metrics.json`: each incidental change there names the fields and their old and new values. A
+change worth a closer look (a MATERIAL item under an epic someone works on, a new item that names
+another): offer `/sdd impact <id>`, which judges the `affects` candidates. Never run it unasked on
+every change — it costs tokens. Never edit a
 `requirements.md` to fix something — fix the work item in ADO and sync again.
 
 ## Querying afterwards

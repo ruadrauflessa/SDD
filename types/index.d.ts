@@ -51,13 +51,19 @@ export type SddItem = {
   stages?: Record<string, SddStageRecord>
   /** Stages that take feedback now, each with the gates a reopen there revokes (env.py reopen_plan). */
   feedback?: Record<string, string[]>
+  /** The way through the flow the user chose (env.py path): 'full' or 'short' for the spec flow; null for
+   *  the bug flow, which has one way, or while the spec flow's choice is still open. */
+  path?: 'full' | 'short' | string | null
 }
 
 export type SddStageRecord = { at: string; status: 'worked' | 'done' | 'skipped'; confirmed?: string; doneAt?: string }
 
 export type SddStage = { key: string; label: string; needs: string[]; passes: string[]; stop?: boolean; reworkTo?: string; conditional?: boolean; inferFromGates?: boolean }
 
-export type SddFlow = { label: string; prGates: string[]; stages: SddStage[] }
+/** A way through a flow (flows.json "paths"), e.g. the spec flow's full and short. */
+export type SddPath = { label: string; dropNeeds?: Record<string, string[]> }
+
+export type SddFlow = { label: string; prGates: string[]; stages: SddStage[]; paths?: { choose: string } & Record<string, SddPath | string> }
 
 export type SddColors = {
   done: string; now: string; work: string; revoked: string; gate: string

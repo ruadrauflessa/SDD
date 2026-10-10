@@ -9,6 +9,7 @@ description: 'Entry point for the spec-driven development workflows on Azure Dev
 | --- | --- | --- |
 | `/sdd help` | this skill | The tour guide below — no checks, no changes |
 | `/sdd init` | this skill | Check every requirement; fix each missing one only after the user says yes |
+| `/sdd next <epic or feature id> [version]` | `sdd:next` | Which item to take next under the dev's epic or feature: free items with their version, blocked ones judged, ranked by dev priority — the user picks |
 | `/sdd <id>` | decided by type, see below | |
 | `/sdd bug <id>` | `sdd:bug` | Claim, root cause, approval, failing test, fix, verify, PR |
 | `/sdd spec <id>` | `sdd:spec` | Claim, mirror the spec, impact, design, tasks, implement, verify, PR |
@@ -58,7 +59,12 @@ It must work on a phone too (the user may follow the session remotely), so:
      to run `az login` themselves (in their terminal, or `! az login` in this prompt), then re-check.
    - **`sdd.json` missing**: ask which folder holds the specs (default `docs/spec`), run
      `env.py init --spec-root <folder>` from the workspace root, show the file, and ask the user to
-     drop any ADO project that holds no specs (a tooling repo's project, for example).
+     drop any ADO project that holds no specs (a tooling repo's project, for example). `init` also
+     installs the **ELI5** output style globally (`~/.claude/output-styles/ELI5.md`, and
+     `outputStyle` in `~/.claude/settings.json`) — tell the user, list the files it names, and say
+     to restart Claude Code.
+   - **`output style`** (a warning only): the user picked another style after the plugin set ELI5.
+     Leave it. Mention that `/config` switches it back if they want.
    - **`CLAUDE.md sdd block`**: show the block below with the values filled in, ask, then add it to
      the workspace root `CLAUDE.md` (create the file only if the user agrees). If a block with
      the `<!-- sdd:begin -->` marker exists, replace it in place — never add a second one.
@@ -101,7 +107,9 @@ set up for sdd, and offer `/sdd init`.
 
 ## Step 2 — route
 
-With a flow word, go straight to that skill and pass it the id. With only an id:
+`next` goes to `sdd:next` with the scope id and the version, if given. With a flow word, go straight to that skill and pass it the id. A path word (`short` or `full`, as in
+`/sdd 4471 short` or `/sdd spec 4471 full`) goes with it: pass it on, and the spec flow records it
+as the user's choice instead of asking. With only an id:
 
 ```
 python ${CLAUDE_PLUGIN_ROOT}/scripts/env.py type --id <id>
@@ -175,7 +183,7 @@ or "wait for the PR to merge"). Never work around a refusal by calling the under
 
 Typed by the user, or sent by the feedback box in the sdd view (`/sdd-view`) as the user's own
 message `sdd feedback for <id>, stage <stage>: <text>` — treat both the same. `<stage>` is a stage
-key from `${CLAUDE_PLUGIN_ROOT}/scripts/flows.json` (`Design`, `Phase 4`, …); `<text>` is the user's
+key from `${CLAUDE_PLUGIN_ROOT}/scripts/flows.json` (`Design`, `Phase 5`, …); `<text>` is the user's
 own words.
 
 1. `env.py can --id <id> --op reopen --phase "<stage>"`. Not allowed → say why in one line and stop.
@@ -194,8 +202,8 @@ own words.
 ## `sdd review for <id>: approved | merged | rejected: <why>` — the PR's review result
 
 Posted as the user's own message by the review buttons of the sdd view. It is the user's answer to
-the PR review gate — spec flow `Review`, bug flow `Phase 13`. Hand over to the item's flow skill
-(`progress.flow`) with that answer: `sdd:spec` "Mode: Review", or `sdd:bug` "Phase 13 — PR review".
+the PR review gate — spec flow `Review`, bug flow `Phase 15`. Hand over to the item's flow skill
+(`progress.flow`) with that answer: `sdd:spec` "Mode: Review", or `sdd:bug` "Phase 15 — PR review".
 The view only sends it while the item waits at that stage.
 
 ## `sdd answer for <id>, stage <stage>: "<question>" = "<answer>"; …` — an answer from the view
@@ -232,40 +240,12 @@ the verdict is completed or abandoned, say so and ask before starting the item a
 
 ## Decision briefs — links before every question (mandatory)
 
-**Every time this skill asks the user for input or approval, it asks with `AskUserQuestion`** —
-never as a plain question in the reply, not even a quick one — and the user must first be shown
-links to the spec documents and code the decision rests on. No links, no question.
+Every question to the user in an sdd flow follows **Decision briefs** in
+`references/flow-rules.md`: build the visual page, get the Links block from the script, paste it
+above the question, send the listed files, ask with `AskUserQuestion`. The `question_guard.py` hooks
+enforce it. `/sdd init` install questions and `/sdd help` are exempt — they are about tools, not the
+spec.
 
-**Enforced by two global hooks** (`hooks/question_guard.py`): an `AskUserQuestion`
-without a Links block is blocked, and a turn that ends with a plain-text question is sent back to
-ask it properly. They act only while an sdd flow runs. `/sdd init` installs them.
-
-0. **Build the visual first.** A question that follows an explanation or a plan — requirements,
-   design, tasks, bug cause or fix, impact, a review, a finished change — comes with an
-   **`sdd:visual`** page: `{spec folder}/visuals/<mode>.html`, made with that skill's mode for the
-   moment. Pass it as a `--ref` (`--ref visuals/<mode>.html`) so it lands in the Links block and the
-   send list. The `--status waiting` checkpoint **refuses without an `.html` ref**; only a plain
-   choice with nothing to explain (team version, PR status) passes `--no-visual "<reason>"`.
-   Once the page is sent, do not explain it again in chat: one line naming the page, the Links
-   block, then the question. The page is the summary.
-1. **Get the links from the script, never by hand.**
-   - At a flow gate, the `--status waiting` checkpoint does it: it **refuses to run without
-     `--ref`**, and prints the links.
-   - Anywhere else: `python ${CLAUDE_PLUGIN_ROOT}/scripts/env.py refs --id <id> --ref <ref> ...`
-   - Refs: every spec file the decision rests on (`requirements.md` is added automatically; add
-     `design.md`, `tasks.md`, `questions.md`, `impact.md` as they apply) and every code range the
-     decision is about — the lines you propose to change, the failing test, the callers — as
-     `src/<Repo>/path/file.cs:120-140`. Use `ado` when only the work item itself applies.
-   - A ref that does not exist is an error. Fix the ref; never drop it to get past the check.
-2. **Paste the printed "Links" block into the chat message, above the question.** Every link — the
-   work item, the PR, files, the visual page — goes in the chat. **Never put a link inside the
-   `AskUserQuestion` question or its options**: they hold plain text only. The hook refuses a
-   question that contains a link.
-3. **Send every file listed under "Send with SendUserFile"** (`display: "render"`) when that tool
-   exists. Local links do not open on a phone; sent files and ADO links do.
-4. **Code marked "not pushed": quote those lines** (20 at most) in the message, since only a pushed
-   branch gets an ADO link.
-5. Exempt: `/sdd init` install questions and `/sdd help` — they are about tools, not the spec.
 
 ## Rules shared by every flow
 
@@ -277,4 +257,6 @@ ask it properly. They act only while an sdd flow runs. `/sdd init` installs them
   PRs or remove folders by hand when a script does it.
 - **Every explanation or plan gets an `sdd:visual` page** (requirements, design, tasks, bug cause
   and fix, impact, review, status recap) in `{spec folder}/visuals/`, sent with `SendUserFile`.
-- "abandon" at any point stops the flow; the flow skill says how to clean up.
+- "abandon" at any point stops the flow; Abandon in `references/flow-rules.md` says how to clean up.
+- **The rest of the shared rules** (checkpoints, never skipping a stage, stage guards, proof runs,
+  resuming, sub-agents) are in `references/flow-rules.md`. Each flow skill reads it first.

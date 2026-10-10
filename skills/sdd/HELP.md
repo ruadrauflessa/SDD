@@ -18,9 +18,11 @@ make the decisions.
 - `/sdd impact all` — the same for the whole spec (`/sdd impact all <epic id>` for one epic). ⚠️ Costly: it shows a token estimate and asks first.
 
 **4. Do the work**
+- `/sdd next <epic or feature id> <version>` — what to take next: the free items with your team version, blocked ones set aside, ranked (bugs and issues first, then by priority, severity and complexity). You pick.
 - `/sdd <id>` — Bug or Issue → bug flow. Story, feature or epic → spec flow.
 - `/sdd bug <id>` — force the bug flow.
 - `/sdd spec <id>` — force the spec flow.
+- `/sdd <id> short` — a small spec item: one stop approves the design and the tasks together. `full` keeps every stop. Say neither and the flow asks.
 
 **5. Check on it**
 - `/sdd status <id>` — where it stands: ADO state, the step the flow reached, tasks done, PRs.

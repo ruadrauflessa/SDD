@@ -28,8 +28,8 @@ workflow — use it, and don't "correct" it to match older branches.
 
 ### `{version}` is always asked, never derived
 
-It sets the base commit, the branch name and the PR target at once, so Phase 1 asks the user
-outright — before any investigation, so Phases 2–4 read the right code from the start. Enumerate
+It sets the base commit, the branch name and the PR target at once, so Phase 2 asks the user
+outright — before any investigation, so Phases 3–5 read the right code from the start. Enumerate
 the real options per repo before asking:
 
 ```bash
@@ -56,7 +56,7 @@ folder holds a worktree per repo instead, so the fix is isolated and other work 
 **If the repo is a git submodule, check its `.git` first.** A real `.git` **directory** means
 `git worktree` behaves exactly as it does in a standalone repo. A `.git` *file* pointing into
 `.git/modules/` brings the usual submodule-worktree awkwardness — flag it immediately, before you
-create anything. This runs at Phase 1, before the approval gate exists, so there is no summary to
+create anything. This runs at Phase 2, before the approval gate exists, so there is no summary to
 attach the warning to yet; say it plainly in chat instead.
 
 ### Layout
@@ -245,7 +245,7 @@ board. Do not "tidy" the `AB#` forms away.
 | --- | --- |
 | **Description** | What broke, the cause, and what you changed. Nothing else. |
 | **Comment 1 — Reported and requirement basis** | The report, the environment, the linked story or CR |
-| **Comment 2 — Verification** | The Phase 8 gate results, with real output |
+| **Comment 2 — Verification** | The Phase 9 gate results, with real output |
 | **Comment 3 — Design notes** | The file and line, ruled-out causes, why this approach, what you left alone |
 | **Comment 4 — Out of scope** | Related defects you found and did not fix here |
 

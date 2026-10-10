@@ -3,7 +3,7 @@
 Args: branch, commit, range, PR, or `HEAD`; none = working tree vs the base branch (`team/{version}`
 in an sdd worktree, else `main`/`master`). Default renderer: full (`--quick` allowed).
 
-Used for: sdd:bug / ado-bug-fix Phase 9a (what the fix changed, before manual testing), sdd:spec
+Used for: sdd:bug Phase 11 / ado-bug-fix Phase 9a (what the fix changed, before manual testing), sdd:spec
 Verify ("Ready to PR"), and any "what did this change?" request.
 
 ## Data gathering before HTML
@@ -28,7 +28,7 @@ file:line. Never invent rationale or code paths.
 4. Before/after behaviour: side by side.
 5. Risk review: correctness, tests, API compatibility, security/privacy, performance, maintainability.
 6. Coupling map: dependencies, hidden coupling, migration/release concerns.
-7. Recommendation: ready or not, blockers, follow-ups. For a fix at Phase 9a add **"How to test it
+7. Recommendation: ready or not, blockers, follow-ups. For a fix at Phase 11 add **"How to test it
    by hand"** — the screen or call, the steps, what you should see.
 
 Diff colours: red before, green after, amber risk, blue context. Responsive nav.

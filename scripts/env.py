@@ -23,6 +23,13 @@ Commands (run from anywhere inside the workspace):
     can    --id N --op start|resume|phase|pr|done|abandon [--flow F --phase P] [--json]
                                              is the operation allowed now? exit 0 yes, 3 no, with reasons
     remove --id N [--abandon] [--yes]        dry run unless --yes; enforces `can --op done` (or abandon)
+    run    --id N --gate G --expect pass|fail [--repo R] [--repeat N] [--suite] -- COMMAND
+                                             run a test command in the worktree and record it as proof
+    revert-check --id N --gate G [--repo R] --fix PATH [--fix PATH ...] -- COMMAND
+                                             the test fails with the fix files at base, passes with them
+    verify --id N                            run every tasks.md Verify command; proof for Ready to PR
+    path   --id N --set full|short --confirmed WORDS
+                                             the way through the spec flow the user chose
 """
 import argparse
 import json
@@ -37,9 +44,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from sddlib import (BUG_TYPES, CONFIG_REL, DEFAULTS, TYPE_SEGMENT, ado, developer, die,
-                    discover_repos, ensure_ignored, find_env, find_root, get_items, git,
-                    load_config, org_url, parse_remote, read_env, require_root, slug, wt_root,
+import proof
+from adowrite import mentions
+from sddlib import (AGENT_MODELS, BUG_TYPES, CONFIG_REL, DEFAULTS, STYLE_NAME, TYPE_SEGMENT, ado,
+                    bad_agent_models, config_home, developer, die, discover_repos, ensure_ignored,
+                    find_env, find_root, get_items, git, install_output_style, load_config, org_url,
+                    parse_remote, read_env, read_record, require_root, slug, upgrade_config, wt_root,
                     write_env)
 
 GRAPH_IGNORE = "bin/\nobj/\nnode_modules/\ndist/\nbuild/\ncoverage/\n*.min.js\n"
@@ -85,11 +95,47 @@ def cmd_init(a):
     print(f"repos found: {', '.join(sorted(repos)) or 'none'}")
     if len(orgs) > 1:
         print(f"warning: several ADO orgs in remotes ({', '.join(sorted(orgs))}); kept the first")
+    report_output_style(force=True)
 
 
 def cmd_type(a):
     cfg = load_config(require_root())
     print(json.dumps(item_info(cfg, a.id), indent=2))
+
+
+def report_output_style(force=False):
+    """Install the plugin's output style globally (see sddlib.install_output_style) and say what changed."""
+    try:
+        changed, notes = install_output_style(force)
+    except OSError as e:
+        print(f"sdd: could not install the {STYLE_NAME} output style: {e}", file=sys.stderr)
+        return
+    for n in notes:
+        print(f"sdd: {n}", file=sys.stderr)
+    if changed:
+        print(f"sdd: {STYLE_NAME} output style installed. Changed: {', '.join(str(p) for p in changed)}. "
+              "Restart Claude Code to use it.")
+
+
+def cmd_upgrade_config(a):
+    """Bring settings up to the plugin's: the global output style, then the defaults of new keys in
+    this workspace's .claude/sdd.json. Run by the plugin's SessionStart hook: prints only what
+    changed, and never fails the session start."""
+    report_output_style()
+    root = find_root()
+    if not root:
+        return
+    try:
+        added = upgrade_config(root)
+        bad = bad_agent_models(load_config(root))
+    except (OSError, ValueError) as e:
+        print(f"sdd: could not check {root / CONFIG_REL}: {e}", file=sys.stderr)
+        return
+    if added:
+        print(f"sdd: added {', '.join(added)} to {root / CONFIG_REL} with the plugin's defaults; change them there")
+    if bad:
+        print(f"sdd: agents.models in {root / CONFIG_REL} has {', '.join(bad)}; use one of "
+              f"{', '.join(AGENT_MODELS)}. The flows leave that agent on its own default until it is fixed.")
 
 
 # ---------------------------------------------------------------- doctor
@@ -171,6 +217,15 @@ def cmd_doctor(a):
             add("ollama running", False, False, "not answering on " + cfg["embeddings"]["url"],
                 "start the Ollama app (or: ollama serve)")
 
+    try:
+        style_set = json.loads((config_home() / "settings.json").read_text(encoding="utf-8")).get("outputStyle")
+    except (OSError, ValueError, AttributeError):
+        style_set = None
+    style_file = (config_home() / "output-styles" / f"{STYLE_NAME}.md").is_file()
+    add("output style", style_file and style_set == STYLE_NAME, False,
+        f"{STYLE_NAME}, set globally" if style_file and style_set == STYLE_NAME
+        else f"global outputStyle is {style_set or 'not set'}" + ("" if style_file else f"; no {STYLE_NAME}.md"),
+        f"pick {STYLE_NAME} in /config (the plugin sets it once and then leaves your choice alone)")
     add("sdd.json", root, True, str(root / CONFIG_REL) if root else "no .claude/sdd.json at or above here",
         f"{ENV_PY} init --spec-root <folder>   (from the workspace root)")
     if root:
@@ -184,6 +239,10 @@ def cmd_doctor(a):
             ig = run("git", "-C", str(root), "check-ignore", "-q", wt + "/x")
             add("worktrees ignored", ig and ig.returncode == 0, True, wt,
                 f"add '{wt}/' to {root / '.git' / 'info' / 'exclude'}   (env.py new also does this)")
+        bad = bad_agent_models(cfg)
+        add("agent models", not bad, False, ", ".join(f"{k}={v}" for k, v in cfg["agents"]["models"].items())
+            if not bad else f"not a model the Agent tool takes: {', '.join(bad)}",
+            f"set agents.models in .claude/sdd.json to one of {', '.join(AGENT_MODELS)}")
         cm = root / "CLAUDE.md"
         has = cm.is_file() and CLAUDE_MARK in cm.read_text(encoding="utf-8", errors="replace")
         add("CLAUDE.md sdd block", has, False, str(cm) if has else "no sdd block in the workspace CLAUDE.md",
@@ -431,6 +490,11 @@ def cmd_progress(a):
         _, _, bad = build_refs(root, cfg, a.id, a.ref)
         if bad:
             die("\n".join(bad) + "\nFix the refs before recording the gate.")
+    for g in a.passed:
+        lack = proof_missing(a.flow, data, env_dir, g)
+        if lack:
+            die(f"'{g}' passes only on recorded runs, and these are missing:\n  " + "\n  ".join(lack)
+                + "\nRun them (env.py run / revert-check / verify), then record the gate again.")
     entry = {"at": now(), "flow": a.flow, "phase": a.phase, "status": a.status,
              "gate": a.gate or "", "next": a.next or "", "note": a.note or "", "refs": a.ref}
     if a.status == "skipped":
@@ -540,7 +604,7 @@ def cmd_status(a):
     data = read_env(env_dir) if env_dir else None
     rec = done_dir(root, cfg) / f"{a.id}.json"
     if not data and rec.is_file():
-        data = json.loads(rec.read_text(encoding="utf-8"))
+        data = read_record(rec)
     out = {"id": a.id, "ado": None, "folder": str(env_dir) if env_dir else None,
            "progress": (data or {}).get("progress"), "history": ((data or {}).get("history") or [])[-5:],
            "repos": [], "spec": spec_state(root, cfg, a.id)}
@@ -618,6 +682,7 @@ def view_item(root, cfg, data, env_dir, full):
     if full:
         out["history"] = data.get("history") or []
     flow = (data.get("progress") or {}).get("flow") or data.get("flow")
+    out["path"] = flow_path(flow, data)  # the spec flow's full / short; None for the bug flow, or not chosen yet
     out["stages"] = stage_record(flow, data) if flow in FLOWS["flows"] else {}
     out["feedback"] = {}  # stage -> gates a reopen there revokes; only stages that take feedback now
     for s in FLOWS["flows"].get(flow, {}).get("stages", []) if env_dir else []:
@@ -644,7 +709,7 @@ def cmd_view(a):
     recs = sorted(done_dir(root, cfg).glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
     for rec in recs:
         try:
-            data = json.loads(rec.read_text(encoding="utf-8"))
+            data = read_record(rec)
         except (OSError, ValueError):
             continue
         if len(done) < 8 or a.id == data.get("id"):
@@ -699,6 +764,10 @@ def cmd_pr(a):
     desc = Path(a.description_file).read_text(encoding="utf-8")
     if len(desc) > 4000:
         die(f"description is {len(desc)} chars; ADO allows 4000. Move detail into PR comments")
+    found = mentions(desc) + mentions(a.title)
+    if found:
+        die(f"the PR text names {', '.join(found)}. ADO reads `#<id>` as a mention and posts a comment onto "
+            f"that work item. Write `ADO {found[0][1:]}` instead; AB#<id> in the title is fine")
     wis = [int(x) for x in (a.work_items or str(a.id)).split(",") if x.strip()]
     only = {x.strip() for x in (a.repos or "").split(",") if x.strip()}
     for n, r in data["repos"].items():
@@ -739,21 +808,145 @@ def _force(func, path, _):
 
 OPS = ("start", "resume", "phase", "pr", "done", "abandon", "reopen")
 
+
+def repo_dirs(env_dir, data):
+    """{repo: (worktree dir, base branch)} of a work item folder."""
+    return {n: (env_dir / r["path"], r["base"]) for n, r in ((data or {}).get("repos") or {}).items()}
+
+
+def proof_missing(flow, data, env_dir, gate):
+    """What `gate` still needs before it may pass, from flows.json "proofs"; [] when it needs no proof."""
+    rule = PROOFS.get(flow, {}).get(gate)
+    if not rule:
+        return []
+    try:
+        return proof.missing(data, gate, rule, repo_dirs(env_dir, data) if env_dir else {})
+    except RuntimeError as e:
+        return [f"'{gate}': could not check the worktree ({e})"]
+
+
+def pick_repo(data, want):
+    repos = list((data.get("repos") or {}))
+    if want:
+        return want if want in repos else die(f"no repo {want} in this work item; it has {', '.join(repos) or 'none'}")
+    if len(repos) == 1:
+        return repos[0]
+    die(f"this work item has {', '.join(repos) or 'no repos'}: say which one with --repo")
+
+
+def command_of(a):
+    cmd = [c for c in (a.command or [])]
+    if cmd and cmd[0] == "--":
+        cmd = cmd[1:]
+    if not cmd:
+        die("no command: put it after --, e.g. env.py run --id 5 --gate \"Red test\" --expect fail -- dotnet test ...")
+    return cmd[0] if len(cmd) == 1 else subprocess.list2cmdline(cmd) if sys.platform == "win32" else " ".join(
+        c if re.fullmatch(r"[\w@%+=:,./-]+", c) else "'" + c.replace("'", "'\\''") + "'" for c in cmd)
+
+
+def show_run(rec):
+    print(f"{rec['repo']}: {rec['gate']} / {rec.get('kind', 'run')}: {'OK' if rec['ok'] else 'NOT OK'} "
+          f"(exit {', '.join(str(x) for x in rec.get('exits', []))})")
+    if rec.get("tail"):
+        print(rec["tail"])
+
+
+def cmd_run(a):
+    root = require_root()
+    cfg = load_config(root)
+    env_dir = env_or_die(root, cfg, a.id)
+    data = read_env(env_dir)
+    repo = pick_repo(data, a.repo)
+    d, _ = repo_dirs(env_dir, data)[repo]
+    rec = proof.run(data, repo, d, a.gate, command_of(a), a.expect, a.repeat, a.suite, a.timeout)
+    write_env(env_dir, data)
+    show_run(rec)
+    if not rec["ok"]:
+        sys.exit(1)
+
+
+def cmd_revert_check(a):
+    root = require_root()
+    cfg = load_config(root)
+    env_dir = env_or_die(root, cfg, a.id)
+    data = read_env(env_dir)
+    repo = pick_repo(data, a.repo)
+    d, base = repo_dirs(env_dir, data)[repo]
+    try:
+        rec = proof.revert_check(data, repo, d, base, a.gate, command_of(a), a.fix, a.timeout)
+    except RuntimeError as e:
+        die(str(e))
+    write_env(env_dir, data)
+    show_run(rec)
+    if not rec["ok"]:
+        print("The test must fail without the fix and pass with it. A test that passes without the fix "
+              "guards nothing: rewrite it.")
+        sys.exit(1)
+
+
+def cmd_verify(a):
+    root = require_root()
+    cfg = load_config(root)
+    env_dir = env_or_die(root, cfg, a.id)
+    data = read_env(env_dir)
+    sp = spec_folder(root, cfg, a.id)
+    tasks_md = sp / "tasks.md" if sp else None
+    if not tasks_md or not tasks_md.is_file():
+        die("no tasks.md for this work item: Decompose writes it")
+    tasks = proof.parse_tasks(tasks_md.read_text(encoding="utf-8"))
+    recs, manual, unclear = proof.verify(data, repo_dirs(env_dir, data), tasks, a.gate, a.timeout)
+    write_env(env_dir, data)
+    for r in recs:
+        for t in r["tasks"]:
+            print(f"task {t['task']} ({r['repo']}): {'pass' if t['ok'] else 'FAIL'}  {t['command']}")
+            if not t["ok"]:
+                print("    " + t["tail"].replace("\n", "\n    "))
+    for t in manual:
+        print(f"task {t['n']}: check by hand — {t['verify'] or 'no Verify line'}")
+    for t in unclear:
+        print(f"task {t['n']}: not run — say which repo with a `- Repo: <name>` line under it")
+    bad = [t for r in recs for t in r["tasks"] if not t["ok"]]
+    print(f"{sum(len(r['tasks']) for r in recs) - len(bad)} passed, {len(bad)} failed, {len(manual)} by hand, "
+          f"{len(unclear)} unclear")
+    if bad or unclear:
+        sys.exit(1)
+
 # The stages of each flow live in flows.json, which the view draws too. What each phase needs before
 # it may start: recorded gates are passed with `progress --passed` only after the user said yes; the
 # DERIVED ones are read from the facts on disk.
 FLOWS = json.loads((Path(__file__).with_name("flows.json")).read_text(encoding="utf-8"))
 PHASE_NEEDS = {f: {s["key"]: s["needs"] for s in v["stages"] if s["needs"]} for f, v in FLOWS["flows"].items()}
 PR_GATE = {f: v["prGates"] for f, v in FLOWS["flows"].items()}
+PROOFS = {f: v.get("proofs", {}) for f, v in FLOWS["flows"].items()}
+PATHS = {f: v.get("paths") for f, v in FLOWS["flows"].items() if v.get("paths")}
+
+
+def flow_path(flow, data):
+    """The way through the flow the user chose (flows.json "paths"), or None while nobody has. An item
+    started before paths existed and already past Design counts as the full path."""
+    if flow not in PATHS:
+        return None
+    data = data or {}
+    if data.get("path"):
+        return data["path"]
+    if "Design agreed" in (data.get("gates") or {}) or set(data.get("stages") or {}) & {"Decompose", "Implement", "Verify", "Review"}:
+        return "full"
+    return None
+
+
+def stage_needs(flow, data, key):
+    """The gates `key` needs on this item's path."""
+    drop = set(((PATHS.get(flow) or {}).get(flow_path(flow, data) or "", {}) or {}).get("dropNeeds", {}).get(key, []))
+    return [g for g in PHASE_NEEDS.get(flow, {}).get(key, []) if g not in drop]
 DERIVED = tuple(FLOWS["derived"])
 BUG_PHASES = [s["key"] for s in FLOWS["flows"]["bug"]["stages"]]
 SPEC_PHASES = [s["key"] for s in FLOWS["flows"]["spec"]["stages"]]
 
 
 def phase_key(flow, phase):
-    """'Phase 10 — Pull request' -> 'Phase 10'; 'Implement (task 3/7)' -> 'Implement'."""
+    """'Phase 12 — Pull request' -> 'Phase 12'; 'Implement (task 3/7)' -> 'Implement'."""
     if flow == "bug":
-        m = re.match(r"\s*Phase\s+(\d+a?)\b", phase or "", re.I)
+        m = re.match(r"\s*Phase\s+(\d+)\b", phase or "", re.I)
         key = f"Phase {m.group(1).lower()}" if m else None
         return key if key in BUG_PHASES else None
     for k in SPEC_PHASES:
@@ -887,7 +1080,7 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
     data = read_env(env_dir) if env_dir else None
     rec = done_dir(root, cfg) / f"{wid}.json"
     if not data and rec.is_file():
-        data = json.loads(rec.read_text(encoding="utf-8"))
+        data = read_record(rec)
     prog = (data or {}).get("progress") or {}
     status, cur_phase = prog.get("status"), prog.get("phase", "")
     reasons, notes = [], []
@@ -934,7 +1127,12 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
             return False, [f"the flow is {status}"], []
         reasons += [f"{k} was never worked and never skipped — do it first, or ask the user to skip it"
                     for k in unaccounted(flow, data, key, open_questions(root, cfg, wid))]
-        missing = [g for g in PHASE_NEEDS.get(flow, {}).get(key, []) if g not in met]
+        rule = PATHS.get(flow)
+        if rule and key != rule["choose"] and keys.index(key) > keys.index(rule["choose"]) and not flow_path(flow, data):
+            choices = " / ".join(k for k in rule if k != "choose")
+            reasons.append(f"no path chosen for this item ({choices}). Ask the user which, then record their answer: "
+                           f"env.py path --id {wid} --set <path> --confirmed \"<the user's words>\"")
+        missing = [g for g in stage_needs(flow, data, key) if g not in met]
         reasons += [f"{key} needs '{g}' first — " + ("not true on disk yet" if g in DERIVED else "not recorded as passed")
                     for g in missing]
         return not reasons, reasons, notes
@@ -968,6 +1166,9 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
         for g in PR_GATE.get(prog.get("flow") or data.get("flow"), []):
             if g not in met:
                 reasons.append(f"the PR needs '{g}' first — not recorded as passed")
+            elif env_dir:
+                reasons += [f"{m}: the PR needs it" for m in
+                            proof_missing(prog.get("flow") or data.get("flow"), data, env_dir, g)]
         if not any(ahead not in ("0", "") and not r.get("pr") for _, r, _, _, _, ahead in repos):
             reasons.append("no repo has commits without a PR — nothing to raise")
         for n, r, pth, exists, dirty, ahead in repos:
@@ -1015,15 +1216,53 @@ def cmd_can(a):
     if a.op == "phase" and not a.phase:
         die("--op phase needs --phase (and --flow when nothing is recorded yet)")
     ok, reasons, notes = check_op(root, cfg, a.id, a.op, a.flow, a.phase)
+    read = stage_doc(a.flow or recorded_flow(root, cfg, a.id), a.phase) if a.op == "phase" and ok else None
     if a.json:
-        print(json.dumps({"id": a.id, "op": a.op, "ok": ok, "reasons": reasons, "notes": notes}, indent=2))
+        print(json.dumps({"id": a.id, "op": a.op, "ok": ok, "reasons": reasons, "notes": notes, "read": read},
+                         indent=2))
     else:
         print(f"{a.op} {a.id}: {'allowed' if ok else 'NOT allowed'}")
         for x in reasons:
             print(f"  because: {x}")
         for x in notes:
             print(f"  note:    {x}")
+        if read:
+            print(f"  read:    {read}   (the stage's steps: read it before you start)")
     sys.exit(0 if ok else 3)
+
+
+def stage_doc(flow, phase):
+    """The stage's own file (flows.json "doc"), as a path to read; None when unknown."""
+    key = phase_key(flow, phase)
+    doc = next((s.get("doc") for s in FLOWS["flows"].get(flow, {}).get("stages", []) if s["key"] == key), None)
+    return str(PLUGIN / doc) if doc else None
+
+
+def recorded_flow(root, cfg, wid):
+    env_dir = find_env(root, cfg, wid)
+    data = read_env(env_dir) if env_dir else {}
+    return (data.get("progress") or {}).get("flow") or data.get("flow")
+
+
+def cmd_path(a):
+    """Record the way through the flow the user chose. Short only before Decompose starts."""
+    root = require_root()
+    cfg = load_config(root)
+    env_dir, data = ensure_env(root, cfg, a.id)
+    flow = (data.get("progress") or {}).get("flow") or data.get("flow")
+    rule = PATHS.get(flow)
+    if not rule:
+        die(f"the {flow or 'unknown'} flow has one path only")
+    if a.set not in rule or a.set == "choose":
+        die(f"no path '{a.set}'; the {flow} flow has {', '.join(k for k in rule if k != 'choose')}")
+    if not (a.confirmed or "").strip():
+        die("a path is the user's choice: ask them, then pass their words with --confirmed")
+    if a.set != "full" and set(data.get("stages") or {}) & {"Decompose", "Implement", "Verify", "Review"}:
+        die(f"too late for the {a.set} path: Decompose has started. It stays {flow_path(flow, data) or 'full'}")
+    data["path"] = a.set
+    data["pathChosen"] = {"at": now(), "path": a.set, "confirmed": a.confirmed.strip()}
+    write_env(env_dir, data)
+    print(f"{a.id}: {rule[a.set]['label']}")
 
 
 def cmd_reopen(a):
@@ -1099,6 +1338,7 @@ def main():
     s = sp.add_parser("init"); s.add_argument("--spec-root", default=DEFAULTS["specRoot"])
     s = sp.add_parser("type"); s.add_argument("--id", type=int, required=True)
     s = sp.add_parser("doctor"); s.add_argument("--json", action="store_true")
+    sp.add_parser("upgrade-config", help="add new settings' defaults to .claude/sdd.json (SessionStart hook)")
     s = sp.add_parser("new")
     s.add_argument("--id", type=int, required=True)
     s.add_argument("--repos", required=True, help="comma-separated folder names")
@@ -1113,7 +1353,7 @@ def main():
     s = sp.add_parser("progress")
     s.add_argument("--id", type=int, required=True)
     s.add_argument("--flow", required=True, choices=["bug", "spec"])
-    s.add_argument("--phase", required=True, help="e.g. \"Phase 5 — Approval gate\" or \"Implement\"")
+    s.add_argument("--phase", required=True, help="e.g. \"Phase 6 — Approval gate\" or \"Implement\"")
     s.add_argument("--status", required=True, choices=PROGRESS_STATUS)
     s.add_argument("--gate", help="the question waiting for the user, when --status waiting")
     s.add_argument("--next", help="the next concrete step, so a new session can pick it up")
@@ -1140,21 +1380,46 @@ def main():
     s.add_argument("--flow", choices=["bug", "spec"])
     s.add_argument("--phase", help="with --op phase: the phase about to start; with --op reopen: the stage to go back to")
     s.add_argument("--json", action="store_true")
+    s = sp.add_parser("path", help="record the way through the flow the user chose (spec: full or short)")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--set", required=True, help="full or short")
+    s.add_argument("--confirmed", metavar="WORDS", help="the user's own words choosing it")
     s = sp.add_parser("reopen", help="back to a done or waiting stage for the person's feedback")
     s.add_argument("--id", type=int, required=True)
-    s.add_argument("--phase", required=True, help="the stage to go back to (Design, Phase 4, ...)")
+    s.add_argument("--phase", required=True, help="the stage to go back to (Design, Phase 5, ...)")
     s.add_argument("--note", required=True, help="the person's feedback, as they wrote it")
     s = sp.add_parser("view")
     s.add_argument("--id", type=int, help="also the full history of this item")
     s.add_argument("--json", action="store_true", help="always json; accepted for symmetry")
     s.add_argument("--compact", action="store_true")
+    s = sp.add_parser("run", help="run a test command in the worktree and record it as proof for a gate")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--gate", required=True, help='the gate this run proves, e.g. "Red test" or "Verified"')
+    s.add_argument("--expect", required=True, choices=["pass", "fail"])
+    s.add_argument("--repo", help="needed when the work item has more than one repo")
+    s.add_argument("--repeat", type=int, default=1, help="run it N times; every run must end as expected")
+    s.add_argument("--suite", action="store_true", help="this command is the repo's full test suite")
+    s.add_argument("--timeout", type=int, default=1800, help="seconds per run")
+    s.add_argument("command", nargs=argparse.REMAINDER, help="-- then the command")
+    s = sp.add_parser("revert-check", help="the test fails with the fix files at base, passes with the fix")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--gate", default="Verified")
+    s.add_argument("--repo")
+    s.add_argument("--fix", action="append", required=True, help="a file of the fix, relative to the repo; repeat")
+    s.add_argument("--timeout", type=int, default=1800)
+    s.add_argument("command", nargs=argparse.REMAINDER, help="-- then the test command")
+    s = sp.add_parser("verify", help="run every tasks.md Verify command; the proof for Ready to PR")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--gate", default="Ready to PR")
+    s.add_argument("--timeout", type=int, default=1800)
     s = sp.add_parser("remove")
     s.add_argument("--id", type=int, required=True)
     s.add_argument("--abandon", action="store_true")
     s.add_argument("--yes", action="store_true")
     a = ap.parse_args()
     {"init": cmd_init, "doctor": cmd_doctor, "progress": cmd_progress, "refs": cmd_refs, "can": cmd_can, "type": cmd_type, "new": cmd_new, "status": cmd_status, "view": cmd_view, "reopen": cmd_reopen, "graph": cmd_graph,
-     "pr": cmd_pr, "remove": cmd_remove}[a.cmd](a)
+     "pr": cmd_pr, "remove": cmd_remove, "upgrade-config": cmd_upgrade_config, "run": cmd_run,
+     "revert-check": cmd_revert_check, "verify": cmd_verify, "path": cmd_path}[a.cmd](a)
 
 
 if __name__ == "__main__":

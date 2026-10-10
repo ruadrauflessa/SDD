@@ -6,7 +6,7 @@ import { update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { SddAsk, SddColors, SddDoc, SddItem, SddQuestion, SddSnapshot, SddStage } from '../types'
-import { answerMessage, answersFor, approveAnswers, approveFor, approveMessage,decidedGates, fileLinks, flowFinished, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, fileTarget, gateStory, phaseKey, phaseLabel, refLink, stageDocs, stageHistory, questionBadge, stageRows, stageSummary, statusWord, when } from './view/model'
+import { answerMessage, answersFor, approveAnswers, approveFor, approveMessage,decidedGates, fileLinks, flowFinished, flowTag, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, fileTarget, gateStory, phaseKey, phaseLabel, refLink, stageDocs, stageHistory, questionBadge, stageRows, stageSummary, statusWord, when } from './view/model'
 import type { Mark } from './view/model'
 
 const PANE = 'sdd-view'
@@ -273,15 +273,21 @@ export const register: Register = on => {
     const s = (await $.state.get(snap)).value ?? null
     paint(s?.colors)
     const own = (await $.state.get(mine)).value ?? null
-    const first = (s?.items ?? []).find(i => i.id === own && i.progress?.status === 'waiting')
+    // this chat's item while its flow runs: always which flow and path, and loud when it waits on you
+    const first = (s?.items ?? []).find(i => i.id === own && !!i.progress && !['done', 'abandoned'].includes(i.progress.status))
     if (e.props.hasSurvey || !first) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
+    const tag = flowTag(s?.flows[first.flow], first)
+    const waiting = first.progress?.status === 'waiting'
     return (
       <Box flexDirection="row" gap={1} width={e.props.bodyColumns}>
+        <Text bold color={tag.open ? C.now : C.work}>{`[${tag.brief}]`}</Text>
         <Box flexGrow={1} flexShrink={1}>
-          <Text color={C.now} wrap="truncate-end">
-            {`${first.id} · ${phaseLabel(s?.flows[first.flow], first)} · waiting on you: ${first.progress?.gate || '—'}`}
-          </Text>
+          {waiting
+            ? <Text color={C.now} wrap="truncate-end">
+                {`${first.id} · ${phaseLabel(s?.flows[first.flow], first)} · waiting on you: ${first.progress?.gate || '—'}`}
+              </Text>
+            : <Text dimColor wrap="truncate-end">{`${first.id} · ${phaseLabel(s?.flows[first.flow], first)} · ${statusWord(first)}`}</Text>}
         </Box>
         <Button key="band-open" label="Open sdd view" onPress={() => void (async () => {
           await $.state.set(selected, first.id)
@@ -343,6 +349,7 @@ export const register: Register = on => {
 
     // ---- one item: a decision log you open row by row
     const flow = s.flows[item.flow]
+    const tag = flowTag(flow, item)
     const p = item.progress
     const openGate = (await $.state.get(gate)).value ?? null  // 'gate:Design agreed'
     const open = (await $.state.get(stage)).value ?? null        // 'stage:Design'
@@ -419,7 +426,11 @@ export const register: Register = on => {
             <Box flexGrow={1} flexShrink={1}><Text bold wrap="wrap">{`${item.id} ${item.title}`}</Text></Box>
             <Button key="refresh" label="↻" hotkey="r" onPress={() => void sync(id, true)} />
           </Box>
-          <Text dimColor>{`${item.type}, ${item.state} in ADO, ${flow?.label.toLowerCase() ?? item.flow}`}</Text>
+          <Box flexDirection="row" gap={1}>
+            <Text bold color={C.work}>{`[${tag.flow}]`}</Text>
+            {tag.path && <Text bold color={tag.open ? C.now : C.gate}>{`[${tag.path}]`}</Text>}
+            <Box flexGrow={1} flexShrink={1}><Text dimColor wrap="truncate-end">{`${item.type}, ${item.state} in ADO`}</Text></Box>
+          </Box>
           <Markdown text={links} />
         </Box>
 

@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { SddItem, SddSnapshot } from '../types'
-import { questionBadge, answerMessage, answersFor, approveAnswers, approveFor, approveMessage, fileLinks, flowFinished, fileTarget, gateStory, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, phaseKey, refLink, stageRows, stageSummary } from './view/model'
+import { flowTag, questionBadge, answerMessage, answersFor, approveAnswers, approveFor, approveMessage, fileLinks, flowFinished, fileTarget, gateStory, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, phaseKey, refLink, stageRows, stageSummary } from './view/model'
 
 const SPEC = {
   label: 'Spec flow',
@@ -19,7 +19,7 @@ const SPEC = {
 const BUG = {
   label: 'Bug flow',
   prGates: ['Approval'],
-  stages: ['0', '1', '5', '9', '9a', '10'].map(n => ({ key: `Phase ${n}`, label: `step ${n}`, needs: [], passes: n === '5' ? ['Approval'] : [] })),
+  stages: ['1', '2', '6', '10', '11', '12'].map(n => ({ key: `Phase ${n}`, label: `step ${n}`, needs: [], passes: n === '6' ? ['Approval'] : [] })),
 }
 
 const ITEM: SddItem = {
@@ -45,16 +45,31 @@ const SNAP: SddSnapshot = {
   derived: ['Worktree', 'PR raised', 'Tasks written', 'Tasks done'], items: [ITEM], done: [],
 }
 
+test('the flow tag names the flow, and the path of the spec flow', () => {
+  const SPEC_PATHS = { ...SPEC, paths: { choose: 'Specify', full: { label: 'Full' }, short: { label: 'Short' } } }
+  expect(flowTag(BUG, { ...ITEM, flow: 'bug' })).toEqual(
+    { flow: 'Bug flow', path: null, text: 'Bug flow', brief: 'bug', open: false })
+  expect(flowTag(SPEC_PATHS, { ...ITEM, path: 'short' })).toEqual(
+    { flow: 'Spec flow', path: 'short path', text: 'Spec flow · short path', brief: 'spec · short', open: false })
+  expect(flowTag(SPEC_PATHS, { ...ITEM, path: 'full' }).brief).toBe('spec · full')
+  const open = flowTag(SPEC_PATHS, { ...ITEM, path: null })
+  expect([open.path, open.brief, open.open]).toEqual(['path not chosen', 'spec · path?', true])
+  expect(flowTag(SPEC_PATHS, { ...ITEM, path: 'sideways' }).open).toBe(true)      // not a path the flow has
+  expect(flowTag(SPEC, ITEM).path).toBe(null)                                    // a flow without paths
+  expect(flowTag(undefined, { ...ITEM, flow: 'bug' }).text).toBe('bug flow')     // an old snapshot
+})
+
 test('phase keys match env.py', () => {
-  expect(phaseKey(BUG, 'Phase 9a — Manual verification')).toBe('Phase 9a')
-  expect(phaseKey(BUG, 'Phase 10')).toBe('Phase 10')
-  expect(phaseKey(BUG, 'Phase 1')).toBe('Phase 1')
+  expect(phaseKey(BUG, 'Phase 11 — Manual verification')).toBe('Phase 11')
+  expect(phaseKey(BUG, 'Phase 12')).toBe('Phase 12')
+  expect(phaseKey(BUG, 'Phase 2')).toBe('Phase 2')
   expect(phaseKey(SPEC, 'Implement (task 3/7)')).toBe('Implement')
   expect(phaseKey(SPEC, 'removed')).toBe(null)
 })
 
 test('stages: done before the current one, the current one waiting', () => {
-  expect(stageRows(SPEC, ITEM).map(r => r.mark)).toEqual(['done', 'done', 'done', 'done', 'waiting'])
+  // Specify, Open Questions, Requirements, Design, Decompose, Implement before Verify, which waits
+  expect(stageRows(SPEC, ITEM).map(r => r.mark)).toEqual(['done', 'done', 'done', 'done', 'done', 'done', 'waiting'])
   const done = { ...ITEM, progress: { ...ITEM.progress!, phase: 'removed', status: 'done' as const } }
   expect(stageRows(SPEC, done).every(r => r.mark === 'done')).toBe(true)
 })
@@ -63,14 +78,14 @@ test('stages: a jumped stage shows as missed, a skip the user agreed to as skipp
   const t = '2026-10-05T06:22:42Z'
   const item: SddItem = {
     ...ITEM, flow: 'bug',
-    progress: { at: t, flow: 'bug', phase: 'Phase 10 — Pull request', status: 'done' },
-    stages: { 'Phase 0': { at: t, status: 'done' }, 'Phase 5': { at: t, status: 'done' },
-      'Phase 9': { at: t, status: 'skipped', confirmed: 'skip it' }, 'Phase 9a': { at: t, status: 'done' },
-      'Phase 10': { at: t, status: 'done' } },
+    progress: { at: t, flow: 'bug', phase: 'Phase 12 — Pull request', status: 'done' },
+    stages: { 'Phase 1': { at: t, status: 'done' }, 'Phase 6': { at: t, status: 'done' },
+      'Phase 10': { at: t, status: 'skipped', confirmed: 'skip it' }, 'Phase 11': { at: t, status: 'done' },
+      'Phase 12': { at: t, status: 'done' } },
   }
   expect(stageRows(BUG, item).map(r => r.mark)).toEqual(['done', 'missed', 'done', 'skipped', 'done', 'done'])
   expect(flowFinished(BUG, item)).toBe(false)
-  expect(flowFinished(BUG, { ...item, stages: { ...item.stages, 'Phase 1': { at: t, status: 'skipped', confirmed: 'ok' } } })).toBe(true)
+  expect(flowFinished(BUG, { ...item, stages: { ...item.stages, 'Phase 2': { at: t, status: 'skipped', confirmed: 'ok' } } })).toBe(true)
 })
 
 
@@ -188,7 +203,7 @@ test('the Approve button shows at the four spec stops and picks the go-ahead', (
   expect(approveFor(SPEC, at('Verify'))).toEqual({ key: 'Verify', label: 'Raise PR', option: 'Raise the PR' })
   expect(approveFor(SPEC, at('Implement (task 3/7)'))).toBe(null)
   expect(approveFor(SPEC, at('Design', 'active'))).toBe(null)
-  expect(approveFor(BUG, { ...at('Phase 5'), flow: 'bug' })).toBe(null)
+  expect(approveFor(BUG, { ...at('Phase 6'), flow: 'bug' })).toBe(null)
 
   const gate = [{ question: 'Ready?', options: [{ label: 'Raise the PR' }, { label: 'Make changes' }] }]
   expect(approveAnswers(gate, 'Raise the PR')).toEqual({ 'Ready?': 'Raise the PR' })

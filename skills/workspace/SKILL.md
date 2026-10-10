@@ -49,13 +49,28 @@ It discovers the repos (`.gitmodules` plus any child or grandchild folder with a
 reads the ADO org and projects from each `origin` remote. Show the user the file it wrote, and
 ask them to remove any ADO project that holds no specs (a tooling repo's project, for example).
 Other keys: `worktreeRoot` (default `.claude/worktrees`), `repoDirs` (explicit repo list,
-overrides discovery), `specTypes`, `branchTemplate`, `embeddings`.
+overrides discovery), `specTypes`, `branchTemplate`, `embeddings`, `agents`.
+
+`agents.models` sets the model each sdd sub-agent runs on — `sonnet`, `opus` or `haiku`:
+
+```json
+"agents": { "models": { "investigator": "sonnet", "skeptic": "opus" } }
+```
+
+A workspace that lacks these keys gets the defaults above written into its `sdd.json` at the next
+session start after a plugin update (`env.py upgrade-config`, run by the plugin's SessionStart hook).
+A value already there is never changed. `env.py doctor` warns on a value the Agent tool would not
+take.
 
 ## env.py commands
 
 | Command | Does | Notes |
 | --- | --- | --- |
-| `doctor [--json]` | Checks Python, SQLite FTS5, git, az + login, graphify, pandoc, Ollama + model, `sdd.json`, repos, ADO projects, worktree ignore, the CLAUDE.md block | Read-only. `/sdd init` acts on it |
+| `doctor [--json]` | Checks Python, SQLite FTS5, git, az + login, graphify, pandoc, Ollama + model, `sdd.json`, repos, ADO projects, worktree ignore, agent models, the output style, the CLAUDE.md block | Read-only. `/sdd init` acts on it |
+| `upgrade-config` | Installs the ELI5 output style globally (the style file, and `outputStyle` in `~/.claude/settings.json`, once), then writes the defaults of new settings (`agents.models`) missing from `sdd.json` into it | Run by the SessionStart hook. Never changes a set value, never writes a settings file that is not valid JSON; prints only what changed |
+| `run --id N --gate G --expect pass\|fail [--repo R] [--repeat N] [--suite] -- CMD` | Runs a test command in the worktree and records the exit code, output and a fingerprint of the code | The proof `Red test` and `Verified` need (flows.json `proofs`) |
+| `revert-check --id N --fix F [--fix F] -- CMD` | Puts the fix files back to the base branch: the test must fail; restores them: it must pass | Restores the files byte for byte in every case |
+| `verify --id N` | Runs every backticked Verify command in `tasks.md`, in its repo | The proof `Ready to PR` needs; a failure blocks the PR |
 | `type --id N` | Prints type, title, state, project and `flow` (`bug` for Bug/Issue, else `spec`) | Read-only |
 | `new --id N --repos A,B --version 1.1.0` | Creates the folder, fetches each repo, adds `src/{Repo}` on a new branch from `origin/team/{version}`, writes `workitem.json` and `CLAUDE.md`, builds the graph | Run it again with another `--repos` to **add** a repo later — existing repos are skipped |
 | `new ... --base Repo=main` | Per-repo base branch, repeatable. Overrides `--version` for that repo | For repos without `team/*` branches |

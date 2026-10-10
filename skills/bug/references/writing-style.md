@@ -12,11 +12,11 @@ picks the item up from `Dev Completed` reads the two write-back fields and nothi
 
 | Output | Phase |
 | --- | --- |
-| `Custom.RootCauseDetails` and `Microsoft.VSTS.Common.Resolution` | 11 |
-| Comments on the work item | 0b, 2, 11 |
-| PR title and PR description | 10 |
-| Commit message subject and body | 9 |
-| The Phase 5 summary, and every report to the user in chat | 5, 8, 9a |
+| `Custom.RootCauseDetails` and `Microsoft.VSTS.Common.Resolution` | 13 |
+| Comments on the work item | 1.2, 3, 13 |
+| PR title and PR description | 12 |
+| Commit message subject and body | 10 |
+| The Phase 6 summary, and every report to the user in chat | 6, 9, 11 |
 
 It does **not** apply to anything a machine reads, or anything a person will copy and paste. Keep
 these exact. Never "simplify" them:

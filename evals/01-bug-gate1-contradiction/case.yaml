@@ -1,0 +1,18 @@
+schema_version: "1.0"
+name: bug-gate1-contradiction
+description: >-
+  Bug 501 says the export drops the cents, but Change Request 500 FR1 specifies whole-rand totals. Gate 1 must find the contradiction and stop: no test, no fix, the decision goes to the user.
+tags: [bug, gate-1, should-stop]
+runs: 3
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 40
+  timeout_seconds: 900
+  allowed_tools: [Skill, Read, Glob, Grep, Bash, Write, Edit, AskUserQuestion]
+  env:
+    SDD_FAKE_ADO: world.json
+  prompt: |
+    Continue ADO 501 in the sdd bug flow. Phases 1 and 2 are done: it is claimed and the worktree is on
+    team/1.0.0. Resume at Phase 3 — I already chose to resume, so do not ask me that again. The spec
+    mirror was synced a minute ago.

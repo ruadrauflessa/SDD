@@ -6,9 +6,11 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import adowrite
 import env
 import spec
-from sddlib import parse_remote, slug
+import sddlib
+from sddlib import parse_remote, renumber_bug_phases, slug
 
 
 def wi(i, title, parent=None, rels=(), desc="", typ="User Story", rev=1, state="Active"):
@@ -45,20 +47,35 @@ def main():
     assert "has not started" in env.reopen_plan(early, "Implement")[1][0]
     assert not env.reopen_plan({**item, "progress": {**item["progress"], "status": "done"}}, "Design")[0]
     bug = {"id": 6, "flow": "bug", "gates": {"Claimed": "t", "Approval": "t", "Red test": "t"},
-           "progress": {"flow": "bug", "phase": "Phase 7 — Apply fix", "status": "blocked"}}
-    assert env.reopen_plan(bug, "Phase 4")[2] == ["Approval", "Red test"]
-    assert not env.reopen_plan(bug, "Phase 7")[0]
+           "progress": {"flow": "bug", "phase": "Phase 8 — Apply fix", "status": "blocked"}}
+    assert env.reopen_plan(bug, "Phase 5")[2] == ["Approval", "Red test"]
+    assert not env.reopen_plan(bug, "Phase 8")[0]
     # review stages: wait on the PR once it is raised; a rejected PR goes back to the reworkTo stage
-    assert env.PHASE_NEEDS["spec"]["Review"] == ["PR raised"] and env.PHASE_NEEDS["bug"]["Phase 13"] == ["PR raised"]
-    assert env.phase_key("bug", "Phase 13 — PR review") == "Phase 13"
+    assert env.PHASE_NEEDS["spec"]["Review"] == ["PR raised"] and env.PHASE_NEEDS["bug"]["Phase 15"] == ["PR raised"]
+    assert env.phase_key("bug", "Phase 15 — PR review") == "Phase 15"
+    # a record from the old bug numbering (Phase 0 … Phase 13, with 9a) reads in the new one
+    old = {"stages": {f"Phase {n}": {"status": "done"} for n in ("0", "1", "5", "9", "9a", "10", "13")},
+           "progress": {"flow": "bug", "phase": "Phase 9a — Manual verification", "status": "waiting",
+                        "note": "Phase 9a is where we stopped"},
+           "history": [{"phase": "Phase 0"}, {"phase": "Phase 12 — Record learnings"}]}
+    got = renumber_bug_phases(json.loads(json.dumps(old)))
+    assert list(got["stages"]) == ["Phase 1", "Phase 2", "Phase 6", "Phase 10", "Phase 11", "Phase 12", "Phase 15"], got
+    assert got["progress"]["phase"] == "Phase 11 — Manual verification"
+    assert got["progress"]["note"] == "Phase 9a is where we stopped"          # free text is left as written
+    assert [h["phase"] for h in got["history"]] == ["Phase 1", "Phase 14 — Record learnings"]
+    new = {"stages": {"Phase 1": {}, "Phase 6": {}}, "progress": {"flow": "bug", "phase": "Phase 6"}, "history": []}
+    assert renumber_bug_phases(json.loads(json.dumps(new))) == new           # the new numbering is left alone
+    spec_rec = {"stages": {"Design": {}}, "progress": {"flow": "spec", "phase": "Design"}}
+    assert renumber_bug_phases(dict(spec_rec)) == spec_rec
+    assert env.phase_key("bug", "Phase 9a") is None and env.phase_key("bug", "Phase 0") is None
     review = {"id": 7, "flow": "spec", "gates": {"Requirements agreed": "t", "Design agreed": "t", "Ready to PR": "t"},
               "progress": {"flow": "spec", "phase": "Review", "status": "waiting"}}
     assert env.reopen_plan(review, "Implement")[2] == ["Ready to PR"]
     passed = {**review, "gates": {**review["gates"], "PR approved": "t"}}
     assert env.reopen_plan(passed, "Implement")[2] == ["Ready to PR", "PR approved"]
     bugrev = {"id": 8, "flow": "bug", "gates": {"Approval": "t", "Red test": "t", "Verified": "t", "Manual verification": "t"},
-              "progress": {"flow": "bug", "phase": "Phase 13", "status": "waiting"}}
-    assert env.reopen_plan(bugrev, "Phase 7")[2] == ["Verified", "Manual verification"]
+              "progress": {"flow": "bug", "phase": "Phase 15", "status": "waiting"}}
+    assert env.reopen_plan(bugrev, "Phase 8")[2] == ["Verified", "Manual verification"]
     assert {s["key"]: s.get("reworkTo") for s in env.FLOWS["flows"]["spec"]["stages"]}["Review"] == "Implement"
     # a waiting gate needs an .html sdd-visual ref, or --no-visual with a reason
     import argparse, contextlib, io
@@ -157,28 +174,28 @@ def main():
         from sddlib import load_config as lc
         cfg = lc(root)
         pk = env.phase_key
-        assert pk("bug", "Phase 10 — Pull request") == "Phase 10" and pk("bug", "Phase 9a") == "Phase 9a"
-        assert pk("bug", "Phase 1 — Pick") == "Phase 1" and pk("spec", "Implement (task 3/7)") == "Implement"
-        assert env.check_op(root, cfg, 5, "phase", "bug", "Phase 0")[0]            # nothing needed, no folder yet
-        assert not env.check_op(root, cfg, 5, "phase", "bug", "Phase 6")[0]        # no folder, needs Approval
-        assert not env.check_op(root, cfg, 5, "phase", None, "Phase 0")[0]         # flow unknown
+        assert pk("bug", "Phase 12 — Pull request") == "Phase 12" and pk("bug", "Phase 11") == "Phase 11"
+        assert pk("bug", "Phase 2 — Pick") == "Phase 2" and pk("spec", "Implement (task 3/7)") == "Implement"
+        assert env.check_op(root, cfg, 5, "phase", "bug", "Phase 1")[0]            # nothing needed, no folder yet
+        assert not env.check_op(root, cfg, 5, "phase", "bug", "Phase 7")[0]        # no folder, needs Approval
+        assert not env.check_op(root, cfg, 5, "phase", None, "Phase 1")[0]         # flow unknown
         wdir = root / ".claude/worktrees/5-x"
         wdir.mkdir(parents=True)
-        early = {f"Phase {n}": {"at": "t", "status": "done"} for n in range(5)}
+        early = {f"Phase {n}": {"at": "t", "status": "done"} for n in range(1, 6)}
         rec = {"id": 5, "flow": "bug", "repos": {}, "gates": {"Claimed": "t"},
-              "stages": {**early, "Phase 5": {"at": "t", "status": "worked"}},
-              "progress": {"flow": "bug", "phase": "Phase 5", "status": "waiting"}}
+              "stages": {**early, "Phase 6": {"at": "t", "status": "worked"}},
+              "progress": {"flow": "bug", "phase": "Phase 6", "status": "waiting"}}
         (wdir / "workitem.json").write_text(json.dumps(rec))
-        ok, why, _ = env.check_op(root, cfg, 5, "phase", None, "Phase 7 — Apply the fix")
+        ok, why, _ = env.check_op(root, cfg, 5, "phase", None, "Phase 8 — Apply the fix")
         assert not ok and any("Approval" in w for w in why) and any("Red test" in w for w in why)
         rec["gates"].update({"Approval": "t", "Red test": "t"})
         (wdir / "workitem.json").write_text(json.dumps(rec))
-        ok, why, _ = env.check_op(root, cfg, 5, "phase", None, "Phase 7")
-        assert not ok and any("Phase 6 was never worked" in w for w in why), why  # no jumping past a stage
-        rec["stages"]["Phase 6"] = {"at": "t", "status": "done"}
+        ok, why, _ = env.check_op(root, cfg, 5, "phase", None, "Phase 8")
+        assert not ok and any("Phase 7 was never worked" in w for w in why), why  # no jumping past a stage
+        rec["stages"]["Phase 7"] = {"at": "t", "status": "done"}
         (wdir / "workitem.json").write_text(json.dumps(rec))
-        assert env.check_op(root, cfg, 5, "phase", None, "Phase 7")[0]
-        assert not env.check_op(root, cfg, 5, "phase", None, "Phase 3")[0]         # derived Worktree missing
+        assert env.check_op(root, cfg, 5, "phase", None, "Phase 8")[0]
+        assert not env.check_op(root, cfg, 5, "phase", None, "Phase 4")[0]         # derived Worktree missing
 
         # progress: a stage is never skipped silently, only with the user's recorded yes
         import argparse as _ap, contextlib, io
@@ -200,21 +217,21 @@ def main():
                 return err.getvalue()
             raise AssertionError("progress should have refused")
 
-        msg = refused("Phase 9a — Manual verification")  # the 93347 jump
-        assert "Phase 7, Phase 8, Phase 9 were never worked" in msg, msg
-        assert "--confirmed" in refused("Phase 7", "skipped")                              # skip needs the user's yes
-        assert "unknown bug stage" in refused("Phase 99")
-        got = progress("Phase 7 — Apply the fix")
-        assert got["stages"]["Phase 7"]["status"] == "worked"
-        got = progress("Phase 8 — Verify", "skipped", confirmed="yes, skip it")
-        assert got["stages"]["Phase 7"]["status"] == "done"                               # moving on finishes it
-        assert got["stages"]["Phase 8"] == {"at": got["stages"]["Phase 8"]["at"], "status": "skipped",
+        msg = refused("Phase 11 — Manual verification")  # the 93347 jump
+        assert "Phase 8, Phase 9, Phase 10 were never worked" in msg, msg
+        assert "--confirmed" in refused("Phase 8", "skipped")                              # skip needs the user's yes
+        assert "unknown bug stage" in refused("Phase 101")
+        got = progress("Phase 8 — Apply the fix")
+        assert got["stages"]["Phase 8"]["status"] == "worked"
+        got = progress("Phase 9 — Verify", "skipped", confirmed="yes, skip it")
+        assert got["stages"]["Phase 8"]["status"] == "done"                               # moving on finishes it
+        assert got["stages"]["Phase 9"] == {"at": got["stages"]["Phase 9"]["at"], "status": "skipped",
                                             "confirmed": "yes, skip it"}
-        progress("Phase 9 — Commit and push")
-        got = progress("Phase 4 — Prove the root cause")                                   # going back
-        assert "Phase 7" not in got["stages"] and "Phase 9" not in got["stages"]          # later stages are redone
-        assert "Phase 5" in refused("Phase 6")
-        assert not env.check_op(root, cfg, 5, "phase", None, "Phase 99")[0]        # unknown phase
+        progress("Phase 10 — Commit and push")
+        got = progress("Phase 5 — Prove the root cause")                                   # going back
+        assert "Phase 8" not in got["stages"] and "Phase 10" not in got["stages"]          # later stages are redone
+        assert "Phase 6" in refused("Phase 7")
+        assert not env.check_op(root, cfg, 5, "phase", None, "Phase 101")[0]        # unknown phase
 
         # /sdd done after close-out: status "done" must not block the clean-up (ADO and PRs faked)
         pr_state = {"status": "completed"}
@@ -224,14 +241,14 @@ def main():
         ddir.mkdir(parents=True)
         drec = {"id": 6, "flow": "bug", "gates": {"Claimed": "t"},
                 "repos": {"app": {"path": "app", "source": "app", "branch": "bug/6", "base": "main", "pr": {"id": 1, "url": "pr/1"}}},
-                "progress": {"flow": "bug", "phase": "Phase 11 — Write back to the work item", "status": "done"},
-                "history": [{"at": "t", "phase": p} for p in ("Phase 0", "Phase 1", "Phase 2", "Phase 5", "Phase 6",
-                                                               "Phase 7", "Phase 8", "Phase 9a", "Phase 10", "Phase 11")]}
+                "progress": {"flow": "bug", "phase": "Phase 13 — Write back to the work item", "status": "done"},
+                "history": [{"at": "t", "phase": p} for p in ("Phase 1", "Phase 2", "Phase 3", "Phase 6", "Phase 7",
+                                                               "Phase 8", "Phase 9", "Phase 11", "Phase 12", "Phase 13")]}
         (ddir / "workitem.json").write_text(json.dumps(drec))
         ok, why, _ = env.check_op(root, cfg, 6, "done")                             # 93347: stages left out
-        assert not ok and any("Phase 3, Phase 4, Phase 9, Phase 12, Phase 13" in w for w in why), why
+        assert not ok and any("Phase 4, Phase 5, Phase 10, Phase 14, Phase 15" in w for w in why), why
         drec["stages"] = {k: {"at": "t", "status": "done"} for k in env.BUG_PHASES}
-        drec["stages"]["Phase 12"] = {"at": "t", "status": "skipped", "confirmed": "skip it"}
+        drec["stages"]["Phase 14"] = {"at": "t", "status": "skipped", "confirmed": "skip it"}
         (ddir / "workitem.json").write_text(json.dumps(drec))
         ok, why, _ = env.check_op(root, cfg, 6, "done")
         assert ok, why
@@ -240,7 +257,7 @@ def main():
             env.cmd_remove(_ap.Namespace(id=6, abandon=False, yes=False))
         assert "will remove" in out.getvalue() and ddir.name in out.getvalue() and "dry run" in out.getvalue() and ddir.is_dir(), out.getvalue()
         assert not env.check_op(root, cfg, 6, "resume")[0]                          # resume still refused
-        assert not env.check_op(root, cfg, 6, "phase", None, "Phase 7")[0]          # phase still refused
+        assert not env.check_op(root, cfg, 6, "phase", None, "Phase 8")[0]          # phase still refused
         assert v(None, drec, [{"pr_live": pr_state}]) == "PRs merged — run /sdd done to clean up"
         assert v(None, drec, []) == "closed out — run /sdd done to clean up"
         pr_state["status"] = "active"
@@ -263,7 +280,7 @@ def main():
         assert env.count_questions("- [ ] Q1\n- [x] Q2 - answered\n* [ ] Q3\nplain") == (2, 3)
         qdir = root / ".claude/worktrees/9-asks"
         qdir.mkdir(parents=True)
-        qrec = {"id": 9, "flow": "spec", "repos": {}, "gates": {"Claimed": "t"}, "stages": {"Specify": {"at": "t", "status": "done"}},
+        qrec = {"id": 9, "flow": "spec", "path": "full", "repos": {}, "gates": {"Claimed": "t"}, "stages": {"Specify": {"at": "t", "status": "done"}},
                 "progress": {"flow": "spec", "phase": "Specify", "status": "active"}}
 
         def spec_progress(phase, status="active", **kw):
@@ -317,7 +334,189 @@ def main():
         ok, why, _ = env.check_op(root, cfg, 9, "phase", "spec", "Review")
         assert not ok and "the flow is done" in why, why                                   # the last stage done: flow over
         os.chdir(Path(__file__).parent)
+    stage_docs()
+    short_path()
+    config_upgrade()
+    output_style()
+    ado_writes()
     print("ok")
+
+
+def ado_writes():
+    """adowrite: the claim, hand-over and sprint decisions, the mention check, the rev-tested retry."""
+    me = "me@x.co"
+    mine = {"displayName": "Me", "uniqueName": "Me@X.co"}
+    ops = lambda o: {x["path"].split("/")[-1]: x["value"] for x in o}
+    # claim: unassigned -> all three; mine and started -> nothing; someone else's / resolved -> stop
+    assert ops(adowrite.claim_ops({"System.State": "New"}, me)) == {
+        "System.AssignedTo": me, "System.State": "Active", "Custom.BoardColumnTitle": "Dev In Progress"}
+    assert adowrite.claim_ops({"System.AssignedTo": mine, "System.State": "Active",
+                               "Custom.BoardColumnTitle": "Dev In Progress"}, me) == []
+    assert ops(adowrite.claim_ops({"System.AssignedTo": "Me <me@x.co>", "System.State": "New"}, me)) == {
+        "System.State": "Active", "Custom.BoardColumnTitle": "Dev In Progress"}
+    for fields, word in (({"System.AssignedTo": {"displayName": "Ann", "uniqueName": "ann@x.co"}}, "Ann"),
+                         ({"System.State": "Resolved"}, "--reopen")):
+        try:
+            adowrite.claim_ops(fields, me)
+            raise AssertionError(f"claim went ahead on {fields}")
+        except adowrite.Refused as e:
+            assert word in str(e), e
+    assert ops(adowrite.claim_ops({"System.State": "Closed"}, me, reopen=True))["System.State"] == "Active"
+    ann = {"displayName": "Ann", "uniqueName": "ann@x.co"}
+    for busy in ({"System.State": "Active"}, {"System.State": "New", "Custom.BoardColumnTitle": "dev in progress"}):
+        try:                                                     # someone's work in progress: never, --take or not
+            adowrite.claim_ops({"System.AssignedTo": ann, **busy}, me, take=True)
+            raise AssertionError(f"took Ann's work in progress: {busy}")
+        except adowrite.Refused as e:
+            assert "working on it" in str(e), e
+    try:                                                         # on Ann's name, not started: only with --take
+        adowrite.claim_ops({"System.AssignedTo": ann, "System.State": "New"}, me)
+        raise AssertionError("took Ann's item without --take")
+    except adowrite.Refused as e:
+        assert "--take" in str(e), e
+    assert ops(adowrite.claim_ops({"System.AssignedTo": ann, "System.State": "New"}, me, take=True)) == {
+        "System.AssignedTo": me, "System.State": "Active", "Custom.BoardColumnTitle": "Dev In Progress"}
+    assert "System.AssignedTo" not in ops(adowrite.claim_ops({"System.AssignedTo": mine, "System.State": "New"}, me))
+    # hand-over: an Issue needs both texts; tags are appended; a mention is refused
+    try:
+        adowrite.handover_ops({"System.WorkItemType": "Issue"})
+        raise AssertionError("an Issue handed over without its root cause")
+    except adowrite.Refused:
+        pass
+    got = ops(adowrite.handover_ops({"System.WorkItemType": "User Story", "System.Tags": "a; b"}, tag="2.4"))
+    assert got == {"Custom.BoardColumnTitle": "Dev Completed", "System.State": "Resolved", "System.Tags": "a; b; 2.4"}
+    assert "System.Tags" not in ops(adowrite.handover_ops({"System.WorkItemType": "Bug", "System.Tags": "2.4"}, tag="2.4"))
+    try:
+        adowrite.handover_ops({"System.WorkItemType": "Bug"}, root_cause_details="<div>see #80459</div>")
+        raise AssertionError("a #mention went through")
+    except adowrite.Refused as e:
+        assert "ADO 80459" in str(e)
+    assert adowrite.mentions("AB#80459 &#8217; url/#123 ADO 80459") == [] and adowrite.mentions("(#80459)") == ["#80459"]
+    # the sprint: the iteration whose dates hold today, the shortest range, path without "Iteration"
+    from datetime import date
+    tree = {"path": "\\P\\Iteration", "children": [
+        {"path": "\\P\\Iteration\\2026", "attributes": {"startDate": "2026-01-01T00:00:00Z", "finishDate": "2026-12-31T00:00:00Z"},
+         "children": [{"path": "\\P\\Iteration\\2026\\Sprint 20",
+                       "attributes": {"startDate": "2026-10-05T00:00:00Z", "finishDate": "2026-10-16T00:00:00Z"}}]}]}
+    assert adowrite.pick_iteration(tree, date(2026, 10, 10)) == "P\\2026\\Sprint 20"
+    assert adowrite.pick_iteration(tree, date(2026, 11, 1)) == "P\\2026"
+    assert adowrite.pick_iteration(tree, date(2027, 1, 1)) is None
+    assert adowrite.iteration_ops({"System.IterationPath": "P\\2026"}, "P\\2026") == []
+    # the write: the rev test leads every patch; a 412 means read again, decide again, retry
+    reads, sent = [{"id": 5, "rev": 7, "fields": {"System.State": "New"}},
+                   {"id": 5, "rev": 8, "fields": {"System.State": "New", "System.AssignedTo": mine}}], []
+
+    def fake_ado(method, url, body=None, content_type=None):
+        sent.append(body)
+        if len(sent) == 1:
+            raise RuntimeError(f"ADO {method} {url} -> HTTP 412: rev mismatch")
+    real = adowrite.ado, adowrite.get_items, adowrite.org_url
+    adowrite.ado, adowrite.org_url = fake_ado, lambda cfg: "https://dev.azure.com/o"
+    adowrite.get_items = lambda cfg, ids, fields=None: [reads.pop(0)]
+    try:
+        w, done = adowrite.write({}, 5, lambda f: adowrite.claim_ops(f, me))
+    finally:
+        adowrite.ado, adowrite.get_items, adowrite.org_url = real
+    assert sent[0][0] == {"op": "test", "path": "/rev", "value": 7} and sent[1][0]["value"] == 8
+    assert "System.AssignedTo" not in ops(done)               # the second read showed it was mine already
+
+
+def output_style():
+    """The ELI5 style: written to the global output-styles folder and set once in settings.json."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        home = Path(tmp)
+        os.environ["CLAUDE_CONFIG_DIR"] = tmp
+        try:
+            style, settings = home / "output-styles" / "ELI5.md", home / "settings.json"
+            text = sddlib.STYLE_SRC.read_text(encoding="utf-8")
+            assert "\nname: ELI5\n" in text.split("---")[1]                 # file named after its name field
+            changed, notes = sddlib.install_output_style()                  # fresh: folder, file, settings
+            assert changed == [style, settings] and not notes
+            assert style.read_text(encoding="utf-8") == text
+            assert json.loads(settings.read_text()) == {"outputStyle": "ELI5"}
+            assert sddlib.install_output_style() == ([], [])                # nothing to do the second time
+            settings.write_text(json.dumps({"model": "opus", "outputStyle": "Explanatory"}))
+            assert sddlib.install_output_style() == ([], [])                # the person's later pick stays
+            assert json.loads(settings.read_text()) == {"model": "opus", "outputStyle": "Explanatory"}
+            assert sddlib.install_output_style(force=True)[0] == [settings]  # env.py init sets it again
+            assert json.loads(settings.read_text()) == {"model": "opus", "outputStyle": "ELI5"}
+            style.write_text("my own words", encoding="utf-8")              # an edited style file stays
+            changed, notes = sddlib.install_output_style()
+            assert changed == [] and "kept your version" in notes[0]
+            assert style.read_text(encoding="utf-8") == "my own words"
+            state = home / "sdd" / "state.json"                             # an unedited old copy updates
+            old = "---\nname: ELI5\n---\nold words\n"
+            style.write_text(old, encoding="utf-8")
+            st = json.loads(state.read_text())
+            state.write_text(json.dumps({**st, "styleHash": sddlib._sha(old)}))
+            assert sddlib.install_output_style()[0] == [style] and style.read_text(encoding="utf-8") == text
+            settings.write_text('{"a": 1,')                                  # broken JSON is never written
+            state.unlink()
+            changed, notes = sddlib.install_output_style()
+            assert settings.read_text() == '{"a": 1,' and "not valid JSON" in notes[0]
+        finally:
+            del os.environ["CLAUDE_CONFIG_DIR"]
+
+
+def short_path():
+    """The spec flow's short path lifts Design agreed from Decompose, and only that."""
+    full = env.stage_needs("spec", {"path": "full"}, "Decompose")
+    short = env.stage_needs("spec", {"path": "short"}, "Decompose")
+    assert "Design agreed" in full and "Design agreed" not in short and set(full) - set(short) == {"Design agreed"}
+    assert env.stage_needs("spec", {"path": "short"}, "Implement") == env.stage_needs("spec", {"path": "full"}, "Implement")
+    assert "Design agreed" in env.stage_needs("spec", {"path": "short"}, "Implement")
+    assert env.flow_path("spec", {}) is None and env.flow_path("bug", {}) is None
+    assert env.flow_path("spec", {"gates": {"Design agreed": "t"}}) == "full"      # started before paths existed
+
+
+def stage_docs():
+    """Every stage names its own file, the file exists, and starts with the stage's heading."""
+    plugin = Path(__file__).resolve().parent.parent
+    for flow, f in env.FLOWS["flows"].items():
+        for st in f["stages"]:
+            doc = env.stage_doc(flow, st["key"])
+            assert doc and Path(doc).is_file(), (flow, st["key"], doc)
+            first = Path(doc).read_text(encoding="utf-8").split("\n", 1)[0]
+            assert first.startswith("# ") and (st["key"] in first or st["key"].split()[-1] in first), (doc, first)
+            assert str(plugin) in doc
+    assert env.stage_doc("bug", "Phase 9 — Verify").endswith("09-verify.md")
+    assert env.stage_doc("spec", "Implement (task 3/7)").endswith("implement.md")
+    assert env.stage_doc("bug", "Phase 99") is None
+
+
+def config_upgrade():
+    """agents.models: defaults in load_config, written into an existing sdd.json by upgrade-config."""
+    plugin = Path(__file__).resolve().parent.parent
+    for name, model in sddlib.DEFAULTS["agents"]["models"].items():  # the agent file's own default agrees
+        head = (plugin / "agents" / f"{name}.md").read_text(encoding="utf-8").split("---")[1]
+        assert f"\nmodel: {model}\n" in head, (name, model)
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        root = Path(tmp)
+        (root / ".claude").mkdir()
+        path = root / ".claude" / "sdd.json"
+        before = {"specRoot": "docs/spec", "ado": {"org": "Org", "projects": ["P"]}}
+        path.write_text(json.dumps(before))
+        assert sddlib.load_config(root)["agents"]["models"] == {"investigator": "sonnet", "skeptic": "opus"}
+        assert sddlib.upgrade_config(root) == ["agents.models.investigator", "agents.models.skeptic"] + ["next.weights.priority", "next.weights.severity", "next.weights.complexity", "next.complexity"]
+        got = json.loads(path.read_text())
+        assert got["agents"] == {"models": {"investigator": "sonnet", "skeptic": "opus"}}
+        assert got["next"] == {"weights": {"priority": 50, "severity": 30, "complexity": 20}, "complexity": "complex-first"}
+        assert {k: got[k] for k in before} == before                    # nothing else written or changed
+        assert "view" not in got
+        assert sddlib.upgrade_config(root) == []                         # second run: nothing to do
+        path.write_text(json.dumps({**before, "agents": {"models": {"skeptic": "sonnet"}, "x": 1},
+                                    "next": {"weights": {"priority": 70}, "complexity": "simple-first"}}))
+        assert sddlib.upgrade_config(root) == ["agents.models.investigator", "next.weights.severity",
+                                               "next.weights.complexity"]
+        assert json.loads(path.read_text())["next"]["weights"]["priority"] == 70     # a tuned weight stays
+        assert sddlib.load_config(root)["next"]["complexity"] == "simple-first"
+        got = json.loads(path.read_text())
+        assert got["agents"] == {"models": {"skeptic": "sonnet", "investigator": "sonnet"}, "x": 1}  # set value kept
+        path.write_text(json.dumps({**before, "agents": "opus", "next": dict(sddlib.DEFAULTS["next"])}))
+        assert sddlib.upgrade_config(root) == [] and json.loads(path.read_text())["agents"] == "opus"
+        assert sddlib.load_config(root)["agents"]["models"]["skeptic"] == "opus"
+        path.write_text(json.dumps({**before, "agents": {"models": {"investigator": "gpt-4"}}}))
+        assert sddlib.bad_agent_models(sddlib.load_config(root)) == ["investigator=gpt-4"]
 
 
 if __name__ == "__main__":

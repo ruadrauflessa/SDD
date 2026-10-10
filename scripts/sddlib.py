@@ -3,6 +3,7 @@
 Every script finds the workspace by walking up from the current directory to the first
 folder holding .claude/sdd.json. Run `env.py init` once per workspace to create it.
 """
+import hashlib
 import json
 import os
 import re
@@ -37,7 +38,27 @@ DEFAULTS = {
         "line": "#5c6670",       # borders
         "hoverText": "#ffffff",  # the text of the line under the pointer (its icon turns a lighter shade)
     }},
+    # the model each sdd sub-agent runs on: passed as the Agent tool's `model` when a flow starts one
+    "agents": {"models": {"investigator": "sonnet", "skeptic": "opus"}},
+    # /sdd next: which item under an epic or feature to take next (scripts/nextpick.py)
+    "next": {
+        "weights": {"priority": 50, "severity": 30, "complexity": 20},  # the dev priority, 0-100
+        "complexity": "complex-first",          # or "simple-first": which way complexity pushes it
+        "types": [["Bug", "Issue"],             # this group first, then the next
+                  ["User Story", "Tech Story", "Change Request", "Product Backlog Item"]],
+        "inProgress": {"states": ["Active"], "boards": ["Dev In Progress"]},  # someone else's work
+        "pastDev": ["Dev Completed", "QA Deployed", "QA Testing Passed", "UAT Deployed"],
+    },
 }
+# What the Agent tool's `model` takes.
+AGENT_MODELS = ("sonnet", "opus", "haiku")
+# Keys written into an existing workspace's .claude/sdd.json when missing — by `env.py
+# upgrade-config`, which the plugin's SessionStart hook runs, so a plugin update reaches every
+# workspace on its next session. Settings a person should find in the file and change there.
+# A value already in the file is never changed.
+UPGRADE_KEYS = [("agents", "models", "investigator"), ("agents", "models", "skeptic"),
+                ("next", "weights", "priority"), ("next", "weights", "severity"), ("next", "weights", "complexity"),
+                ("next", "complexity")]
 
 TYPE_SEGMENT = {
     "User Story": "story", "Product Backlog Item": "story", "Change Request": "story",
@@ -77,7 +98,130 @@ def load_config(root):
     merged["embeddings"] = {**DEFAULTS["embeddings"], **cfg.get("embeddings", {})}
     view = cfg.get("view", {})
     merged["view"] = {**DEFAULTS["view"], **view, "colors": {**DEFAULTS["view"]["colors"], **view.get("colors", {})}}
+    agents = cfg.get("agents") if isinstance(cfg.get("agents"), dict) else {}
+    models = agents.get("models") if isinstance(agents.get("models"), dict) else {}
+    merged["agents"] = {**DEFAULTS["agents"], **agents, "models": {**DEFAULTS["agents"]["models"], **models}}
+    nxt = cfg.get("next") if isinstance(cfg.get("next"), dict) else {}
+    merged["next"] = {**DEFAULTS["next"], **nxt,
+                      "weights": {**DEFAULTS["next"]["weights"], **(nxt.get("weights") or {})},
+                      "inProgress": {**DEFAULTS["next"]["inProgress"], **(nxt.get("inProgress") or {})}}
     return merged
+
+
+def upgrade_config(root):
+    """Write each UPGRADE_KEYS default missing from the workspace's sdd.json into it. -> the keys
+    added, dotted. Never changes a value that is set, and leaves a non-object where an object
+    belongs alone: that is the person's to fix (doctor says so)."""
+    path = root / CONFIG_REL
+    cfg = json.loads(path.read_text(encoding="utf-8"))
+    added = []
+    for keys in UPGRADE_KEYS:
+        node, default = cfg, DEFAULTS
+        for k in keys[:-1]:
+            default = default[k]
+            if k not in node:
+                node[k] = {}
+            if not isinstance(node[k], dict):
+                break
+            node = node[k]
+        else:
+            if keys[-1] not in node:
+                node[keys[-1]] = default[keys[-1]]
+                added.append(".".join(keys))
+    if added:
+        path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+    return added
+
+
+# ---------------------------------------------------------------- output style (global)
+
+# The plugin's output style. Installed into the person's global output-styles folder (named after
+# its `name` field) and set as the global outputStyle — at the first session after the plugin is
+# installed or updated (env.py upgrade-config, the SessionStart hook) and by `env.py init`.
+STYLE_NAME = "ELI5"
+STYLE_SRC = Path(__file__).resolve().parent.parent / "assets" / "output-styles" / f"{STYLE_NAME}.md"
+
+
+def config_home():
+    """Claude Code's user config folder: CLAUDE_CONFIG_DIR when set, else ~/.claude."""
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+
+
+def _sha(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _write_atomic(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".sdd-tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def install_output_style(force=False):
+    """Make the plugin's output style the person's global one. -> (changed paths, notes).
+
+    The style file: written when missing, and replaced on a plugin update only while it still holds
+    the text the plugin wrote last time — a file the person edited stays theirs.
+    The setting: outputStyle in the global settings.json, the file created and the key added when
+    missing, every other key kept. Set once: a person who picks another style afterwards keeps it,
+    unless `force` (env.py init, an explicit setup). A settings file that is not valid JSON is never
+    written; a note says so."""
+    home = config_home()
+    state_path = home / "sdd" / "state.json"
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        state = {}
+    before = dict(state)
+    changed, notes = [], []
+
+    text = STYLE_SRC.read_text(encoding="utf-8")
+    dest = home / "output-styles" / f"{STYLE_NAME}.md"
+    try:
+        have = dest.read_text(encoding="utf-8")
+    except OSError:
+        have = None
+    if have is None or (have != text and _sha(have) == state.get("styleHash")):
+        _write_atomic(dest, text)
+        changed.append(dest)
+    elif have != text:
+        notes.append(f"{dest} differs from the plugin's {STYLE_NAME} style; kept your version")
+    if have is None or have == text or _sha(have) == state.get("styleHash"):
+        state["styleHash"] = _sha(text)
+
+    settings_path = home / "settings.json"
+    try:
+        raw = settings_path.read_text(encoding="utf-8")
+        settings = json.loads(raw) if raw.strip() else {}
+    except FileNotFoundError:
+        settings = {}
+    except (OSError, ValueError) as e:
+        settings = None
+        notes.append(f"{settings_path} is not valid JSON ({e}); outputStyle not set")
+    if isinstance(settings, dict):
+        cur = settings.get("outputStyle")
+        if cur != STYLE_NAME and (force or not state.get("outputStyleSet")):
+            settings["outputStyle"] = STYLE_NAME
+            _write_atomic(settings_path, json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
+            changed.append(settings_path)
+            state["outputStyleWas"] = cur
+        if settings.get("outputStyle") == STYLE_NAME:
+            state["outputStyleSet"] = True
+    elif settings is not None:
+        notes.append(f"{settings_path} is not a JSON object; outputStyle not set")
+
+    if state != before:
+        try:
+            _write_atomic(state_path, json.dumps(state, indent=2) + "\n")
+        except OSError:
+            pass
+    return changed, notes
+
+
+def bad_agent_models(cfg):
+    """agents.models entries the Agent tool would not take, as 'name=value'."""
+    return [f"{k}={v}" for k, v in cfg["agents"]["models"].items() if v not in AGENT_MODELS]
 
 
 def slug(text, limit=48):
@@ -175,6 +319,9 @@ def token():
 
 
 def ado(method, url, body=None, content_type="application/json"):
+    import fakeado  # an offline stand-in, only when SDD_FAKE_ADO names a world file (evals, tests)
+    if fakeado.active():
+        return fakeado.request(method, url, body)
     data = None if body is None else json.dumps(body).encode("utf-8")
     req = urllib.request.Request(url, data=data, method=method, headers={
         "Authorization": f"Bearer {token()}", "Content-Type": content_type,
@@ -231,8 +378,39 @@ def find_env(root, cfg, wid):
     return hits[0] if hits else None
 
 
+# The bug flow was numbered Phase 0 … Phase 13 with a Phase 9a; it is now Phase 1 … Phase 15.
+OLD_BUG_PHASE = re.compile(r"^(\s*Phase\s+)(\d+a?)\b", re.I)
+
+
+def _old_bug_number(n):
+    n = n.lower()
+    return "11" if n == "9a" else str(int(n) + 1 if int(n) <= 9 else int(n) + 2)
+
+
+def renumber_bug_phases(data):
+    """A work item record written under the old bug numbering, moved to the new one in place.
+    Old records always hold a Phase 0 stage (every later stage needs it worked or skipped first),
+    and the new numbering never writes one, so that is the tell. Free-text notes keep what they said."""
+    rows = [data.get("progress") or {}] + list(data.get("history") or [])
+    phases = list((data.get("stages") or {})) + [r.get("phase") or "" for r in rows]
+    if not any(re.match(r"^\s*Phase\s+(0|9a)\b", p, re.I) for p in phases):
+        return data
+    fix = lambda p: OLD_BUG_PHASE.sub(lambda m: m.group(1) + _old_bug_number(m.group(2)), p or "")
+    if data.get("stages") is not None:
+        data["stages"] = {fix(k): v for k, v in data["stages"].items()}
+    for r in rows:
+        if r.get("phase"):
+            r["phase"] = fix(r["phase"])
+    return data
+
+
+def read_record(path):
+    """A workitem.json, or a removed item's .done/<id>.json, in the current bug numbering."""
+    return renumber_bug_phases(json.loads(Path(path).read_text(encoding="utf-8")))
+
+
 def read_env(env_dir):
-    return json.loads((env_dir / "workitem.json").read_text(encoding="utf-8"))
+    return read_record(env_dir / "workitem.json")
 
 
 def write_env(env_dir, data):

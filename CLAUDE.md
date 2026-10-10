@@ -1,0 +1,65 @@
+# sdd plugin — working on this repo
+
+A Claude Code plugin: spec-driven development on Azure DevOps work items. The skills are read by
+an agent at run time, the scripts do the mechanics, the hooks enforce the rules. `README.md` has
+the user's view; this file is for working on the plugin itself.
+
+## Versioning
+
+- Bump the plugin version in `.claude-plugin/plugin.json` only when raising a PR, as part of that PR.
+  Never bump it with an ordinary change or commit.
+
+## Where things live
+
+| Path | What |
+| --- | --- |
+| `skills/sdd/` | The `/sdd` router, `HELP.md`, and `references/flow-rules.md` — the rules both flows share (Abandon, Decision briefs, checkpoints, stage guards, proof runs, resuming, sub-agents). Change a shared rule there, once |
+| `skills/bug/`, `skills/spec/` | Each flow: `SKILL.md` is the outline (rules, gates, stage index); each stage's steps are in `phases/NN-*.md` / `modes/*.md` |
+| `skills/next/`, `sync/`, `impact/`, `harness/`, `visual/`, `workspace/` | The other skills. `visual/` is a fork of visual-explainer (MIT) |
+| `scripts/flows.json` | **The source of truth for the flows**: stages, gates each stage needs and passes, stops, `doc` (the stage file `env.py can` prints), `proofs`, `paths`. Scripts, hooks and the view all read it |
+| `scripts/env.py` | Work item folders, worktrees, progress, gates, stage guards, proofs, PRs |
+| `scripts/spec.py` | The ADO mirror and index, impact, rev-tested ADO writes, `next`, metrics.json |
+| `scripts/sddlib.py` | Shared helpers, `DEFAULTS` for `.claude/sdd.json`, config upgrade, the output style install |
+| `scripts/adowrite.py`, `proof.py`, `nextpick.py`, `metrics.py` | ADO writes; recorded test runs; next-item rules; metrics.json — logic as plain functions, tested without ADO |
+| `scripts/fakeado.py` | Offline ADO for tests and evals: on when `SDD_FAKE_ADO` names a JSON world file |
+| `hooks/` | `question_guard.py`, `agent_guard.py`, `edit_guard.py`, and `register.tsx` + `view/model.ts` (the sdd view, a mod) |
+| `agents/` | `investigator` and `skeptic`, the read-only sub-agents |
+| `evals/` | `claude plugin eval` cases; `_fixtures/workspace.py` builds each case's workspace |
+| `assets/output-styles/ELI5.md` | The output style installed globally (kept outside `output-styles/` on purpose) |
+
+## Checks to run
+
+```
+python scripts/test_sdd.py
+python scripts/test_proof.py         # needs git; real worktrees in temp folders
+python scripts/test_fakeado.py       # the real commands against the offline ADO
+python scripts/check_evals.py        # needs PyYAML; checks the eval cases, runs nothing
+python hooks/test_question_guard.py
+python hooks/test_agent_guard.py
+python hooks/test_edit_guard.py
+claude plugin test .                 # the view (hooks/view.test.ts)
+claude plugin validate .             # the author warning is expected
+```
+
+All of them should pass before a commit. Never run `claude plugin eval` yourself: it needs the user
+to trust the plugin directory, and each case is a paid agent run. A full TypeScript check of
+`register.tsx` fails here (the mod types in `.claude-plugin/types` are generated on a dev machine);
+`model.ts` and `types/` check on their own.
+
+## Rules for changes
+
+- **Scripts are standard library only and must run on Python 3.9 and on Windows.** The users run
+  PowerShell on Windows: no shell-only paths, no 3.10+ syntax (`match`, `X | Y` types, a quote in an
+  f-string's `{}` that matches its own quotes).
+- **Mechanics go in a script, judgement in a skill.** If a rule can be checked, the script enforces
+  it (`env.py can`, `progress --passed`, `env.py pr`) rather than the skill text asking for it.
+- **ADO writes only through `adowrite.py`** (`spec.py claim | handover | sprint | comment`): every
+  patch is rev-tested. Never a `#<id>` in text ADO stores — it posts a mention; write `ADO <id>`.
+- **Renaming or renumbering a stage** touches `flows.json` (key, `doc`, `reworkTo`), the stage file,
+  the skills, `view.test.ts`, the tests, and old `workitem.json` records (see
+  `sddlib.renumber_bug_phases` for how the bug phases were migrated on read).
+- **New `sdd.json` keys** go in `sddlib.DEFAULTS` and the `load_config` merge; add them to
+  `UPGRADE_KEYS` when a person should find them in the file to tune.
+- **Skill text is for a tired reader**: short sentences, active voice, exact paths and commands.
+  A skill's `SKILL.md` stays an outline; stage detail goes in the stage's own file.
+- **The view never writes**: `register.tsx` reads `env.py view` and posts the user's messages.

@@ -15,6 +15,13 @@ a git worktree per work item, an ADO spec mirror, impact analysis and visual pag
 Then, in each workspace (the folder above your repos), run `/sdd init` once. It checks Python 3, Node,
 git, the Azure CLI login and the rest, and writes `.claude/sdd.json`.
 
+The plugin also installs the **ELI5** output style (plain, short replies in ASD-STE100 Simplified
+Technical English) as your global style: `~/.claude/output-styles/ELI5.md`, and `"outputStyle": "ELI5"`
+in `~/.claude/settings.json`. It does this at the first session after the plugin is installed or
+updated, and on `/sdd init`. Restart Claude Code to see it. It sets the style once: pick another in
+`/config` and the plugin leaves your choice alone (`/sdd init` sets it again). A style file you edit
+is kept; an unedited one is updated with the plugin.
+
 Needs: Python 3.9+, Node 18+, git, the Azure CLI (`az login`). Optional: graphify (code graphs),
 pandoc, Ollama (meaning search).
 
@@ -26,7 +33,9 @@ pandoc, Ollama (meaning search).
 
 | You type | What happens |
 | --- | --- |
+| `/sdd next <epic or feature id> [version]` | Syncs the epic or feature from ADO, then ranks what to take next under it: items with your version that nobody is working on, blocked ones judged from the requirements, bugs and issues first, then a dev priority from priority, severity and complexity |
 | `/sdd <id>` | Starts or resumes the work item, in the bug or spec flow by its type |
+| `/sdd <id> short` / `full` | A spec item on the short path (one stop approves design and tasks together) or the full one; without it, the flow asks |
 | `/sdd help` | A short tour |
 | `/sdd status <id>` | Where the item stands |
 | `/sdd <id> feedback <stage>: <text>` | Back to a done or waiting stage with your feedback |
@@ -34,9 +43,13 @@ pandoc, Ollama (meaning search).
 
 The sdd view opens by itself the first time a chat takes up a work item. In it:
 
+- the header tags the flow and, for the spec flow, the path: `[Spec flow] [short path]`, or
+  `[path not chosen]` while the flow still has to ask (`[Bug flow]` for a bug);
 - each stage opens to its **Stage log**, its **gates** (what you were asked, what you answered, what
   was revoked), its documents and a **Give feedback** box;
-- the review stage (spec: Review, bug: Phase 13) has **Approved**, **Merged** and **Rejected**;
+- the band above the prompt shows the same tag (`[spec · short]`) for as long as the chat's work item
+  is in progress, and turns amber when it waits on you;
+- the review stage (spec: Review, bug: Phase 15) has **Approved**, **Merged** and **Rejected**;
 - a worktree opens in File Explorer or VS Code from its box.
 
 ## Configure (`.claude/sdd.json`)
@@ -48,15 +61,23 @@ The sdd view opens by itself the first time a chat takes up a work item. In it:
 }
 ```
 
-`skills/workspace/SKILL.md` lists every key.
+```json
+"agents": { "models": { "investigator": "sonnet", "skeptic": "opus" } }
+```
+
+`agents.models` picks the model of each sub-agent (`sonnet`, `opus` or `haiku`). A workspace without
+it gets these defaults written into its `sdd.json` at the first session after the plugin updates;
+values already set are kept. `skills/workspace/SKILL.md` lists every key.
 
 ## Layout
 
 | Path | What |
 | --- | --- |
-| `skills/` | `sdd` (entry), `spec`, `bug`, `sync`, `impact`, `harness`, `visual`, `workspace` |
-| `scripts/` | `env.py` (work item folders, state guards, progress), `spec.py` (ADO mirror, impact), `flows.json` (the stages of each flow) |
-| `hooks/` | `hooks.json`, `question_guard.py` (links before every question), `register.tsx` + `view/` (the sdd view) |
+| `skills/` | `sdd` (entry; `references/flow-rules.md` holds the rules both flows share), `spec` (outline + `modes/`), `bug` (outline + `phases/`), `next` (what to take next), `sync`, `impact`, `harness`, `visual`, `workspace` |
+| `agents/` | `investigator` (read-only code search) and `skeptic` (independent review of a root cause, a test or a design), used by the bug and spec flows; models from `agents.models` |
+| `scripts/` | `env.py` (work item folders, state guards, progress, config upgrades), `spec.py` (ADO mirror, impact, rev-tested writes: claim, handover, sprint, comment), `adowrite.py` (those writes), `proof.py` (recorded test runs that gates need), `nextpick.py` (the next-item rules), `metrics.py` (`.index/metrics.json`: every item's decision facts and what the last sync changed), `flows.json` (the stages of each flow) |
+| `hooks/` | `hooks.json`, `question_guard.py` (links before every question), `agent_guard.py` (keeps the sdd agents read-only: no git writes, no `env.py` / `spec.py` runs), `edit_guard.py` (no edits in the main checkout during a flow), `register.tsx` + `view/` (the sdd view) |
+| `assets/output-styles/` | `ELI5.md`, the output style the plugin installs globally |
 | `types/` | The view's state contract |
 
 ## Develop
@@ -64,8 +85,33 @@ The sdd view opens by itself the first time a chat takes up a work item. In it:
 ```
 python scripts/test_sdd.py
 python hooks/test_question_guard.py
+python hooks/test_agent_guard.py
+python hooks/test_edit_guard.py
+python scripts/test_proof.py
+python scripts/test_fakeado.py
+python scripts/check_evals.py
 claude plugin validate .
 claude plugin test .
 ```
 
 `skills/visual` is a fork of visual-explainer 0.11.0 (MIT, see `skills/visual/LICENSE`).
+
+### Evals
+
+`evals/` holds scenario tests that run the real flows with a model: a bug that contradicts its
+change request must stop at Gate 1; the regression test must fail on record before the fix; a spec
+item must ask full or short; a spec item started with `short` must record it and go on. Each case
+builds its own workspace (`evals/_fixtures/workspace.py`) and talks to an offline ADO
+(`scripts/fakeado.py`, switched on by `SDD_FAKE_ADO`), so no ADO login is needed and the graders
+can read what the flow wrote.
+
+```
+claude plugin eval . --runs 1 --scaffold --no-publish      # one run per case, to try it
+claude plugin eval . --scaffold --ablation with-without    # the full suite, with and without the plugin
+```
+
+`--scaffold` runs each case's `scaffold.sh`, and the first run asks you to trust this plugin
+directory. Each case is a full agent run, so a run costs real tokens: run the suite before a
+release, not on every commit. `python scripts/check_evals.py` checks the case files without
+running anything.
+

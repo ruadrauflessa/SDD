@@ -64,7 +64,7 @@ All of it runs **inside the worktree** (`<workspace root>\.claude\worktrees\{id}
 never in the main checkout. A fresh worktree has no `bin/`/`obj/`, so the first run is a cold build — don't
 pass `--no-build` until something has been built at least once.
 
-### 1. Red (Phase 6, before the fix)
+### 1. Red (Phase 7, before the fix)
 
 ```bash
 dotnet test <solution> --filter "FullyQualifiedName~<TestName>"
@@ -81,23 +81,25 @@ expected-vs-actual. These mean the test is broken, not the code, and must be fix
 
 Save the failure message verbatim. It goes in the PR.
 
-### 2. Green (Phase 8)
+### 2. Green (Phase 9)
 
 Same command after the fix. It must pass.
 
 ### 3. Revert-check — the one that catches tautologies
 
-Undo **only the source fix**, keeping the test, and re-run. The test must go red again.
+Undo **only the source fix**, keeping the test, and re-run. The test must go red again. One command
+does it and records the result:
 
 ```bash
-git stash push -- <changed source files>
-dotnet test <solution> --filter "FullyQualifiedName~<TestName>"   # must FAIL
-git stash pop
+python ${CLAUDE_PLUGIN_ROOT}/scripts/env.py revert-check --id <id> --fix <source file> [--fix ...] \
+  -- dotnet test <solution> --filter "FullyQualifiedName~<TestName>"
 ```
 
-Stash the *source* paths explicitly — `git stash` with no pathspec takes the test too and the check
-becomes meaningless. If the test still passes without the fix, it is not guarding the defect;
-rewrite it.
+Name the *source* files of the fix with `--fix`, never the test — a check that also reverts the test
+is meaningless. The script puts those files back to the base branch, runs the test (must FAIL),
+restores them byte for byte with fresh time stamps (so an incremental build cannot reuse the
+reverted build), and runs it again (must PASS). This works whether the fix is committed or not. If
+the test still passes without the fix, it is not guarding the defect; rewrite it.
 
 ## Flakiness
 

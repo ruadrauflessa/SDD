@@ -16,11 +16,33 @@ Deterministic: the same ADO state always produces the same files and index. No L
     impact --all [--scope N]             every item (or everything under N): impact.json each, plus one
                                          deduplicated pair list and a token estimate in impact-all.json
 
+Writes to ADO (rev-tested, retried on a conflict; adowrite.py; exit 3 = stop and ask the user):
+    claim    --id N [--id M ...] [--reopen] [--take]
+                                                 assign to you, Active, Dev In Progress; never someone's work in progress
+    handover --id N [--tag T] [--root-cause-details-file F --resolution-file F] [--root-cause V]
+                                                 Resolved + Dev Completed: the hand-over to QA
+    sprint   --id N [--id M ...] [--team T]      move to the current sprint
+    comment  --id N --file F                     post an HTML comment (refuses a `#<id>` mention)
+    (--dry-run on any of them prints the patch and writes nothing)
+
+Which item to take next (nextpick.py; read-only, from the index — sync the scope first):
+    next       --scope N --version V [--email E] [--json] [--no-sync]
+                                    syncs N first, then ranks the items under epic/feature N tagged V:
+                                    bugs and issues first, then by dev priority; plus what needs a
+                                    judgement first
+    next-judge --scope N --id M (--blocked yes|no | --complexity 1-5) --reason TEXT
+                                    record the agent's judgement; it holds while its evidence holds
+
+Every sync also writes {specRoot}/.index/metrics.json (metrics.py): every work item with its state,
+board, planning fields, versions, epic/feature chain, child counts, blockers and what it blocks, plus
+what this sync changed and what each change likely affects. `metrics` rebuilds it without a sync.
+
 Only the files sync writes are touched: requirements.md. design.md, tasks.md, questions.md and
 impact.* in a spec folder are never overwritten, and move with the folder on a reparent.
 """
 import argparse
 import array
+import contextlib
 import hashlib
 import html
 import json
@@ -37,6 +59,9 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import adowrite
+import metrics
+import nextpick
 from sddlib import die, get_items, load_config, org_url, require_root, slug, wiql
 
 SYNCED_BY = "sdd-spec-sync@1"
@@ -45,6 +70,30 @@ TEXT_FIELDS = [("System.Description", "Description"),
                ("Microsoft.VSTS.TCM.ReproSteps", "Repro steps")]
 MATERIAL = ["System.WorkItemType", "System.Title"] + [f for f, _ in TEXT_FIELDS]
 HIER_FWD = "System.LinkTypes.Hierarchy-Forward"
+# Planning fields: what a person (or the next-item skill) weighs to pick work. Incidental — a change
+# never blocks a flow. Process templates name some differently: each takes the first field present.
+PLANNING = {
+    "board": ["Custom.BoardColumnTitle"],                       # the team's real workflow column
+    "priority": ["Microsoft.VSTS.Common.Priority"],
+    "severity": ["Microsoft.VSTS.Common.Severity"],
+    "rank": ["Microsoft.VSTS.Common.StackRank", "Microsoft.VSTS.Common.BacklogPriority"],  # backlog order
+    "effort": ["Microsoft.VSTS.Scheduling.StoryPoints", "Microsoft.VSTS.Scheduling.Effort",
+               "Microsoft.VSTS.Scheduling.Size", "Microsoft.VSTS.Scheduling.OriginalEstimate"],
+    "target": ["Microsoft.VSTS.Scheduling.TargetDate", "Microsoft.VSTS.Scheduling.DueDate"],
+    "blocked": ["Microsoft.VSTS.CMMI.Blocked"],
+    "created": ["System.CreatedDate"],
+}
+PLANNING_LABELS = [("board", "Board column"), ("priority", "Priority"), ("severity", "Severity"),
+                   ("effort", "Effort"), ("target", "Target date"), ("blocked", "Blocked")]
+
+
+def planning(f):
+    """{column: value} of the planning fields, '' where the item has none of the field's names."""
+    out = {}
+    for col, names in PLANNING.items():
+        v = next((f[n] for n in names if f.get(n) not in (None, "")), "")
+        out[col] = v if isinstance(v, (int, float)) else str(v)
+    return out
 
 
 def now():
@@ -85,6 +134,12 @@ class Ctx:
         CREATE TABLE IF NOT EXISTS emb(id INTEGER PRIMARY KEY, hash TEXT, model TEXT, vec BLOB);
         CREATE TABLE IF NOT EXISTS scopes(root TEXT PRIMARY KEY, synced_at TEXT);
         """)
+        # columns added after an index was first built: add them in place; the next sync fills them
+        have = {r["name"] for r in self.db.execute("PRAGMA table_info(items)")}
+        for col in ["assigned_email", *PLANNING]:
+            if col not in have:
+                self.db.execute(f"ALTER TABLE items ADD COLUMN {col}")
+        self.db.commit()
 
     def item(self, wid):
         return self.db.execute("SELECT * FROM items WHERE id=?", (wid,)).fetchone()
@@ -272,12 +327,65 @@ def cmd_sync(a):
         print(f"  MISSING  {wid}: deleted in ADO, moved to a project you cannot read, or no access")
     if not a.no_embed:
         embed(ctx)
+    path = write_metrics(ctx, sync_changes(ctx, report), f"all:{','.join(all_projects)}" if all_projects and a.all
+                         else a.id or "refresh")
+    print(f"metrics: {path}")
+
+
+# ---------------------------------------------------------------- metrics.json
+
+def sync_changes(ctx, report):
+    """This sync's changes, each with what it likely affects — the script half of an impact analysis
+    (links two hops out, the five strongest shared-term matches). No model; sdd:impact judges on demand."""
+    at, out = now(), []
+    material = dict(report["material_detail"])
+    for kind in ("new", "material", "incidental", "missing"):
+        for wid in report[kind]:
+            r = ctx.item(wid)
+            d = report["diffs"].get(wid, {})
+            if kind == "incidental" and not d:
+                continue  # a comment or a field nobody tracks: rev moved, nothing to weigh
+            c = {"id": wid, "type": r["type"] if r else "", "title": r["title"] if r else "", "kind": kind,
+                 "at": at, "fields": material.get(wid, []), "diff": d, "affects": []}
+            if kind in ("new", "material") and r:
+                seen = {}
+                for x in links(ctx, wid, 2):
+                    seen.setdefault(x["id"], f"link: {x['rel']}" + (f" (via {x['via']})" if x["hops"] > 1 else ""))
+                for x in overlap(ctx, wid, top=5):
+                    seen.setdefault(x["id"], f"shared terms: {', '.join(x['terms'][:4])}")
+                c["affects"] = [{"id": i, "why": why} for i, why in seen.items()]
+            out.append(c)
+    return out
+
+
+def write_metrics(ctx, changes, scope, keep_changes=False):
+    path = ctx.spec / ".index" / "metrics.json"
+    prev = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    rows = {r["id"]: dict(r) for r in ctx.db.execute("SELECT * FROM items")}
+    lk = {}
+    for r in ctx.db.execute("SELECT src, dst, rel FROM links"):
+        lk.setdefault(r["src"], []).append((r["rel"], r["dst"]))
+    # `changes` is the delta of the last sync that changed something: a sync that found nothing new
+    # (next runs one every time) keeps the delta before it, with the time it was found
+    keep = keep_changes or not changes
+    out = metrics.build(rows, lk, prev.get("changes", []) if keep else changes, prev, ctx.cfg, scope)
+    out["changesAt"] = (prev.get("changesAt") or (prev.get("sync") or {}).get("at")) if keep else out["sync"]["at"]
+    if keep_changes and prev.get("sync"):
+        out["sync"] = prev["sync"]
+    path.write_text(json.dumps(out, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return path
+
+
+def cmd_metrics(a):
+    """Rebuild metrics.json from the index without a sync; the last sync's changes stay."""
+    ctx = Ctx()
+    print(f"wrote {write_metrics(ctx, [], None, keep_changes=True)}")
 
 
 def write_items(ctx, items, other=None):
     other = other or {}
     report = {k: [] for k in ("new", "material", "incidental", "unchanged", "missing")}
-    report["material_detail"], pending = [], {}
+    report["material_detail"], report["diffs"], pending = [], {}, {}
     frags = [w["fields"].get(f) or "" for w in items for f, _ in TEXT_FIELDS]
     md = to_markdown(frags)
     titles = {w["id"]: w["fields"]["System.Title"] for w in items}
@@ -307,8 +415,11 @@ def write_items(ctx, items, other=None):
             report["incidental"].append(w["id"])
         else:
             report["unchanged"].append(w["id"])
-        assigned = (f.get("System.AssignedTo") or {}).get("displayName", "") if isinstance(
-            f.get("System.AssignedTo"), dict) else str(f.get("System.AssignedTo") or "")
+        who = f.get("System.AssignedTo")
+        assigned = who.get("displayName", "") if isinstance(who, dict) else str(who or "")
+        m = re.search(r"<([^>]+)>", assigned)
+        email = (who.get("uniqueName", "") if isinstance(who, dict) else m.group(1) if m
+                 else assigned if "@" in assigned else "").lower()
         row = dict(id=w["id"], project=f["System.TeamProject"], type=f["System.WorkItemType"],
                    title=f["System.Title"], state=f["System.State"], area=f.get("System.AreaPath", ""),
                    iteration=f.get("System.IterationPath", ""), tags=f.get("System.Tags", ""),
@@ -316,7 +427,9 @@ def write_items(ctx, items, other=None):
                    fhash=json.dumps(fh, sort_keys=True), path=old["path"] if old else None,
                    removed=int(f["System.State"] == "Removed"), missing=0,
                    changed=f.get("System.ChangedDate", ""), synced_at=now(), body=body,
-                   other=json.dumps(extra, sort_keys=True))
+                   other=json.dumps(extra, sort_keys=True), assigned_email=email, **planning(f))
+        if old:
+            report["diffs"][w["id"]] = metrics.diff(old, row)
         ctx.db.execute(f"INSERT OR REPLACE INTO items({','.join(row)}) VALUES({','.join('?' * len(row))})",
                        list(row.values()))
         ctx.db.execute("DELETE FROM links WHERE src=?", (w["id"],))
@@ -342,8 +455,8 @@ def render(row):
     url = f"https://dev.azure.com/{row['_org']}/{row['project']}/_workitems/edit/{row['id']}"
     meta = [("Type", row["type"]), ("State", row["state"]), ("Project", row["project"]),
             ("Area", row["area"]), ("Iteration", row["iteration"]), ("Tags", row["tags"]),
-            ("Assigned to", row["assigned"])]
-    table = "\n".join(f"| {k} | {v} |" for k, v in meta if v)
+            ("Assigned to", row["assigned"])] + [(label, row.get(col)) for col, label in PLANNING_LABELS]
+    table = "\n".join(f"| {k} | {v} |" for k, v in meta if v not in (None, ""))
     return (f"---\nid: {row['id']}\ntype: {row['type']}\nproject: {row['project']}\nstate: {row['state']}\n"
             f"parent: {row['parent'] or ''}\nfields_hash: {row['hash']}\nsynced_by: {SYNCED_BY}\n"
             f"links:\n{links or '  []'}\n---\n\n"
@@ -520,6 +633,7 @@ def describe(ctx, wid):
     if not r:
         return {"id": wid, "synced": False}
     return {"id": wid, "type": r["type"], "state": r["state"], "title": r["title"], "project": r["project"],
+            "board": r["board"] or "", "priority": r["priority"], "assigned": r["assigned"] or "",
             "removed": bool(r["removed"]), "missing": bool(r["missing"]), "path": r["path"]}
 
 
@@ -720,6 +834,165 @@ def impact_all(ctx, a):
     print("        (a floor: each agent turn re-sends its growing context, so real use is often 3-5x this)")
     print(f"wrote {dest}")
 
+# ---------------------------------------------------------------- next
+
+def _next_state(ctx):
+    rows = {r["id"]: dict(r) for r in ctx.db.execute("SELECT * FROM items")}
+    links = {}
+    for r in ctx.db.execute("SELECT src, dst, rel FROM links"):
+        links.setdefault(r["src"], []).append((r["rel"], r["dst"]))
+    path = ctx.spec / ".index" / "next.json"
+    judged = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    return rows, links, path, judged
+
+
+def cmd_next(a):
+    if not a.no_sync:
+        # others claim items all day: rank from the scope as ADO has it now. A failed sync stops here
+        # rather than ranking from an old mirror. With --json its report goes to stderr.
+        with contextlib.redirect_stdout(sys.stderr if a.json else sys.stdout):
+            print(f"syncing {a.scope} first (--no-sync ranks from the last sync)")
+            cmd_sync(argparse.Namespace(id=a.scope, all=False, no_embed=True))
+            print()
+    ctx = Ctx()
+    if not ctx.item(a.scope):
+        die(f"{a.scope} is not synced. Run: spec.py sync --id {a.scope}")
+    me = a.email or adowrite.my_email() or die("no email: set git config user.email, or pass --email")
+    rows, links, _, judged = _next_state(ctx)
+    res = nextpick.plan(rows, links, a.scope, a.version, me, ctx.cfg["next"], ctx.cfg["doneStates"], judged)
+    if a.json:
+        print(json.dumps(res, indent=2))
+        return
+    s = rows[a.scope]
+    print(f"Next under {a.scope} {s['type']} — {s['title']}, version {a.version}, for {me}\n")
+    w = ctx.cfg["next"]["weights"]
+    print(f"Ready, best first (bugs and issues first; dev priority = priority {w['priority']} / severity "
+          f"{w['severity']} / complexity {w['complexity']}, {ctx.cfg['next']['complexity']}):")
+    for n, r in enumerate(res["ranked"], 1):
+        print(f"  {n:>2}. {r['id']:<7} {r['type']:<15} dev {r['devPriority']:>5}  P{r['priority'] or '-'} "
+              f"S{r['severity'] or '-'} C{r['complexity']} ({r['complexitySource']})  {r['title'][:60]}  [{r['note']}]")
+        if r.get("notBlocked"):
+            print(f"      not blocked: {r['notBlocked']}")
+    if not res["ranked"]:
+        print("  none")
+    if res["needs"]:
+        print("\nNeeds a judgement first (spec.py next-judge):")
+        for r in res["needs"]:
+            print(f"  {r['id']:<7} {r['type']:<15} {r['title'][:60]}")
+            if "blocked" in r["ask"]:
+                for e in r["evidence"]:
+                    print(f"      blocked? {e['kind']}: {e['id']} {e['title'][:50]} ({e['state']}"
+                          f"{', ' + e['board'] if e['board'] else ''}){'  …' + e['text'] + '…' if e['text'] else ''}")
+            if "complexity" in r["ask"]:
+                print("      complexity? no effort in ADO: estimate 1-5 from the requirement and the code")
+    if res["blocked"]:
+        print("\nBlocked:")
+        for r in res["blocked"]:
+            print(f"  {r['id']:<7} {r['type']:<15} {r['title'][:60]}\n      {r['reason']}")
+    if res["unavailable"]:
+        print("\nNot available:")
+        for r in res["unavailable"]:
+            print(f"  {r['id']:<7} {r['type']:<15} {r['title'][:50]} — {r['why']}")
+
+
+def cmd_next_judge(a):
+    ctx = Ctx()
+    rows, links, path, judged = _next_state(ctx)
+    r = rows.get(a.id) or die(f"{a.id} is not synced. Run: spec.py sync --id {a.scope}")
+    if not (a.reason or "").strip():
+        die("a judgement needs --reason: what you read that decided it")
+    j = judged.setdefault(str(a.id), {})
+    at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if a.blocked:
+        evs = nextpick.evidence(r, links.get(a.id, []), rows, ctx.cfg["doneStates"])
+        if not evs:
+            die(f"{a.id} has no blocking evidence to judge: nothing to record")
+        j["blocked"] = {"value": a.blocked == "yes", "reason": a.reason.strip(), "key": nextpick.evidence_key(evs),
+                        "on": [e["id"] for e in evs], "at": at}
+    if a.complexity:
+        j["complexity"] = {"value": a.complexity, "reason": a.reason.strip(), "hash": r["hash"], "at": at}
+    path.write_text(json.dumps(judged, indent=2) + "\n", encoding="utf-8")
+    print(f"{a.id}: " + ", ".join(x for x in (f"blocked={a.blocked}" if a.blocked else "",
+                                            f"complexity={a.complexity}" if a.complexity else "") if x))
+
+
+# ---------------------------------------------------------------- writes
+
+def _refresh(ids):
+    """Re-sync what was written, so the mirror and index show it."""
+    for wid in ids:
+        try:
+            cmd_sync(argparse.Namespace(id=wid, all=False, no_embed=True))
+        except (RuntimeError, OSError, SystemExit) as e:
+            print(f"warning: the write landed, but re-syncing {wid} failed ({e}). Run: spec.py sync --id {wid}")
+
+
+def _write_each(a, ids, plan, label):
+    """Apply one decision per item, report each, re-sync the written ones. Exit 3 if any was refused."""
+    cfg = load_config(require_root())
+    written, refused = [], []
+    for wid in ids:
+        try:
+            w, ops = adowrite.write(cfg, wid, plan, dry_run=a.dry_run)
+        except (adowrite.Refused, adowrite.Conflict) as e:
+            refused.append(wid)
+            print(f"{wid}: not {label}: {e}")
+            continue
+        fields = ", ".join(f"{o['path'].split('/')[-1]}={o['value']}" for o in ops
+                           if len(str(o["value"])) < 80) or "nothing to change"
+        if a.dry_run:
+            print(f"{wid}: would write {json.dumps([{'op': 'test', 'path': '/rev', 'value': w['rev']}] + ops)}")
+        else:
+            print(f"{wid}: {label} ({fields})")
+            if ops:
+                written.append(wid)
+    if written:
+        _refresh(written)
+    if refused:
+        sys.exit(3)
+
+
+def cmd_claim(a):
+    me = a.email or adowrite.my_email() or die("no email: set git config user.email, or pass --email")
+    busy = load_config(require_root())["next"]["inProgress"]
+    _write_each(a, a.id, lambda f: adowrite.claim_ops(f, me, reopen=a.reopen, take=a.take,
+                                                     busy=(busy["states"], busy["boards"])), "claimed")
+
+
+def cmd_handover(a):
+    text = lambda p: Path(p).read_text(encoding="utf-8") if p else None
+    rcd, res = text(a.root_cause_details_file), text(a.resolution_file)
+    _write_each(a, [a.id], lambda f: adowrite.handover_ops(f, a.tag, rcd, res, a.root_cause), "handed over to QA")
+
+
+def cmd_sprint(a):
+    cfg = load_config(require_root())
+    paths = {}
+
+    def plan(fields):
+        project = fields[adowrite.PROJECT]
+        if project not in paths:
+            paths[project] = adowrite.current_iteration(cfg, project, a.team)
+        return adowrite.iteration_ops(fields, paths[project])
+    _write_each(a, a.id, plan, "in the current sprint")
+
+
+def cmd_comment(a):
+    cfg = load_config(require_root())
+    body = Path(a.file).read_text(encoding="utf-8")
+    try:
+        project = adowrite.read(cfg, a.id)["fields"][adowrite.PROJECT]
+        if a.dry_run:
+            adowrite.refuse_mentions(body, "the comment")
+            print(f"{a.id}: would post a comment of {len(body)} characters to {project}")
+            return
+        r = adowrite.comment(cfg, project, a.id, body)
+    except (adowrite.Refused, adowrite.Conflict) as e:
+        print(f"{a.id}: comment not posted: {e}")
+        sys.exit(3)
+    print(f"{a.id}: comment {(r or {}).get('id', '')} posted")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sp = ap.add_subparsers(dest="cmd", required=True)
@@ -739,7 +1012,44 @@ def main():
     s.add_argument("--all", action="store_true", help="every synced item: deduplicated candidate pairs + a token estimate")
     s.add_argument("--scope", type=int, help="with --all: only items under this epic/feature/story")
     s.add_argument("--hops", type=int, default=2)
+    s = sp.add_parser("claim", help="assign to you, Active, Dev In Progress (rev-tested)")
+    s.add_argument("--id", type=int, action="append", required=True, help="repeat for a batch: claim every one")
+    s.add_argument("--email", help="default: git config user.email")
+    s.add_argument("--reopen", action="store_true", help="the item is Resolved/Closed and the user said to claim it anyway")
+    s.add_argument("--take", action="store_true",
+                   help="the item is on someone else's name but not started, and the user chose to take it")
+    s.add_argument("--dry-run", action="store_true")
+    s = sp.add_parser("handover", help="Resolved + Dev Completed, the hand-over to QA (rev-tested)")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--tag", help="append this tag (the spec flow's team/{version} segment)")
+    s.add_argument("--root-cause-details-file", help="HTML for Custom.RootCauseDetails (required for an Issue)")
+    s.add_argument("--resolution-file", help="HTML for Microsoft.VSTS.Common.Resolution (required for an Issue)")
+    s.add_argument("--root-cause", help="the Microsoft.VSTS.CMMI.RootCause picklist value, when it is clear")
+    s.add_argument("--dry-run", action="store_true")
+    s = sp.add_parser("sprint", help="move to the current sprint (rev-tested)")
+    s.add_argument("--id", type=int, action="append", required=True, help="repeat: every item the PR covers")
+    s.add_argument("--team", help="default: '<project> Team'")
+    s.add_argument("--dry-run", action="store_true")
+    s = sp.add_parser("comment", help="post an HTML comment on a work item")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--file", required=True, help="the comment, as HTML")
+    s.add_argument("--dry-run", action="store_true")
+    sp.add_parser("metrics", help="rebuild .index/metrics.json from the index (every sync writes it too)")
+    s = sp.add_parser("next", help="which item under an epic or feature to take next")
+    s.add_argument("--scope", type=int, required=True, help="the epic or feature the dev is assigned")
+    s.add_argument("--version", required=True, help="the team branch version the items are tagged with")
+    s.add_argument("--email", help="default: git config user.email")
+    s.add_argument("--json", action="store_true")
+    s.add_argument("--no-sync", action="store_true", help="rank from the last sync instead of syncing the scope first")
+    s = sp.add_parser("next-judge", help="record whether an item is blocked, or its estimated complexity")
+    s.add_argument("--scope", type=int, required=True)
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--blocked", choices=["yes", "no"])
+    s.add_argument("--complexity", type=int, choices=[1, 2, 3, 4, 5])
+    s.add_argument("--reason", required=True)
     a = ap.parse_args()
+    if a.cmd == "next-judge" and not (a.blocked or a.complexity):
+        die("next-judge needs --blocked yes|no, --complexity 1-5, or both")
     if a.cmd == "impact" and bool(a.all) == bool(a.id):
         die("impact needs --id N, or --all [--scope N]")
     if a.cmd == "impact" and a.scope and not a.all:
@@ -750,7 +1060,9 @@ def main():
         die(f"query {a.what} needs TEXT")
     if a.cmd == "query" and a.what == "similar" and not a.id:
         a.text = a.text or die("query similar needs --id or TEXT")
-    {"sync": cmd_sync, "embed": cmd_embed, "query": cmd_query, "impact": cmd_impact}[a.cmd](a)
+    {"sync": cmd_sync, "embed": cmd_embed, "query": cmd_query, "impact": cmd_impact, "claim": cmd_claim,
+     "handover": cmd_handover, "sprint": cmd_sprint, "comment": cmd_comment, "next": cmd_next,
+     "next-judge": cmd_next_judge, "metrics": cmd_metrics}[a.cmd](a)
 
 
 if __name__ == "__main__":

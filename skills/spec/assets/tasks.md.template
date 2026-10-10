@@ -6,15 +6,18 @@ ado_id: {ado-id}
 
 <!-- Repo-owned, regenerated as the plan evolves. Each task: 2-5 minutes of agent work,
      names the files it touches, states how it is verified, and traces to an AC or a
-     design decision. Tick as they land — completed tasks are what a cascade block shows. -->
+     design decision. Tick as they land — completed tasks are what a cascade block shows.
+     Verify: a command in backticks is run by `env.py verify` and must pass before the PR;
+     plain words mean a person checks it. Repo: only when Files does not name the repo. -->
 
 - [ ] 1. {imperative task}
-      - Files: `{path}`
-      - Verify: `{command}` / {observable outcome}
+      - Files: `src/{Repo}/{path}`
+      - Verify: `{command}`
       - Traces to: AC{n} / design §{section}
 - [ ] 2. {imperative task}
       - Files: `{path}`
-      - Verify: `{command}`
+      - Repo: {Repo}
+      - Verify: {observable outcome a person checks}
       - Traces to: AC{n}
 
 ## Not doing

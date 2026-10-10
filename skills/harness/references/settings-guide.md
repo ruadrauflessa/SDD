@@ -64,6 +64,10 @@ themselves, each behind an approval gate by design, and
 stock ADO MCP servers do not send a revision test with their patches, so an unattended write can
 silently overwrite someone's concurrent edit.
 
+The same holds for the plugin's own write commands: never allowlist `spec.py claim`, `handover`,
+`sprint` or `comment`. They are rev-tested, but each one still changes a work item other people
+read, so each one should still ask.
+
 ## Hooks
 
 Hooks run shell commands on harness events. The ones that matter most for harness maintenance:

@@ -1,5 +1,5 @@
 {
-  "_": "The stages of each sdd flow, in order. env.py reads it for its state guards and the view draws it. key = what progress --phase starts with; needs = gates that must be met before the stage may start; passes = gates the stage records; stop = the flow stops here for the user. conditional = the stage runs only when there is something to do (spec flow Open Questions: unanswered questions in questions.md); inferFromGates = a stage added after items were started: with its gates already passed, it needs no record. A conditional stage is recorded skipped without the user's words when there is nothing to do. reworkTo = on a review stage, the stage a rejected PR goes back to.",
+  "_": "The stages of each sdd flow, in order. env.py reads it for its state guards and the view draws it. key = what progress --phase starts with; needs = gates that must be met before the stage may start; passes = gates the stage records; stop = the flow stops here for the user. conditional = the stage runs only when there is something to do (spec flow Open Questions: unanswered questions in questions.md); inferFromGates = a stage added after items were started: with its gates already passed, it needs no record. A conditional stage is recorded skipped without the user's words when there is nothing to do. reworkTo = on a review stage, the stage a rejected PR goes back to. proofs = gates that pass only on a recorded run (env.py run / revert-check / verify, see proof.py): needs lists the runs; current = the runs must be on the code as it is now. doc = the stage's own file (from the plugin root): env.py can --op phase prints it as `read:`. paths = ways through a flow the user picks (env.py path): every stage after `choose` needs one; a path's dropNeeds lifts gates a stage would otherwise need.",
   "derived": [
     "Worktree",
     "PR raised",
@@ -20,7 +20,8 @@
           "needs": [],
           "passes": [
             "Claimed"
-          ]
+          ],
+          "doc": "skills/spec/modes/specify.md"
         },
         {
           "key": "Open Questions",
@@ -32,7 +33,8 @@
             "Open questions"
           ],
           "stop": true,
-          "conditional": true
+          "conditional": true,
+          "doc": "skills/spec/modes/open-questions.md"
         },
         {
           "key": "Requirements",
@@ -44,7 +46,8 @@
             "Requirements agreed"
           ],
           "stop": true,
-          "inferFromGates": true
+          "inferFromGates": true,
+          "doc": "skills/spec/modes/requirements.md"
         },
         {
           "key": "Design",
@@ -57,7 +60,8 @@
             "Worktree",
             "Design agreed"
           ],
-          "stop": true
+          "stop": true,
+          "doc": "skills/spec/modes/design.md"
         },
         {
           "key": "Decompose",
@@ -70,7 +74,8 @@
           "passes": [
             "Tasks written"
           ],
-          "stop": true
+          "stop": true,
+          "doc": "skills/spec/modes/decompose.md"
         },
         {
           "key": "Implement",
@@ -83,7 +88,8 @@
           ],
           "passes": [
             "Tasks done"
-          ]
+          ],
+          "doc": "skills/spec/modes/implement.md"
         },
         {
           "key": "Verify",
@@ -95,7 +101,8 @@
             "Ready to PR",
             "PR raised"
           ],
-          "stop": true
+          "stop": true,
+          "doc": "skills/spec/modes/verify.md"
         },
         {
           "key": "Review",
@@ -107,9 +114,34 @@
             "PR approved"
           ],
           "stop": true,
-          "reworkTo": "Implement"
+          "reworkTo": "Implement",
+          "doc": "skills/spec/modes/review.md"
         }
-      ]
+      ],
+      "proofs": {
+        "Ready to PR": {
+          "current": true,
+          "needs": [
+            {
+              "kind": "verify"
+            }
+          ]
+        }
+      },
+      "paths": {
+        "choose": "Specify",
+        "full": {
+          "label": "Full path: Design and Decompose each stop for approval"
+        },
+        "short": {
+          "label": "Short path: one stop approves the design and the tasks together",
+          "dropNeeds": {
+            "Decompose": [
+              "Design agreed"
+            ]
+          }
+        }
+      }
     },
     "bug": {
       "label": "Bug flow",
@@ -120,52 +152,57 @@
       ],
       "stages": [
         {
-          "key": "Phase 0",
+          "key": "Phase 1",
           "label": "Load + claim",
           "needs": [],
           "passes": [
             "Claimed"
-          ]
+          ],
+          "doc": "skills/bug/phases/01-load-and-claim.md"
         },
         {
-          "key": "Phase 1",
+          "key": "Phase 2",
           "label": "Branch + worktree",
           "needs": [
             "Claimed"
           ],
           "passes": [
             "Worktree"
-          ]
+          ],
+          "doc": "skills/bug/phases/02-branch-and-worktree.md"
         },
         {
-          "key": "Phase 2",
+          "key": "Phase 3",
           "label": "Validate against story",
           "needs": [
             "Claimed",
             "Worktree"
           ],
-          "passes": []
+          "passes": [],
+          "doc": "skills/bug/phases/03-validate.md"
         },
         {
-          "key": "Phase 3",
+          "key": "Phase 4",
           "label": "Reproduce and locate",
           "needs": [
             "Claimed",
             "Worktree"
           ],
-          "passes": []
+          "passes": [],
+          "doc": "skills/bug/phases/04-reproduce.md"
         },
         {
-          "key": "Phase 4",
+          "key": "Phase 5",
           "label": "Prove root cause",
           "needs": [
             "Claimed",
             "Worktree"
           ],
-          "passes": []
+          "passes": [],
+          "doc": "skills/bug/phases/05-root-cause.md"
         },
         {
-          "key": "Phase 5",
+          "key": "Phase 6",
           "label": "Approval gate",
           "needs": [
             "Claimed",
@@ -174,29 +211,32 @@
           "passes": [
             "Approval"
           ],
-          "stop": true
+          "stop": true,
+          "doc": "skills/bug/phases/06-approval.md"
         },
         {
-          "key": "Phase 6",
+          "key": "Phase 7",
           "label": "Failing regression test",
           "needs": [
             "Approval"
           ],
           "passes": [
             "Red test"
-          ]
+          ],
+          "doc": "skills/bug/phases/07-red-test.md"
         },
         {
-          "key": "Phase 7",
+          "key": "Phase 8",
           "label": "Apply fix",
           "needs": [
             "Approval",
             "Red test"
           ],
-          "passes": []
+          "passes": [],
+          "doc": "skills/bug/phases/08-fix.md"
         },
         {
-          "key": "Phase 8",
+          "key": "Phase 9",
           "label": "Verify",
           "needs": [
             "Approval",
@@ -204,19 +244,21 @@
           ],
           "passes": [
             "Verified"
-          ]
+          ],
+          "doc": "skills/bug/phases/09-verify.md"
         },
         {
-          "key": "Phase 9",
+          "key": "Phase 10",
           "label": "Commit and push",
           "needs": [
             "Approval",
             "Verified"
           ],
-          "passes": []
+          "passes": [],
+          "doc": "skills/bug/phases/10-commit-and-push.md"
         },
         {
-          "key": "Phase 9a",
+          "key": "Phase 11",
           "label": "Manual verification",
           "needs": [
             "Approval",
@@ -225,10 +267,11 @@
           "passes": [
             "Manual verification"
           ],
-          "stop": true
+          "stop": true,
+          "doc": "skills/bug/phases/11-manual-verification.md"
         },
         {
-          "key": "Phase 10",
+          "key": "Phase 12",
           "label": "Pull request",
           "needs": [
             "Approval",
@@ -237,24 +280,27 @@
           ],
           "passes": [
             "PR raised"
-          ]
+          ],
+          "doc": "skills/bug/phases/12-pull-request.md"
         },
         {
-          "key": "Phase 11",
+          "key": "Phase 13",
           "label": "Write back to ADO",
           "needs": [
             "PR raised"
           ],
-          "passes": []
+          "passes": [],
+          "doc": "skills/bug/phases/13-write-back.md"
         },
         {
-          "key": "Phase 12",
+          "key": "Phase 14",
           "label": "Record learnings",
           "needs": [],
-          "passes": []
+          "passes": [],
+          "doc": "skills/bug/phases/14-workspace-facts.md"
         },
         {
-          "key": "Phase 13",
+          "key": "Phase 15",
           "label": "PR review",
           "needs": [
             "PR raised"
@@ -263,9 +309,36 @@
             "PR approved"
           ],
           "stop": true,
-          "reworkTo": "Phase 7"
+          "reworkTo": "Phase 8",
+          "doc": "skills/bug/phases/15-pr-review.md"
         }
-      ]
+      ],
+      "proofs": {
+        "Red test": {
+          "current": false,
+          "needs": [
+            {
+              "expect": "fail"
+            }
+          ]
+        },
+        "Verified": {
+          "current": true,
+          "needs": [
+            {
+              "kind": "revert-check"
+            },
+            {
+              "expect": "pass",
+              "repeat": 5
+            },
+            {
+              "expect": "pass",
+              "suite": true
+            }
+          ]
+        }
+      }
     }
   }
 }
