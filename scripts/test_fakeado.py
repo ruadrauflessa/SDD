@@ -106,6 +106,9 @@ def main():
         r = run(root, "env.py", "path", "--id", "502", "--set", "short", "--confirmed", "again", check=False)
         assert r.returncode != 0 and "too late" in r.stderr, r.stderr
         run(root, "env.py", "path", "--id", "502", "--set", "full", "--confirmed", "back to full")
+        view = json.loads(run(root, "env.py", "view", "--json", "--id", "502").stdout)
+        assert {i["id"]: i.get("path") for i in view["items"]}[502] == "full", view["items"]
+        assert view["flows"]["spec"]["paths"]["short"]["label"].startswith("Short")   # the view reads the paths
     print("ok")
 
 

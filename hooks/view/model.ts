@@ -7,6 +7,20 @@ export type Mark = 'done' | 'skipped' | 'missed' | 'active' | 'waiting' | 'block
 export type StageRow = { stage: SddStage; mark: Mark }
 
 
+/** Which flow an item runs, and for a flow with paths (the spec flow) which one the user chose.
+ *  `text` for the pane ("Spec flow · short path"), `brief` for the one-line band ("spec · short");
+ *  `open` while the user has not chosen a path yet. */
+export type FlowTag = { flow: string; path: string | null; text: string; brief: string; open: boolean }
+
+export function flowTag(flow: SddFlow | undefined, item: SddItem): FlowTag {
+  const name = flow?.label ?? `${item.flow} flow`
+  const word = name.replace(/\s*flow$/i, '').toLowerCase()
+  if (!flow?.paths) return { flow: name, path: null, text: name, brief: word, open: false }
+  const chosen = item.path && item.path !== 'choose' && flow.paths[item.path] ? item.path : null
+  const path = chosen ? `${chosen} path` : 'path not chosen'
+  return { flow: name, path, text: `${name} · ${path}`, brief: `${word} · ${chosen ?? 'path?'}`, open: !chosen }
+}
+
 /** 'Phase 12 — Pull request' -> 'Phase 12'; 'Implement (task 3/7)' -> 'Implement'. As env.py phase_key. */
 export function phaseKey(flow: SddFlow, name: string | undefined): string | null {
   const phase = (name ?? '').trim()

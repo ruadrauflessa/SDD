@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { SddItem, SddSnapshot } from '../types'
-import { questionBadge, answerMessage, answersFor, approveAnswers, approveFor, approveMessage, fileLinks, flowFinished, fileTarget, gateStory, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, phaseKey, refLink, stageRows, stageSummary } from './view/model'
+import { flowTag, questionBadge, answerMessage, answersFor, approveAnswers, approveFor, approveMessage, fileLinks, flowFinished, fileTarget, gateStory, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, phaseKey, refLink, stageRows, stageSummary } from './view/model'
 
 const SPEC = {
   label: 'Spec flow',
@@ -44,6 +44,20 @@ const SNAP: SddSnapshot = {
   root: 'C:/ws', specRoot: 'C:/ws/docs/spec', flows: { spec: SPEC, bug: BUG },
   derived: ['Worktree', 'PR raised', 'Tasks written', 'Tasks done'], items: [ITEM], done: [],
 }
+
+test('the flow tag names the flow, and the path of the spec flow', () => {
+  const SPEC_PATHS = { ...SPEC, paths: { choose: 'Specify', full: { label: 'Full' }, short: { label: 'Short' } } }
+  expect(flowTag(BUG, { ...ITEM, flow: 'bug' })).toEqual(
+    { flow: 'Bug flow', path: null, text: 'Bug flow', brief: 'bug', open: false })
+  expect(flowTag(SPEC_PATHS, { ...ITEM, path: 'short' })).toEqual(
+    { flow: 'Spec flow', path: 'short path', text: 'Spec flow · short path', brief: 'spec · short', open: false })
+  expect(flowTag(SPEC_PATHS, { ...ITEM, path: 'full' }).brief).toBe('spec · full')
+  const open = flowTag(SPEC_PATHS, { ...ITEM, path: null })
+  expect([open.path, open.brief, open.open]).toEqual(['path not chosen', 'spec · path?', true])
+  expect(flowTag(SPEC_PATHS, { ...ITEM, path: 'sideways' }).open).toBe(true)      // not a path the flow has
+  expect(flowTag(SPEC, ITEM).path).toBe(null)                                    // a flow without paths
+  expect(flowTag(undefined, { ...ITEM, flow: 'bug' }).text).toBe('bug flow')     // an old snapshot
+})
 
 test('phase keys match env.py', () => {
   expect(phaseKey(BUG, 'Phase 11 — Manual verification')).toBe('Phase 11')

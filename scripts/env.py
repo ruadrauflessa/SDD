@@ -675,13 +675,14 @@ def view_item(root, cfg, data, env_dir, full):
         sp["path"] = str((root / sp["folder"]).resolve())
     project = data.get("project") or (cfg["ado"]["projects"] or [""])[0]
     out = {k: data.get(k) for k in ("id", "type", "title", "state", "project", "flow", "slug", "created",
-                                     "removed", "repos", "gates", "progress", "path")}
+                                     "removed", "repos", "gates", "progress")}
     out.update(folder=str(env_dir) if env_dir else None, spec=sp,
                met=sorted(gates_met(root, cfg, wid, data, env_dir)) if env_dir else sorted(data.get("gates") or {}),
                url=f"{org_url(cfg)}/{urllib.parse.quote(project)}/_workitems/edit/{wid}" if cfg["ado"]["org"] else None)
     if full:
         out["history"] = data.get("history") or []
     flow = (data.get("progress") or {}).get("flow") or data.get("flow")
+    out["path"] = flow_path(flow, data)  # the spec flow's full / short; None for the bug flow, or not chosen yet
     out["stages"] = stage_record(flow, data) if flow in FLOWS["flows"] else {}
     out["feedback"] = {}  # stage -> gates a reopen there revokes; only stages that take feedback now
     for s in FLOWS["flows"].get(flow, {}).get("stages", []) if env_dir else []:
