@@ -62,17 +62,32 @@ def add(field, value):
 
 # ---------------------------------------------------------------- decisions
 
-def claim_ops(fields, me, reopen=False):
-    """The claim: assigned to me, Active, Dev In Progress, written together. Never takes an item from
-    someone else; stops on an item that is already resolved or closed."""
+IN_PROGRESS_STATES, IN_PROGRESS_BOARDS = ("Active",), ("Dev In Progress",)
+
+
+def in_progress(fields, states=IN_PROGRESS_STATES, boards=IN_PROGRESS_BOARDS):
+    """Someone is working on it: Active, or in Dev In Progress on the board."""
+    low = lambda v: (v or "").strip().lower()
+    return low(fields.get(STATE)) in {low(x) for x in states} or low(fields.get(COLUMN)) in {low(x) for x in boards}
+
+
+def claim_ops(fields, me, reopen=False, take=False, busy=(IN_PROGRESS_STATES, IN_PROGRESS_BOARDS)):
+    """The claim: assigned to me, Active, Dev In Progress, written together. Never takes an item someone
+    is working on (Active or Dev In Progress). An item on someone else's name that is not started is
+    free to take under the team's rule, but only with `take` — after the user picked it."""
     who, display = assignee(fields)
     if who and who != me.lower():
-        raise Refused(f"assigned to {display}. Never take a work item from someone else: ask the user")
+        if in_progress(fields, *busy):
+            raise Refused(f"{display} is working on it ({fields.get(STATE)}, {fields.get(COLUMN) or 'no board column'}). "
+                          "Never take a work item someone is working on: pick another, or ask them")
+        if not take:
+            raise Refused(f"on {display}'s name but not started. The team rule lets you take it: ask the user, "
+                          "then run claim again with --take")
     state = fields.get(STATE, "")
     if state in DONE_STATES and not reopen:
         raise Refused(f"state is {state}: it is already fixed, or this is a regression. Ask the user; after their "
                       "yes, run claim again with --reopen")
-    ops = [] if who else [add(ASSIGNED, me)]
+    ops = [] if who == me.lower() else [add(ASSIGNED, me)]
     if state != "Active":
         ops.append(add(STATE, "Active"))
     if fields.get(COLUMN) != "Dev In Progress":

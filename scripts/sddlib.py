@@ -40,6 +40,15 @@ DEFAULTS = {
     }},
     # the model each sdd sub-agent runs on: passed as the Agent tool's `model` when a flow starts one
     "agents": {"models": {"investigator": "sonnet", "skeptic": "opus"}},
+    # /sdd next: which item under an epic or feature to take next (scripts/nextpick.py)
+    "next": {
+        "weights": {"priority": 50, "severity": 30, "complexity": 20},  # the dev priority, 0-100
+        "complexity": "complex-first",          # or "simple-first": which way complexity pushes it
+        "types": [["Bug", "Issue"],             # this group first, then the next
+                  ["User Story", "Tech Story", "Change Request", "Product Backlog Item"]],
+        "inProgress": {"states": ["Active"], "boards": ["Dev In Progress"]},  # someone else's work
+        "pastDev": ["Dev Completed", "QA Deployed", "QA Testing Passed", "UAT Deployed"],
+    },
 }
 # What the Agent tool's `model` takes.
 AGENT_MODELS = ("sonnet", "opus", "haiku")
@@ -47,7 +56,9 @@ AGENT_MODELS = ("sonnet", "opus", "haiku")
 # upgrade-config`, which the plugin's SessionStart hook runs, so a plugin update reaches every
 # workspace on its next session. Settings a person should find in the file and change there.
 # A value already in the file is never changed.
-UPGRADE_KEYS = [("agents", "models", "investigator"), ("agents", "models", "skeptic")]
+UPGRADE_KEYS = [("agents", "models", "investigator"), ("agents", "models", "skeptic"),
+                ("next", "weights", "priority"), ("next", "weights", "severity"), ("next", "weights", "complexity"),
+                ("next", "complexity")]
 
 TYPE_SEGMENT = {
     "User Story": "story", "Product Backlog Item": "story", "Change Request": "story",
@@ -90,6 +101,10 @@ def load_config(root):
     agents = cfg.get("agents") if isinstance(cfg.get("agents"), dict) else {}
     models = agents.get("models") if isinstance(agents.get("models"), dict) else {}
     merged["agents"] = {**DEFAULTS["agents"], **agents, "models": {**DEFAULTS["agents"]["models"], **models}}
+    nxt = cfg.get("next") if isinstance(cfg.get("next"), dict) else {}
+    merged["next"] = {**DEFAULTS["next"], **nxt,
+                      "weights": {**DEFAULTS["next"]["weights"], **(nxt.get("weights") or {})},
+                      "inProgress": {**DEFAULTS["next"]["inProgress"], **(nxt.get("inProgress") or {})}}
     return merged
 
 

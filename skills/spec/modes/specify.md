@@ -22,8 +22,10 @@
    Don't read the requirement yet.
 2. **Claim the work item, before you read it:** `spec.py claim --id <id>`. It assigns you, sets
    `Dev In Progress` and `Active` in one rev-tested write, and re-syncs the mirror. **Exit 3 means
-   stop and ask**: the item is someone else's (never take it), or it is already `Resolved` or
-   `Closed` (after the user's yes, `claim --id <id> --reopen`).
+   stop and ask**: someone else is working on it (never take it), it is on someone else's name but
+   not started (free under the team's rule: after the user's yes — picking it in `/sdd next` is one
+   — `claim --id <id> --take`), or it is already `Resolved` or `Closed` (after the user's yes,
+   `claim --id <id> --reopen`).
 3. **Read the mirrored file** — resolve it by glob, `{specRoot}/**/<id>-*/requirements.md` — and
    its parent's. Put every gap and open question in `questions.md` next to it, never in
    `requirements.md`. One question per line, as an unticked checkbox:

@@ -362,6 +362,21 @@ def ado_writes():
         except adowrite.Refused as e:
             assert word in str(e), e
     assert ops(adowrite.claim_ops({"System.State": "Closed"}, me, reopen=True))["System.State"] == "Active"
+    ann = {"displayName": "Ann", "uniqueName": "ann@x.co"}
+    for busy in ({"System.State": "Active"}, {"System.State": "New", "Custom.BoardColumnTitle": "dev in progress"}):
+        try:                                                     # someone's work in progress: never, --take or not
+            adowrite.claim_ops({"System.AssignedTo": ann, **busy}, me, take=True)
+            raise AssertionError(f"took Ann's work in progress: {busy}")
+        except adowrite.Refused as e:
+            assert "working on it" in str(e), e
+    try:                                                         # on Ann's name, not started: only with --take
+        adowrite.claim_ops({"System.AssignedTo": ann, "System.State": "New"}, me)
+        raise AssertionError("took Ann's item without --take")
+    except adowrite.Refused as e:
+        assert "--take" in str(e), e
+    assert ops(adowrite.claim_ops({"System.AssignedTo": ann, "System.State": "New"}, me, take=True)) == {
+        "System.AssignedTo": me, "System.State": "Active", "Custom.BoardColumnTitle": "Dev In Progress"}
+    assert "System.AssignedTo" not in ops(adowrite.claim_ops({"System.AssignedTo": mine, "System.State": "New"}, me))
     # hand-over: an Issue needs both texts; tags are appended; a mention is refused
     try:
         adowrite.handover_ops({"System.WorkItemType": "Issue"})
@@ -482,17 +497,22 @@ def config_upgrade():
         before = {"specRoot": "docs/spec", "ado": {"org": "Org", "projects": ["P"]}}
         path.write_text(json.dumps(before))
         assert sddlib.load_config(root)["agents"]["models"] == {"investigator": "sonnet", "skeptic": "opus"}
-        assert sddlib.upgrade_config(root) == ["agents.models.investigator", "agents.models.skeptic"]
+        assert sddlib.upgrade_config(root) == ["agents.models.investigator", "agents.models.skeptic"] + ["next.weights.priority", "next.weights.severity", "next.weights.complexity", "next.complexity"]
         got = json.loads(path.read_text())
         assert got["agents"] == {"models": {"investigator": "sonnet", "skeptic": "opus"}}
+        assert got["next"] == {"weights": {"priority": 50, "severity": 30, "complexity": 20}, "complexity": "complex-first"}
         assert {k: got[k] for k in before} == before                    # nothing else written or changed
         assert "view" not in got
         assert sddlib.upgrade_config(root) == []                         # second run: nothing to do
-        path.write_text(json.dumps({**before, "agents": {"models": {"skeptic": "sonnet"}, "x": 1}}))
-        assert sddlib.upgrade_config(root) == ["agents.models.investigator"]
+        path.write_text(json.dumps({**before, "agents": {"models": {"skeptic": "sonnet"}, "x": 1},
+                                    "next": {"weights": {"priority": 70}, "complexity": "simple-first"}}))
+        assert sddlib.upgrade_config(root) == ["agents.models.investigator", "next.weights.severity",
+                                               "next.weights.complexity"]
+        assert json.loads(path.read_text())["next"]["weights"]["priority"] == 70     # a tuned weight stays
+        assert sddlib.load_config(root)["next"]["complexity"] == "simple-first"
         got = json.loads(path.read_text())
         assert got["agents"] == {"models": {"skeptic": "sonnet", "investigator": "sonnet"}, "x": 1}  # set value kept
-        path.write_text(json.dumps({**before, "agents": "opus"}))       # not an object: left for the person
+        path.write_text(json.dumps({**before, "agents": "opus", "next": dict(sddlib.DEFAULTS["next"])}))
         assert sddlib.upgrade_config(root) == [] and json.loads(path.read_text())["agents"] == "opus"
         assert sddlib.load_config(root)["agents"]["models"]["skeptic"] == "opus"
         path.write_text(json.dumps({**before, "agents": {"models": {"investigator": "gpt-4"}}}))

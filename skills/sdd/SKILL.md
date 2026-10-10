@@ -9,6 +9,7 @@ description: 'Entry point for the spec-driven development workflows on Azure Dev
 | --- | --- | --- |
 | `/sdd help` | this skill | The tour guide below — no checks, no changes |
 | `/sdd init` | this skill | Check every requirement; fix each missing one only after the user says yes |
+| `/sdd next <epic or feature id> [version]` | `sdd:next` | Which item to take next under the dev's epic or feature: free items with their version, blocked ones judged, ranked by dev priority — the user picks |
 | `/sdd <id>` | decided by type, see below | |
 | `/sdd bug <id>` | `sdd:bug` | Claim, root cause, approval, failing test, fix, verify, PR |
 | `/sdd spec <id>` | `sdd:spec` | Claim, mirror the spec, impact, design, tasks, implement, verify, PR |
@@ -106,7 +107,7 @@ set up for sdd, and offer `/sdd init`.
 
 ## Step 2 — route
 
-With a flow word, go straight to that skill and pass it the id. A path word (`short` or `full`, as in
+`next` goes to `sdd:next` with the scope id and the version, if given. With a flow word, go straight to that skill and pass it the id. A path word (`short` or `full`, as in
 `/sdd 4471 short` or `/sdd spec 4471 full`) goes with it: pass it on, and the spec flow records it
 as the user's choice instead of asking. With only an id:
 

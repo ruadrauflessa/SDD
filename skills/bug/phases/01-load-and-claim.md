@@ -65,7 +65,8 @@ It reads each item fresh and decides from its assignee and state:
 | --- | --- |
 | Unassigned (ADO leaves the field out) | Assigns you (`git config user.email`), sets `Active` and `Dev In Progress` |
 | **You** | Sets `Active` and `Dev In Progress` where they are not set yet |
-| **Someone else** | 🛑 Writes nothing for that item and exits 3. **Stop and ask**: report who holds it, never reassign |
+| **Someone else, working on it** (`Active`, or `Dev In Progress`) | 🛑 Writes nothing for that item and exits 3, `--take` or not. **Stop and ask**: report who holds it, never reassign |
+| **Someone else, not started** | Free under the team's rule, but writes nothing without `--take` (exit 3). Take it only on the user's yes — picking it in `/sdd next` is that yes: `claim --id <id> --take` |
 | — state `Resolved` or `Closed` | 🛑 Writes nothing and exits 3. **Stop and confirm**: already fixed, or a regression worth saying out loud. After the user's yes: `claim --id <id> --reopen` |
 
 Every write is rev-tested: if someone changed the item meanwhile, `claim` reads it again and decides

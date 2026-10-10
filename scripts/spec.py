@@ -17,12 +17,20 @@ Deterministic: the same ADO state always produces the same files and index. No L
                                          deduplicated pair list and a token estimate in impact-all.json
 
 Writes to ADO (rev-tested, retried on a conflict; adowrite.py; exit 3 = stop and ask the user):
-    claim    --id N [--id M ...] [--reopen]      assign to you, Active, Dev In Progress; never from someone else
+    claim    --id N [--id M ...] [--reopen] [--take]
+                                                 assign to you, Active, Dev In Progress; never someone's work in progress
     handover --id N [--tag T] [--root-cause-details-file F --resolution-file F] [--root-cause V]
                                                  Resolved + Dev Completed: the hand-over to QA
     sprint   --id N [--id M ...] [--team T]      move to the current sprint
     comment  --id N --file F                     post an HTML comment (refuses a `#<id>` mention)
     (--dry-run on any of them prints the patch and writes nothing)
+
+Which item to take next (nextpick.py; read-only, from the index — sync the scope first):
+    next       --scope N --version V [--email E] [--json]
+                                    the items under epic/feature N tagged V, ranked: bugs and issues
+                                    first, then by dev priority; plus what needs a judgement first
+    next-judge --scope N --id M (--blocked yes|no | --complexity 1-5) --reason TEXT
+                                    record the agent's judgement; it holds while its evidence holds
 
 Only the files sync writes are touched: requirements.md. design.md, tasks.md, questions.md and
 impact.* in a spec folder are never overwritten, and move with the folder on a reparent.
@@ -46,6 +54,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import adowrite
+import nextpick
 from sddlib import die, get_items, load_config, org_url, require_root, slug, wiql
 
 SYNCED_BY = "sdd-spec-sync@1"
@@ -763,6 +772,81 @@ def impact_all(ctx, a):
     print("        (a floor: each agent turn re-sends its growing context, so real use is often 3-5x this)")
     print(f"wrote {dest}")
 
+# ---------------------------------------------------------------- next
+
+def _next_state(ctx):
+    rows = {r["id"]: dict(r) for r in ctx.db.execute("SELECT * FROM items")}
+    links = {}
+    for r in ctx.db.execute("SELECT src, dst, rel FROM links"):
+        links.setdefault(r["src"], []).append((r["rel"], r["dst"]))
+    path = ctx.spec / ".index" / "next.json"
+    judged = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    return rows, links, path, judged
+
+
+def cmd_next(a):
+    ctx = Ctx()
+    if not ctx.item(a.scope):
+        die(f"{a.scope} is not synced. Run: spec.py sync --id {a.scope}")
+    me = a.email or adowrite.my_email() or die("no email: set git config user.email, or pass --email")
+    rows, links, _, judged = _next_state(ctx)
+    res = nextpick.plan(rows, links, a.scope, a.version, me, ctx.cfg["next"], ctx.cfg["doneStates"], judged)
+    if a.json:
+        print(json.dumps(res, indent=2))
+        return
+    s = rows[a.scope]
+    print(f"Next under {a.scope} {s['type']} — {s['title']}, version {a.version}, for {me}\n")
+    w = ctx.cfg["next"]["weights"]
+    print(f"Ready, best first (bugs and issues first; dev priority = priority {w['priority']} / severity "
+          f"{w['severity']} / complexity {w['complexity']}, {ctx.cfg['next']['complexity']}):")
+    for n, r in enumerate(res["ranked"], 1):
+        print(f"  {n:>2}. {r['id']:<7} {r['type']:<15} dev {r['devPriority']:>5}  P{r['priority'] or '-'} "
+              f"S{r['severity'] or '-'} C{r['complexity']} ({r['complexitySource']})  {r['title'][:60]}  [{r['note']}]")
+        if r.get("notBlocked"):
+            print(f"      not blocked: {r['notBlocked']}")
+    if not res["ranked"]:
+        print("  none")
+    if res["needs"]:
+        print("\nNeeds a judgement first (spec.py next-judge):")
+        for r in res["needs"]:
+            print(f"  {r['id']:<7} {r['type']:<15} {r['title'][:60]}")
+            if "blocked" in r["ask"]:
+                for e in r["evidence"]:
+                    print(f"      blocked? {e['kind']}: {e['id']} {e['title'][:50]} ({e['state']}"
+                          f"{', ' + e['board'] if e['board'] else ''}){'  …' + e['text'] + '…' if e['text'] else ''}")
+            if "complexity" in r["ask"]:
+                print("      complexity? no effort in ADO: estimate 1-5 from the requirement and the code")
+    if res["blocked"]:
+        print("\nBlocked:")
+        for r in res["blocked"]:
+            print(f"  {r['id']:<7} {r['type']:<15} {r['title'][:60]}\n      {r['reason']}")
+    if res["unavailable"]:
+        print("\nNot available:")
+        for r in res["unavailable"]:
+            print(f"  {r['id']:<7} {r['type']:<15} {r['title'][:50]} — {r['why']}")
+
+
+def cmd_next_judge(a):
+    ctx = Ctx()
+    rows, links, path, judged = _next_state(ctx)
+    r = rows.get(a.id) or die(f"{a.id} is not synced. Run: spec.py sync --id {a.scope}")
+    if not (a.reason or "").strip():
+        die("a judgement needs --reason: what you read that decided it")
+    j = judged.setdefault(str(a.id), {})
+    at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if a.blocked:
+        evs = nextpick.evidence(r, links.get(a.id, []), rows, ctx.cfg["doneStates"])
+        if not evs:
+            die(f"{a.id} has no blocking evidence to judge: nothing to record")
+        j["blocked"] = {"value": a.blocked == "yes", "reason": a.reason.strip(), "key": nextpick.evidence_key(evs),
+                        "on": [e["id"] for e in evs], "at": at}
+    if a.complexity:
+        j["complexity"] = {"value": a.complexity, "reason": a.reason.strip(), "hash": r["hash"], "at": at}
+    path.write_text(json.dumps(judged, indent=2) + "\n", encoding="utf-8")
+    print(f"{a.id}: " + ", ".join(x for x in (f"blocked={a.blocked}" if a.blocked else "",
+                                            f"complexity={a.complexity}" if a.complexity else "") if x))
+
+
 # ---------------------------------------------------------------- writes
 
 def _refresh(ids):
@@ -801,7 +885,9 @@ def _write_each(a, ids, plan, label):
 
 def cmd_claim(a):
     me = a.email or adowrite.my_email() or die("no email: set git config user.email, or pass --email")
-    _write_each(a, a.id, lambda f: adowrite.claim_ops(f, me, reopen=a.reopen), "claimed")
+    busy = load_config(require_root())["next"]["inProgress"]
+    _write_each(a, a.id, lambda f: adowrite.claim_ops(f, me, reopen=a.reopen, take=a.take,
+                                                     busy=(busy["states"], busy["boards"])), "claimed")
 
 
 def cmd_handover(a):
@@ -861,6 +947,8 @@ def main():
     s.add_argument("--id", type=int, action="append", required=True, help="repeat for a batch: claim every one")
     s.add_argument("--email", help="default: git config user.email")
     s.add_argument("--reopen", action="store_true", help="the item is Resolved/Closed and the user said to claim it anyway")
+    s.add_argument("--take", action="store_true",
+                   help="the item is on someone else's name but not started, and the user chose to take it")
     s.add_argument("--dry-run", action="store_true")
     s = sp.add_parser("handover", help="Resolved + Dev Completed, the hand-over to QA (rev-tested)")
     s.add_argument("--id", type=int, required=True)
@@ -877,7 +965,20 @@ def main():
     s.add_argument("--id", type=int, required=True)
     s.add_argument("--file", required=True, help="the comment, as HTML")
     s.add_argument("--dry-run", action="store_true")
+    s = sp.add_parser("next", help="which item under an epic or feature to take next")
+    s.add_argument("--scope", type=int, required=True, help="the epic or feature the dev is assigned")
+    s.add_argument("--version", required=True, help="the team branch version the items are tagged with")
+    s.add_argument("--email", help="default: git config user.email")
+    s.add_argument("--json", action="store_true")
+    s = sp.add_parser("next-judge", help="record whether an item is blocked, or its estimated complexity")
+    s.add_argument("--scope", type=int, required=True)
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--blocked", choices=["yes", "no"])
+    s.add_argument("--complexity", type=int, choices=[1, 2, 3, 4, 5])
+    s.add_argument("--reason", required=True)
     a = ap.parse_args()
+    if a.cmd == "next-judge" and not (a.blocked or a.complexity):
+        die("next-judge needs --blocked yes|no, --complexity 1-5, or both")
     if a.cmd == "impact" and bool(a.all) == bool(a.id):
         die("impact needs --id N, or --all [--scope N]")
     if a.cmd == "impact" and a.scope and not a.all:
@@ -889,7 +990,8 @@ def main():
     if a.cmd == "query" and a.what == "similar" and not a.id:
         a.text = a.text or die("query similar needs --id or TEXT")
     {"sync": cmd_sync, "embed": cmd_embed, "query": cmd_query, "impact": cmd_impact, "claim": cmd_claim,
-     "handover": cmd_handover, "sprint": cmd_sprint, "comment": cmd_comment}[a.cmd](a)
+     "handover": cmd_handover, "sprint": cmd_sprint, "comment": cmd_comment, "next": cmd_next,
+     "next-judge": cmd_next_judge}[a.cmd](a)
 
 
 if __name__ == "__main__":

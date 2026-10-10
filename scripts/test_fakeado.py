@@ -34,6 +34,32 @@ WORLD = {
 }
 
 
+def child(wid, typ, title, state="New", tags="1.1.0", rels=(), **fields):
+    """A work item under feature 600 for the next-item scenario."""
+    f = {"System.WorkItemType": typ, "System.TeamProject": "Proj", "System.Title": title, "System.State": state,
+         "System.Tags": tags, **fields}
+    rel = [{"rel": "System.LinkTypes.Hierarchy-Reverse", "url": "https://x/_apis/wit/workItems/600"}, *rels]
+    return str(wid), {"rev": 1, "fields": f, "relations": rel}
+
+
+P, S, SP = "Microsoft.VSTS.Common.Priority", "Microsoft.VSTS.Common.Severity", "Microsoft.VSTS.Scheduling.StoryPoints"
+FEATURE = dict([
+    ("600", {"rev": 1, "fields": {"System.WorkItemType": "Feature", "System.TeamProject": "Proj",
+                                  "System.Title": "Invoice export v2", "System.State": "Active", "System.Tags": "1.1.0"}}),
+    child(601, "Bug", "Totals lose cents", **{P: 2, S: "2 - High"}),
+    child(602, "Bug", "Export crashes on empty invoice", "Active", **{P: 1, S: "1 - Critical", "System.AssignedTo":
+          {"displayName": "Ann", "uniqueName": "ann@x.co"}, "Custom.BoardColumnTitle": "Dev In Progress"}),
+    child(603, "User Story", "Export in CSV", **{P: 1, SP: 8, "System.AssignedTo": {"displayName": "Bob", "uniqueName": "bob@x.co"}}),
+    child(604, "User Story", "Export in PDF", tags="1.0.0", **{P: 1}),
+    child(605, "User Story", "CSV column picker", rels=[{"rel": "System.LinkTypes.Dependency-Reverse",
+          "url": "https://x/_apis/wit/workItems/603", "attributes": {"name": "Predecessor"}}], **{P: 2, SP: 2}),
+    child(606, "Change Request", "Show currency symbol", **{P: 2, "System.Description":
+          "<div>This depends on ADO 601 being fixed first, since both change the totals.</div>"}),
+    child(607, "Bug", "Old rounding bug", "Resolved", **{P: 1, S: "1 - Critical"}),
+    child(608, "Bug", "Typo in header", **{P: 3, S: "3 - Medium", SP: 1, "Microsoft.VSTS.CMMI.Blocked": "Yes"}),
+])
+
+
 def run(root, script, *args, check=True):
     r = subprocess.run([PY, str(HERE / script), *args], cwd=str(root), capture_output=True, text=True)
     if check and r.returncode != 0:
@@ -48,7 +74,7 @@ def main():
         (root / ".claude" / "sdd.json").write_text(json.dumps(
             {"specRoot": "docs/spec", "ado": {"org": "Org", "projects": ["Proj"]}}))
         world = root / "world.json"
-        world.write_text(json.dumps(WORLD))
+        world.write_text(json.dumps({**WORLD, "items": {**WORLD["items"], **FEATURE}}))
         os.environ["SDD_FAKE_ADO"] = str(world)
         cfg = root / "gitconfig"
         cfg.write_text("[user]\n\temail = dev@x.co\n\tname = Dev\n")
@@ -132,6 +158,50 @@ def main():
         r = run(root, "env.py", "path", "--id", "502", "--set", "short", "--confirmed", "again", check=False)
         assert r.returncode != 0 and "too late" in r.stderr, r.stderr
         run(root, "env.py", "path", "--id", "502", "--set", "full", "--confirmed", "back to full")
+        # the next item under feature 600 for version 1.1.0
+        run(root, "spec.py", "sync", "--id", "600", "--no-embed")
+        nxt = lambda: json.loads(run(root, "spec.py", "next", "--scope", "600", "--version", "1.1.0", "--json").stdout)
+        res = nxt()
+        why = {r["id"]: r["why"] for r in res["unavailable"]}
+        assert set(why) == {602, 604, 607}, why
+        assert "Ann is working on it" in why[602] and "tagged 1.0.0" in why[604] and why[607] == "Resolved"
+        assert {r["id"]: r["ask"] for r in res["needs"]} == {601: ["complexity"], 605: ["blocked"],
+                                                             606: ["blocked", "complexity"]}, res["needs"]
+        ev = next(r for r in res["needs"] if r["id"] == 606)["evidence"]
+        assert ev[0]["id"] == 601 and ev[0]["kind"] == "named in the text" and "depends on ADO 601" in ev[0]["text"]
+        assert [r["id"] for r in res["ranked"]] == [608, 603]       # bugs first; ADO's Blocked=Yes on 608 ignored
+        assert "--take" in res["ranked"][1]["note"]                # on Bob's name, not started
+        judge = lambda *a: run(root, "spec.py", "next-judge", "--scope", "600", *a)
+        judge("--id", "601", "--complexity", "3", "--reason", "one formatter and its tests")
+        judge("--id", "605", "--blocked", "yes", "--reason", "the picker needs the CSV export from 603")
+        judge("--id", "606", "--blocked", "no", "--complexity", "2", "--reason",
+              "the symbol is added after formatting; 601's fix does not change that path")
+        res = nxt()
+        assert [r["id"] for r in res["ranked"]] == [601, 608, 603, 606], res["ranked"]
+        dev = {r["id"]: r["devPriority"] for r in res["ranked"]}
+        assert dev == {601: 63.3, 608: 26.7, 603: 85.0, 606: 53.3}, dev   # 50/30/20, complex first
+        assert [r["id"] for r in res["blocked"]] == [605] and not res["needs"]
+        text = run(root, "spec.py", "next", "--scope", "600", "--version", "1.1.0").stdout
+        assert "Ready, best first" in text and "Blocked:" in text and "Ann is working on it" in text, text
+        # the evidence changes (603 is done): the old judgement no longer applies, 605 is free
+        w = json.loads(world.read_text())
+        w["items"]["603"]["fields"]["System.State"] = "Closed"
+        world.write_text(json.dumps(w))
+        run(root, "spec.py", "sync", "--id", "600", "--no-embed")
+        res = nxt()
+        assert 605 in [r["id"] for r in res["ranked"]] and not res["blocked"], res
+        # taking an item: never someone's work in progress; one on another name only with --take
+        w = json.loads(world.read_text())
+        w["items"]["603"]["fields"]["System.State"] = "New"
+        world.write_text(json.dumps(w))
+        r = run(root, "spec.py", "claim", "--id", "603", check=False)
+        assert r.returncode == 3 and "--take" in r.stdout, r.stdout
+        run(root, "spec.py", "claim", "--id", "603", "--take")
+        f = json.loads(world.read_text())["items"]["603"]["fields"]
+        assert f["System.AssignedTo"] == "dev@x.co" and f["Custom.BoardColumnTitle"] == "Dev In Progress"
+        r = run(root, "spec.py", "claim", "--id", "602", "--take", check=False)
+        assert r.returncode == 3 and "working on it" in r.stdout, r.stdout
+
         view = json.loads(run(root, "env.py", "view", "--json", "--id", "502").stdout)
         assert {i["id"]: i.get("path") for i in view["items"]}[502] == "full", view["items"]
         assert view["flows"]["spec"]["paths"]["short"]["label"].startswith("Short")   # the view reads the paths
