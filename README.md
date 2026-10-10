@@ -44,7 +44,6 @@ The sdd view opens by itself the first time a chat takes up a work item. In it:
 
 - the header tags the flow and, for the spec flow, the path: `[Spec flow] [short path]`, or
   `[path not chosen]` while the flow still has to ask (`[Bug flow]` for a bug);
-
 - each stage opens to its **Stage log**, its **gates** (what you were asked, what you answered, what
   was revoked), its documents and a **Give feedback** box;
 - the band above the prompt shows the same tag (`[spec · short]`) for as long as the chat's work item
