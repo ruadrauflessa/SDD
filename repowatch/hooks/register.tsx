@@ -39,6 +39,9 @@ const GRAPH_STEP = 40
 const CLASS_COLOR: Record<string, string> = { safe: COLORS.ok, prune: COLORS.warn, review: COLORS.warn, keep: COLORS.urgent, ok: COLORS.dim }
 
 let python = 'python'  // module state: lost on reload, which is fine
+/** Windows' App execution alias for python.exe: it starts, prints "Python was not found", exits 9009. Not a Python. */
+const storeStub = (r: { exitCode: number; stdout: string; stderr: string }) =>
+  r.exitCode === 9009 || /^Python was not found/.test((r.stderr || r.stdout).trim())
 
 /** Runs repowatch.py with the arguments and returns its output, or throws with why it failed. */
 async function run($: EngineInterface, args: string[], timeoutMs: number): Promise<string> {
@@ -47,6 +50,7 @@ async function run($: EngineInterface, args: string[], timeoutMs: number): Promi
   for (const exe of [python, 'python3', 'py']) {
     try {
       const r = await $.process.run([exe, `${$.plugin.root}/scripts/repowatch.py`, ...args], { cwd, timeoutMs })
+      if (storeStub(r)) { why = `${exe} is the Microsoft Store shortcut, not Python`; continue }
       python = exe
       // plan and apply answer in JSON on stdout even when they refuse (exit 2)
       if (r.exitCode === 0 || (r.exitCode === 2 && r.stdout.trim().startsWith('{'))) return r.stdout

@@ -58,6 +58,9 @@ function stageName(st: SddStage): string {
 
 
 let python = 'python'  // module state: lost on reload, which is fine
+/** Windows' App execution alias for python.exe: it starts, prints "Python was not found", exits 9009. Not a Python. */
+const storeStub = (r: { exitCode: number; stdout: string; stderr: string }) =>
+  r.exitCode === 9009 || /^Python was not found/.test((r.stderr || r.stdout).trim())
 let isOpen = false
 let isWorkspace = false
 // Cost and context, from session.measure. The cost is charged to the stage the item was in when the turn began.
@@ -95,6 +98,7 @@ async function loadView($: EngineInterface, id: number | null, before: SddSnapsh
   for (const exe of [python, 'python3', 'py']) {
     try {
       const r = await $.process.run(argv(exe), { cwd, timeoutMs: 20000 })
+      if (storeStub(r)) { why = `${exe} is the Microsoft Store shortcut, not Python`; continue }
       python = exe
       if (r.exitCode === 0) out = JSON.parse(r.stdout) as SddSnapshot
       else why = (r.stderr || r.stdout).trim().split('\n').pop() || `env.py view exited ${r.exitCode}`
@@ -284,6 +288,7 @@ async function recordCost($: EngineInterface, folder: string | null, id: number,
   for (const exe of [python, 'python3', 'py']) {
     try {
       const r = await $.process.run([exe, `${$.plugin.root}/scripts/env.py`, ...args], { cwd, timeoutMs: 20000 })
+      if (storeStub(r)) { why = `${exe} is the Microsoft Store shortcut, not Python`; continue }
       python = exe
       return r.exitCode === 0 ? null : (r.stderr || r.stdout).trim().split('\n').pop() || `env.py cost exited ${r.exitCode}`
     } catch (err) {
