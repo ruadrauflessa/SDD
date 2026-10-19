@@ -24,7 +24,7 @@ the user's view; this file is for working on the plugin itself.
 | `scripts/sddlib.py` | Shared helpers, `DEFAULTS` for `.claude/sdd.json`, config upgrade, the output style install |
 | `scripts/adowrite.py`, `proof.py`, `nextpick.py`, `metrics.py` | ADO writes; recorded test runs; next-item rules; metrics.json — logic as plain functions, tested without ADO |
 | `scripts/fakeado.py` | Offline ADO for tests and evals: on when `SDD_FAKE_ADO` names a JSON world file |
-| `hooks/` | `question_guard.py`, `agent_guard.py`, `edit_guard.py`, and `register.tsx` + `view/model.ts` (the sdd view, a mod), `view/worktrees.ts` (pure helpers of the `/sdd-worktrees` page, whose hooks live in `register.tsx`) |
+| `hooks/` | `question_guard.py`, `agent_guard.py`, `edit_guard.py`; `py.mjs` runs each of them (and `env.py upgrade-config`) with the first real `python`, `python3` or `py`, so a Windows machine with only `py` works; and `register.tsx` + `view/model.ts` (the sdd view, a mod), `view/worktrees.ts` (pure helpers of the `/sdd-worktrees` page, whose hooks live in `register.tsx`) |
 | `agents/` | `investigator` and `skeptic`, the read-only sub-agents |
 | `evals/` | `claude plugin eval` cases; `_fixtures/workspace.py` builds each case's workspace |
 | `repowatch/` | A second, standalone plugin (sdd depends on it, same marketplace): tracks many git repos and worktrees. `scripts/repowatch.py` does the git mechanics and writes `.claude/repowatch/state.json`; `hooks/register.tsx` draws the pane and status line from it, and runs a clean-up only after `plan`, a confirm and `apply` (which re-checks). Has its own `plugin.json` and version |
@@ -40,6 +40,7 @@ python scripts/check_evals.py        # needs PyYAML; checks the eval cases, runs
 python hooks/test_question_guard.py
 python hooks/test_agent_guard.py
 python hooks/test_edit_guard.py
+python hooks/test_py.py             # needs node; the hooks' Python launcher
 python repowatch/scripts/test_repowatch.py   # needs git; real repos in temp folders
 claude plugin test repowatch         # also mounts and presses the pane (hooks/pane.test.ts)
 claude plugin validate repowatch

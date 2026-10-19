@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/question_guard.py\" pre"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/py.mjs\" \"${CLAUDE_PLUGIN_ROOT}/hooks/question_guard.py\" pre"
           }
         ]
       },
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_guard.py\" pre"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/py.mjs\" \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_guard.py\" pre"
           }
         ]
       },
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/edit_guard.py\" pre"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/py.mjs\" \"${CLAUDE_PLUGIN_ROOT}/hooks/edit_guard.py\" pre"
           }
         ]
       }
@@ -37,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/question_guard.py\" stop"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/py.mjs\" \"${CLAUDE_PLUGIN_ROOT}/hooks/question_guard.py\" stop"
           }
         ]
       }
@@ -47,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/scripts/env.py\" upgrade-config"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/py.mjs\" \"${CLAUDE_PLUGIN_ROOT}/scripts/env.py\" upgrade-config"
           }
         ]
       }

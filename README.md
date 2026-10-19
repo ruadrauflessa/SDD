@@ -117,6 +117,7 @@ python scripts/test_sdd.py
 python hooks/test_question_guard.py
 python hooks/test_agent_guard.py
 python hooks/test_edit_guard.py
+python hooks/test_py.py
 python scripts/test_proof.py
 python scripts/test_fakeado.py
 python scripts/check_evals.py

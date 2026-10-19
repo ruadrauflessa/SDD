@@ -189,16 +189,16 @@ def cmd_doctor(a):
         out.append({"check": check, "ok": bool(ok), "required": required, "detail": detail, "fix": "" if ok else fix})
 
     add("python", sys.version_info >= (3, 9), True, sys.version.split()[0], "install Python 3.9 or later")
-    # The hooks run plain `python`, whatever ran this. On Windows it can be the Microsoft Store shortcut (exit 9009).
-    r = run("python", "-c", "import sys; print('%d.%d' % sys.version_info[:2])")
+    # The hooks run their scripts through hooks/py.mjs (node), which takes the first real python, python3 or py.
+    # Run it the way a hook does: on Windows `python` can be the Microsoft Store shortcut, which it must skip.
+    r = run("node", str(PLUGIN / "hooks" / "py.mjs"), "-c", "import sys; print('%d.%d' % sys.version_info[:2])")
     ver = r.stdout.strip() if r and r.returncode == 0 else ""
     good = bool(re.fullmatch(r"3\.\d+", ver)) and int(ver.split(".")[1]) >= 9
-    add("python command", good, True, f"python is {ver}" if ver else
-        ("python is the Microsoft Store shortcut" if r and r.returncode == 9009 else "python is not on PATH")
-        + " — the sdd hooks run it",
-        "turn off python.exe and python3.exe in Settings > Apps > Advanced app settings > App execution aliases, "
-        "then add Python to PATH (run its installer again: Modify > Add Python to environment variables)" if win
-        else "make `python` run Python 3.9 or later (e.g. sudo apt install python-is-python3)")
+    add("hook python", good, True, f"the hooks run Python {ver}" if ver else
+        "node is not on PATH — the sdd hooks need it" if r is None else
+        ((r.stderr or r.stdout).strip().splitlines() or ["hooks/py.mjs failed"])[-1],
+        "install Python 3.9 or later (python.org; on Windows the `py` launcher is enough)" if r is not None
+        else inst("OpenJS.NodeJS.LTS", "node", "nodejs"))
     import sqlite3
     try:
         sqlite3.connect(":memory:").execute("CREATE VIRTUAL TABLE t USING fts5(x)")
