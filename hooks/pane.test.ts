@@ -11,7 +11,7 @@ const SPEC = {
   label: 'Spec flow', prGates: ['Requirements agreed'],
   stages: [
     { key: 'Specify', label: 'Specify', needs: [], passes: ['Claimed'] },
-    { key: 'Design', label: 'Design', needs: ['Claimed'], passes: ['Design agreed'], stop: true },
+    { key: 'Design', label: 'Design', needs: ['Claimed'], passes: ['Design agreed'], stop: true, lens: 'design' },
     { key: 'Review', label: 'Review', needs: ['Design agreed'], passes: ['PR approved'], stop: true },
   ],
 }
@@ -39,7 +39,7 @@ const AGENTS = [
 type Cost = { id: number; stage: string; usd: number; session: string; turns: number; input: number; output: number; cacheRead: number; cacheWrite: number }
 type Row = { usd: number; turns: number; input: number; output: number; cacheRead: number; cacheWrite: number }
 type Fake = { registered: string[]; usd: number | null; costs: Cost[]; costFails: boolean; toasts: string[]
-  ran: string[]; opened: string[]; runs: string[][]; finishFirst?: boolean; noAutoOpen?: boolean; surfaces: string[]; sid: string; spend: Record<string, Row>; spendOther: Record<string, Row> }
+  ran: string[]; opened: string[]; runs: string[][]; finishFirst?: boolean; noAutoOpen?: boolean; graphOk?: boolean; surfaces: string[]; sid: string; spend: Record<string, Row>; spendOther: Record<string, Row> }
 
 function fake(on: (event: any, hook: (...a: never[]) => unknown) => void, agents = AGENTS): Fake {
   const f: Fake = { registered: [], usd: 1, costs: [], costFails: false, toasts: [], ran: [], opened: [], runs: [], sid: 's1', surfaces: ['desktop'], spend: {}, spendOther: {} }
@@ -59,6 +59,9 @@ function fake(on: (event: any, hook: (...a: never[]) => unknown) => void, agents
         cacheRead: was.cacheRead + c.cacheRead, cacheWrite: was.cacheWrite + c.cacheWrite }
       return done(0, `${c.id}: ${c.stage}`)
     }
+    if (e.argv.includes('graph-focus')) return done(f.graphOk === false ? 1 : 0, JSON.stringify(f.graphOk === false
+      ? { ok: false, error: 'no code graph: graphify not on PATH' }
+      : { ok: true, path: '/ws/.claude/worktrees/92012-author/graph/graph-focus.html', mode: 'design', primary: 3, planned: 0, opened: true }))
     const all = (SNAP as any).items.map((i: any) => ({ ...i, spend: i.id === 92012 ? f.spend : f.spendOther }))
     const snap = f.finishFirst ? { ...(SNAP as any), items: all.filter((i: any) => i.id !== 92012), done: all.filter((i: any) => i.id === 92012) } : { ...(SNAP as any), items: all }
     return done(0, JSON.stringify(f.noAutoOpen ? { ...snap, autoOpen: false } : snap))
@@ -547,6 +550,22 @@ async function bandCheck($: any, f: Fake) {
   const tag = (await ui.findAll({ type: 'Text' })).find((t: any) => /^\[/.test(t.text ?? ''))
   expect(tag.text).toBe('[spec\u00a0·\u00a0full]')                                      // no plain space to wrap at
 }
+
+test('desktop: the Code graph button builds and opens the graph with the design lit, and says why when it cannot', async ($: any, on: any) => {
+  const f = fake(on)
+  const ui = await mountPane($, f, 'desktop')
+  if (!ui) return
+  expect(await texts(ui)).toContain('with the nodes design.md and tasks.md name lit')
+  await ui.press({ key: 'graph-open' })
+  await until(async () => f.toasts.some(t => t.includes('Code graph opened')))
+  expect(f.toasts.join('\n')).toContain('Code graph opened: 3 nodes named in the design.')
+  const run = f.runs.find(r => r.includes('graph-focus'))!
+  expect(run.slice(-6)).toEqual(['graph-focus', '--id', '92012', '--refresh', '--open', '--json'])
+  f.graphOk = false
+  await ui.press({ key: 'graph-open' })
+  await until(async () => f.toasts.some(t => t.includes('No code graph')))
+  expect(f.toasts.join('\n')).toContain('No code graph: graphify not on PATH')
+})
 
 test('a Desktop session start in an sdd workspace opens the start page by itself, once', async ($: any, on: any) => {
   const f = fake(on)

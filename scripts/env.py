@@ -18,6 +18,8 @@ Commands (run from anywhere inside the workspace):
              [--gate G] [--next X] [--note T] [--caveat T] [--passed G] [--revoke G] [--ref R ...] [--no-visual WHY]
                                              checkpoint the flow; record gates; creates the folder if needed
     graph  --id N                            rebuild graph/ from src/ (no LLM, seconds)
+    graph-focus --id N [--mode auto|design|implementation|none] [--refresh] [--open] [--json]
+                                             graph/graph-focus.html: the code graph with the nodes of the item's design or its changes lit
     pr     --id N --title T --description-file F [--repos A] [--work-items 1,2] [--draft]
                                              push each repo with commits and open its PR
     refs   --id N --ref <file[:line[-end]]|ado> ...   the links block for a question to the user
@@ -49,6 +51,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import graphfocus
 import proof
 from adowrite import flow_of, mentions
 from sddlib import (AGENT_MODELS, BUG_TYPES, CONFIG_REL, DEFAULTS, STYLE_NAME, TYPE_SEGMENT, ado,
@@ -846,6 +849,85 @@ def cmd_graph(a):
     build_graph(env_or_die(root, load_config(root), a.id))
 
 
+def stage_lens(flow, phase):
+    """'design' | 'implementation' | None: what the code graph should light at this stage (flows.json "lens")."""
+    key = phase_key(flow, phase)
+    for st in FLOWS["flows"].get(flow, {}).get("stages", []):
+        if st["key"] == key:
+            return st.get("lens")
+    return None
+
+
+def graph_changes(env_dir, data):
+    """{"Repo/path": [(first, last)] | None} of what the work item changed: committed, staged and unstaged lines against the
+    merge base with the repo's base branch, and whole new files (None)."""
+    out = {}
+    for n, (pth, base) in repo_dirs(env_dir, data).items():
+        if not (pth / ".git").exists():
+            continue
+        mb = git(["merge-base", f"origin/{base}", "HEAD"], pth, check=False) or f"origin/{base}"
+        diff = git(["diff", "-U0", "--no-color", mb], pth, check=False)
+        out.update(graphfocus.changed_from_diff(diff, n))
+        for f in git(["ls-files", "--others", "--exclude-standard"], pth, check=False).splitlines():
+            out[f"{n}/{f.strip()}"] = None
+    return out
+
+
+def cmd_graph_focus(a):
+    """Writes graph/graph-focus.html: graphify's graph.html with the nodes the item's design (design.md, tasks.md) names,
+    or the code it changed, lit and the rest dimmed. It changes nothing but that file (and graph/ when --refresh or no graph)."""
+    import contextlib
+    import io
+    import webbrowser
+    root = require_root()
+    cfg = load_config(root)
+    env_dir = env_or_die(root, cfg, a.id)
+    data = read_env(env_dir)
+    out_dir = env_dir / "graph"
+    notes = io.StringIO()
+    if a.refresh or not (out_dir / "graph.json").is_file() or not (out_dir / "graph.html").is_file():
+        with contextlib.redirect_stdout(notes):
+            build_graph(env_dir)
+    gj, gh = out_dir / "graph.json", out_dir / "graph.html"
+    if not (gj.is_file() and gh.is_file()):
+        why = (notes.getvalue().strip().splitlines() or ["the graph was not built"])[-1]
+        if a.json:
+            print(json.dumps({"ok": False, "error": f"no code graph: {why}"}))
+            sys.exit(1)
+        die(f"no code graph: {why}")
+    prog = data.get("progress") or {}
+    flow = prog.get("flow") or data.get("flow")
+    mode = a.mode if a.mode != "auto" else (stage_lens(flow, prog.get("phase")) or "none")
+    sp = spec_state(root, cfg, a.id)
+    text = ""
+    if sp:
+        for name in ("design.md", "tasks.md"):
+            f = root / sp["folder"] / name
+            if f.is_file() and (name == "design.md" or mode != "none"):
+                text += "\n" + f.read_text(encoding="utf-8", errors="replace")
+    graph = json.loads(gj.read_text(encoding="utf-8"))
+    result = graphfocus.focus(graph, mode, graphfocus.refs_from_text(text),
+                              graph_changes(env_dir, data) if mode == "implementation" else None)
+    (out_dir / "graph-focus.html").write_text(graphfocus.render(gh.read_text(encoding="utf-8"), result), encoding="utf-8")
+    summary = {"ok": True, "path": str(out_dir / "graph-focus.html"), "mode": mode, "stage": prog.get("phase"),
+               "primary": len(result["primary"]), "planned": len(result["planned"]), "secondary": len(result["secondary"]),
+               "neighbors": len(result["neighbors"]), "skipped": result["skipped"], "nodes": len(graph.get("nodes") or [])}
+    (out_dir / "focus.json").write_text(json.dumps({**summary, "files": result["files"]}, indent=2) + "\n", encoding="utf-8")
+    opened = False
+    if a.open:
+        opened = bool(webbrowser.open((out_dir / "graph-focus.html").resolve().as_uri()))
+    summary["opened"] = opened
+    if a.json:
+        print(json.dumps(summary))
+        return
+    word = {"design": "named in design.md and tasks.md", "implementation": "changed by the work", "none": "(nothing to light at this stage)"}[mode]
+    print(f"{summary['path']}\n{summary['primary']} nodes {word}"
+          + (f", {summary['planned']} named in the design and not changed yet" if summary["planned"] else "")
+          + f", {summary['secondary']} more in the same files, {summary['neighbors']} linked, of {summary['nodes']}"
+          + (f". Too common to place: {', '.join(summary['skipped'])}" if summary["skipped"] else "")
+          + ("" if not a.open else ("\nopened in the browser" if opened else "\ncould not open a browser: open the path above")))
+
+
 # ---------------------------------------------------------------- pr
 
 def pr_url(cfg, r, pid):
@@ -1457,6 +1539,12 @@ def main():
     s.add_argument("--no-graph", action="store_true")
     s = sp.add_parser("status"); s.add_argument("--id", type=int, required=True); s.add_argument("--json", action="store_true")
     s = sp.add_parser("graph"); s.add_argument("--id", type=int, required=True)
+    s = sp.add_parser("graph-focus", help="the code graph with the nodes of the item's design or its changes lit (graph/graph-focus.html)")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--mode", choices=("auto", *graphfocus.MODES), default="auto", help="auto: the lens of the stage the item is at")
+    s.add_argument("--refresh", action="store_true", help="rebuild the graph from src/ first (it is built when missing either way)")
+    s.add_argument("--open", action="store_true", help="open the page in the default browser")
+    s.add_argument("--json", action="store_true")
     s = sp.add_parser("progress")
     s.add_argument("--id", type=int, required=True)
     s.add_argument("--flow", required=True, choices=["bug", "spec"])
@@ -1535,7 +1623,7 @@ def main():
     s.add_argument("--abandon", action="store_true")
     s.add_argument("--yes", action="store_true")
     a = ap.parse_args()
-    {"init": cmd_init, "help": cmd_help, "doctor": cmd_doctor, "progress": cmd_progress, "refs": cmd_refs, "can": cmd_can, "type": cmd_type, "new": cmd_new, "status": cmd_status, "view": cmd_view, "reopen": cmd_reopen, "graph": cmd_graph,
+    {"init": cmd_init, "help": cmd_help, "doctor": cmd_doctor, "progress": cmd_progress, "refs": cmd_refs, "can": cmd_can, "type": cmd_type, "new": cmd_new, "status": cmd_status, "view": cmd_view, "reopen": cmd_reopen, "graph": cmd_graph, "graph-focus": cmd_graph_focus,
      "pr": cmd_pr, "remove": cmd_remove, "upgrade-config": cmd_upgrade_config, "run": cmd_run,
      "revert-check": cmd_revert_check, "verify": cmd_verify, "path": cmd_path, "cost": cmd_cost}[a.cmd](a)
 

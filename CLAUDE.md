@@ -20,6 +20,7 @@ the user's view; this file is for working on the plugin itself.
 | `skills/next/`, `sync/`, `impact/`, `harness/`, `visual/`, `workspace/` | The other skills. `visual/` is a fork of visual-explainer (MIT) |
 | `scripts/flows.json` | **The source of truth for the flows**: stages, gates each stage needs and passes, stops, `doc` (the stage file `env.py can` prints), `proofs`, `paths`. Scripts, hooks and the view all read it |
 | `scripts/env.py` | Work item folders, worktrees, progress, gates, stage guards, proofs, PRs |
+| `scripts/graphfocus.py` | `env.py graph-focus`: which nodes of graphify's graph the design (`design.md`, `tasks.md`) or the changed lines touch, and the script injected into graphify's `graph.html` that lights them. Pure functions; `lens` in `flows.json` says what each stage lights |
 | `scripts/spec.py` | The ADO mirror and index, impact, rev-tested ADO writes, `next`, metrics.json, Ai Agent Request `request` / `route` |
 | `scripts/sddlib.py` | Shared helpers, `DEFAULTS` for `.claude/sdd.json`, config upgrade, the output style install |
 | `scripts/adowrite.py`, `proof.py`, `nextpick.py`, `metrics.py` | ADO writes; recorded test runs; next-item rules; metrics.json — logic as plain functions, tested without ADO |
@@ -93,7 +94,7 @@ to trust the plugin directory, and each case is a paid agent run. A full TypeScr
   option (`userConfig` in `plugin.json`, a row in `/config`) is off or the workspace's `view.autoOpen` is false.
 - **The view writes one thing**: what each turn cost, in dollars and tokens, through `env.py cost` (one appended
   line in the item's `cost.jsonl`; `view` reports the totals). Otherwise `register.tsx` reads `env.py view` and posts the user's
-  messages. It never passes a gate or runs another state-changing command. The bug manager (`/sdd-bugs`) is
+  messages. It never passes a gate or runs another state-changing command; the one exception is `env.py graph-focus` (the **Open code graph** button), which writes only files under the item's `graph/`. The bug manager (`/sdd-bugs`) is
   apart: it writes the staged changes to `<bugs folder>/pending.json` and a probable cause to `items/<id>.analysis.json`,
   and runs the bug scripts on the person's press; its one model call is the probable cause, on a press. Its ⚙ Config
   panel is the one place the view writes config: on Save it rewrites `.claude/sdd.json` (only the `bugs` keys that

@@ -51,6 +51,7 @@
         },
         {
           "key": "Design",
+          "lens": "design",
           "label": "Design",
           "needs": [
             "Claimed",
@@ -65,6 +66,7 @@
         },
         {
           "key": "Decompose",
+          "lens": "design",
           "label": "Decompose",
           "needs": [
             "Requirements agreed",
@@ -79,6 +81,7 @@
         },
         {
           "key": "Implement",
+          "lens": "implementation",
           "label": "Implement",
           "needs": [
             "Requirements agreed",
@@ -93,6 +96,7 @@
         },
         {
           "key": "Verify",
+          "lens": "implementation",
           "label": "Verify",
           "needs": [
             "Tasks done"
@@ -106,6 +110,7 @@
         },
         {
           "key": "Review",
+          "lens": "implementation",
           "label": "Review",
           "needs": [
             "PR raised"
@@ -216,6 +221,7 @@
         },
         {
           "key": "Phase 7",
+          "lens": "implementation",
           "label": "Failing regression test",
           "needs": [
             "Approval"
@@ -227,6 +233,7 @@
         },
         {
           "key": "Phase 8",
+          "lens": "implementation",
           "label": "Apply fix",
           "needs": [
             "Approval",
@@ -237,6 +244,7 @@
         },
         {
           "key": "Phase 9",
+          "lens": "implementation",
           "label": "Verify",
           "needs": [
             "Approval",
@@ -249,6 +257,7 @@
         },
         {
           "key": "Phase 10",
+          "lens": "implementation",
           "label": "Commit and push",
           "needs": [
             "Approval",
@@ -259,6 +268,7 @@
         },
         {
           "key": "Phase 11",
+          "lens": "implementation",
           "label": "Manual verification",
           "needs": [
             "Approval",
@@ -272,6 +282,7 @@
         },
         {
           "key": "Phase 12",
+          "lens": "implementation",
           "label": "Pull request",
           "needs": [
             "Approval",
@@ -285,6 +296,7 @@
         },
         {
           "key": "Phase 13",
+          "lens": "implementation",
           "label": "Write back to ADO",
           "needs": [
             "PR raised"
@@ -294,6 +306,7 @@
         },
         {
           "key": "Phase 14",
+          "lens": "implementation",
           "label": "Record learnings",
           "needs": [],
           "passes": [],
@@ -301,6 +314,7 @@
         },
         {
           "key": "Phase 15",
+          "lens": "implementation",
           "label": "PR review",
           "needs": [
             "PR raised"

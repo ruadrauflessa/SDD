@@ -38,6 +38,7 @@ pandoc, Ollama (meaning search).
 | `/sdd <id>` on an Ai Agent Request | Reports on the hand-over (what is done, what is left, the items it names) and asks spec or bug. The work goes to the open item it belongs to, or to a new Tech Story or Bug linked to the request; then that flow runs |
 | `/sdd <id> short` / `full` | A spec item on the short path (one stop approves design and tasks together) or the full one; without it, the flow asks |
 | `/sdd:help` (or `/sdd:sdd`, `/sdd help`) | One help page: a first-time walk-through (init, sync, impact, a first bug and spec item) and every command |
+| `/sdd graph <id>` | Opens the item's code graph in the browser with the nodes of its design (Design, Decompose) or of what the work changed (Implement onwards) lit; the sdd view has the same as **🕸 Open code graph** |
 | `/sdd status <id>` | Where the item stands |
 | `/sdd <id> feedback <stage>: <text>` | Back to a done or waiting stage with your feedback |
 | `/sdd-view [id]` | Opens the sdd view for this chat's work item (or the one given) |
@@ -53,6 +54,7 @@ The sdd view opens by itself in the Claude Desktop app: at the start of every se
 - the band above the prompt shows the same tag (`[spec · short]`) for as long as the chat's work item
   is in progress, and turns amber when it waits on you;
 - the same band is a launcher: **sdd view**, **Worktrees** and **repowatch** buttons are always there (with no item running it reads "Open a panel"), so a panel opens without a command;
+- **🕸 Open code graph** (under the stages, once the item has worktrees) rebuilds the graph and opens it in the browser with the item's nodes lit: the ones `design.md` and `tasks.md` name at Design and Decompose; from Implement on (bug flow: Phase 7 on) the ones the work changed, with what the design named and the work has not touched yet in a second colour, the rest of their files and their neighbours fainter and everything else dimmed. A panel on the page lists them (press one to centre it) and switches the lighting off, or hides the rest. The page loads vis-network from unpkg, so it needs the internet; needs graphify (`pip install --user graphifyy`);
 - the review stage (spec: Review, bug: Phase 15) has **Approved**, **Merged** and **Rejected**;
 - a worktree opens in File Explorer or VS Code from its box. The spanner (🔧) opens it in repowatch, on that one worktree (needs repowatch 0.1.1 or newer; older ones just open their normal pane).
 - the pane lists the flow's stages as one vertical rail: a small picture of the node and the rail for each stage, joined

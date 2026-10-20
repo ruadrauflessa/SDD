@@ -189,6 +189,41 @@ async function openIn($: EngineInterface, app: 'files' | 'code', path: string): 
   }
 }
 
+/** The code graph page of a work item, with the nodes of its design or its changes lit (`env.py graph-focus`): the script builds the
+ *  graph when there is none, rebuilds it so the changes are in it, writes `graph/graph-focus.html` and opens it in the browser. It
+ *  changes nothing else. Says what it did, or why not. */
+async function openCodeGraph($: EngineInterface, id: number): Promise<void> {
+  $.ui.toast('Building the code graph…')
+  const cwd = (await $.state.get(place)).value || (await $.session.cwd())
+  let why = 'could not run python'
+  for (const exe of [python, 'python3', 'py']) {
+    try {
+      const r = await $.process.run([exe, `${$.plugin.root}/scripts/env.py`, 'graph-focus', '--id', String(id), '--refresh', '--open', '--json'], { cwd, timeoutMs: 180000 })
+      python = exe
+      const last = r.stdout.trim().split('\n').pop() ?? ''
+      let got: { ok?: boolean; error?: string; mode?: string; primary?: number; planned?: number; opened?: boolean; path?: string } = {}
+      try {
+        got = JSON.parse(last)
+      } catch {
+        why = (r.stderr || r.stdout).trim().split('\n').pop() || `env.py graph-focus exited ${r.exitCode}`
+        break
+      }
+      if (!got.ok) {
+        why = (got.error ?? 'the graph could not be built').replace(/^no code graph:\s*/i, '')
+        break
+      }
+      const lit = got.mode === 'design' ? `${got.primary} nodes named in the design`
+        : got.mode === 'implementation' ? `${got.primary} nodes changed${got.planned ? `, ${got.planned} named in the design and not changed yet` : ''}`
+        : 'nothing to light at this stage'
+      $.ui.toast(got.opened ? `Code graph opened: ${lit}.` : `Code graph written to ${got.path} (no browser opened): ${lit}.`)
+      return
+    } catch (err) {
+      why = `could not run python: ${String(err)}`
+    }
+  }
+  $.ui.toast(`No code graph: ${why}`)
+}
+
 /** Copies a path to the clipboard (the mod kit has no clipboard call, so the computer's own tool does it) and says so. */
 async function copyPath($: EngineInterface, path: string): Promise<void> {
   try {
@@ -2356,6 +2391,23 @@ export const register: Register = (on, options) => {
             })}
           </Box>
         )}
+
+        {canOpen && Object.keys(item.repos ?? {}).length > 0 && (() => {
+          const lens = flow?.stages.find(st => st.key === phaseKey(flow, item.progress?.phase))?.lens
+          return (
+            <Box flexDirection="row" gap={1} alignItems="center" borderStyle="round" borderColor={C.line} paddingX={1}>
+              <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
+                <Text bold wrap="wrap">Code graph</Text>
+                <Text dimColor wrap="wrap">
+                  {lens === 'design' ? 'The map of the code, with the nodes design.md and tasks.md name lit.'
+                    : lens === 'implementation' ? 'The map of the code, with what the work changed lit, and what the design named and the work has not touched yet.'
+                    : 'The map of the code. At the Design stage and after, it lights the nodes of the design and of the changes.'}
+                </Text>
+              </Box>
+              <Button key="graph-open" label="🕸 Open code graph" onPress={() => void openCodeGraph($, item.id)} />
+            </Box>
+          )
+        })()}
 
         {Object.keys(item.repos ?? {}).length > 0 && (
           <Box flexDirection="column">

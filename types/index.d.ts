@@ -60,7 +60,9 @@ export type SddItem = {
 
 export type SddStageRecord = { at: string; status: 'worked' | 'done' | 'skipped'; confirmed?: string; doneAt?: string }
 
-export type SddStage = { key: string; label: string; needs: string[]; passes: string[]; stop?: boolean; reworkTo?: string; conditional?: boolean; inferFromGates?: boolean }
+export type SddStage = { key: string; label: string; needs: string[]; passes: string[]; stop?: boolean; reworkTo?: string; conditional?: boolean; inferFromGates?: boolean
+  /** What the code graph lights at this stage (flows.json "lens"): the design's nodes, or the nodes the work changed. */
+  lens?: 'design' | 'implementation' }
 
 /** A way through a flow (flows.json "paths"), e.g. the spec flow's full and short. */
 export type SddPath = { label: string; dropNeeds?: Record<string, string[]> }
