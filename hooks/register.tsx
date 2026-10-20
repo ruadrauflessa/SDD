@@ -7,7 +7,7 @@ import { update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { BugAnalysis, BugCategory, BugChange, BugCondition, BugSettings, BugSettingsDraft, BugDetail, BugEvidence, BugFilter, BugIndex, BugRecord, BugsConfig, SddAsk, SddColors, SddLiveState, SddDoc, SddItem, SddQuestion, SddSnapshot, SddStage } from '../types'
-import { GLYPH, agentRows, contextTone, moneyText, spendHead, SPEND_ICON, spendTokens, spendTotal, tokensLine, answerMessage, answersFor, approveAnswers, approveFor, approveMessage,decidedGates, fileLinks, defaultStage, flowFinished, railSlice, railBarColor, clipboardArgv, stageWord, shortStamp, flowTag, MARK_WORD, idFromArgs, idFromScript, itemOptions, itemSuggestions, pendingGate, reviewLinks, stamp, fileTarget, gateStory, phaseKey, phaseLabel, refLink, stageDocs, stageHistory, stageRows, stageSummary, spinnerNote, statusWord, when, yourTurn } from './view/model'
+import { GLYPH, agentRows, contextTone, moneyText, spendHead, SPEND_ICON, spendTokens, spendTotal, tokensLine, answerMessage, answersFor, approveAnswers, approveFor, approveMessage,decidedGates, fileLinks, defaultStage, flowFinished, railSlice, railBarColor, clipboardArgv, stageWord, shortStamp, flowTag, MARK_WORD, idFromArgs, idFromScript, itemOptions, itemSuggestions, startPage, pendingGate, reviewLinks, stamp, fileTarget, gateStory, phaseKey, phaseLabel, refLink, stageDocs, stageHistory, stageRows, stageSummary, spinnerNote, statusWord, when, yourTurn } from './view/model'
 import type { AgentInfoLike, AgentTone, Mark, StageRow } from './view/model'
 import { ageShort, agoText, cleanupNote, conflictNote, counts, groupByItem, historyArgs, joinWorktrees, lineFacts, lineKey, linePath, lineTone, lineWord, sortLines } from './view/worktrees'
 import { ANALYSIS_SYSTEM, F, FIELD_NAME, NO_FILTER, UNASSIGNED, ago, analysisKey, analysisNote, analysisPrompt, bugsConfig, assigneeOptions, categorize, chipCounts, clipboardArgvFor, commentProblem, countText, currentValue, filterItems, isMine,
@@ -1287,10 +1287,35 @@ export const register: Register = on => {
     }
 
     if (!index || !cfg) {
+      const q = cfg?.query
+      const list = (v: readonly string[] | undefined, none: string) => (v && v.length ? v.join(', ') : none)
       return (
         <Box flexDirection="column" width={cols} gap={1}>
           {drawHeader()}
-          <Text dimColor wrap="wrap">The bug manager reads the bugs and issues Sync pulls from ADO into the spec folder. Sync needs PowerShell and an az login.</Text>
+          <Box flexDirection="column" gap={1} borderStyle="round" borderColor={C.line} paddingX={1}>
+            <Text bold>{busy === 'sync' ? 'Syncing from ADO…' : 'Nothing to triage yet'}</Text>
+            <Text wrap="wrap">Sync copies the bugs and issues of your ADO projects into your spec folder. Nothing is changed in ADO, and it costs no tokens. It needs PowerShell and an az login.</Text>
+            {cfg && (
+              <Box flexDirection="column">
+                <Text bold>What it will pull</Text>
+                <Text wrap="wrap">{`Types: ${list(cfg.types, 'Bug, Issue')}`}</Text>
+                <Text wrap="wrap">{`Projects: ${list(q?.projects, 'the ones in ado.projects of sdd.json')}`}</Text>
+                <Text wrap="wrap">{`Areas: ${list(q?.areaPaths, 'every area')}`}</Text>
+                <Text wrap="wrap">{`Leaves out: ${list(q?.excludeStates, 'nothing')}`}</Text>
+              </Box>
+            )}
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Button key="bugs-sync-start" variant="primary" label="↻ Sync from ADO" onPress={sync} />
+              {cfg && <Button key="bugs-config-start" label="⚙ Change what it pulls" onPress={toggleSettings} />}
+            </Box>
+          </Box>
+          <Box flexDirection="column" borderStyle="round" borderColor={C.line} paddingX={1}>
+            <Text bold>Then you can</Text>
+            <Text wrap="wrap">· sort them into categories: quick wins, high severity, in progress, ready for deployment, a branch per version</Text>
+            <Text wrap="wrap">· filter by person, state, type or the dev team, and search by words</Text>
+            <Text wrap="wrap">· change a state, severity, tag or owner on many at once, and save it to ADO as one batch</Text>
+            <Text wrap="wrap">· find the probable cause of a bug, and copy the /sdd command to fix it in a new chat</Text>
+          </Box>
         </Box>
       )
     }
@@ -2012,13 +2037,21 @@ export const register: Register = on => {
       // a refresh the person asked for says so, since an item that did not change looks the same
       if (isAsked) $.ui.toast(v.out ? `Refreshed ${stamp(new Date().toISOString())}` : `Refresh failed: ${v.why ?? 'no answer from env.py'}`)
     }
+    // what a press on the start page does: the prompt gets the command, the person sends it
+    const fill = (text: string) => void $.prompt.fill({ text })
     if (!s) {
       return (
-        <Box flexDirection="column" width={cols}>
-          <Text bold>sdd view</Text>
-          <Text dimColor>{why ?? 'Reading the work items…'}</Text>
-          <Text dimColor>The view reads .claude/sdd.json at or above the session folder.</Text>
-          <Button key="retry" label="Try again" hotkey="r" onPress={() => void sync(id, true)} />
+        <Box flexDirection="column" width={cols} gap={1}>
+          <Box flexDirection="row" gap={1} alignItems="center">
+            <Box flexGrow={1}><Text bold>sdd view</Text></Box>
+            <Button key="retry" label="↻ Try again" hotkey="r" onPress={() => void sync(id, true)} />
+          </Box>
+          {why ? <Text color={C.now} wrap="wrap">{why}</Text> : <Text dimColor wrap="wrap">Reading the work items…</Text>}
+          <Text dimColor wrap="wrap">The view reads .claude/sdd.json at or above the session folder. Is this a new workspace? Set it up once, and the view fills in.</Text>
+          <Box flexDirection="row" gap={1}>
+            <Button key="start-init" variant="primary" label="Set up this workspace" onPress={() => fill('/sdd init')} />
+            <Button key="start-help" label="Help" onPress={() => fill('/sdd:help')} />
+          </Box>
         </Box>
       )
     }
@@ -2043,17 +2076,60 @@ export const register: Register = on => {
       ? <Select key="pick-item" label="Work item" options={options} value={id != null ? String(id) : undefined} onSelect={pick} />
       : null
 
-    // ---- no work item for this chat yet
+    // ---- no work item for this chat yet: a page to start from
     if (!item) {
+      const start = startPage(s, 6, Math.max(30, Math.min(90, (cols ?? 100) - 12)))
       return (
         <Box flexDirection="column" width={cols} gap={1}>
-          <Box flexDirection="row" gap={1}>
+          <Box flexDirection="row" gap={1} alignItems="center">
             <Box flexGrow={1}><Text bold>sdd view</Text></Box>
             <Button key="refresh" label="↻" hotkey="r" onPress={() => void sync(id, true)} />
           </Box>
           <Text wrap="wrap">{id != null ? `Work item ${id} is not in this workspace.` : 'This chat is not working on a work item yet.'}</Text>
-          <Text dimColor wrap="wrap">Start one with /sdd &lt;id&gt;, or open one with /sdd-view &lt;id&gt;.</Text>
-          {picker(false)}
+          <Text dimColor wrap="wrap">This view shows one work item at a time: its stages, what you approved at each gate, what it cost, and the buttons to answer, approve or send it back.</Text>
+
+          <Box flexDirection="column" gap={1} borderStyle="round" borderColor={C.line} paddingX={1}>
+            <Text bold>Start something</Text>
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Button key="start-id" variant="primary" label="Work an item" onPress={() => fill('/sdd ')} />
+              <Text dimColor wrap="wrap">Type its id after /sdd. A bug or issue starts the bug flow; a story or feature, the spec flow.</Text>
+            </Box>
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Button key="start-next" label="Take the next item" onPress={() => fill('/sdd next ')} />
+              <Text dimColor wrap="wrap">Give an epic or feature id and your team version; sdd ranks what is free.</Text>
+            </Box>
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Button key="start-sync" label="Pull the specs" onPress={() => fill('/sdd sync ')} />
+              <Text dimColor wrap="wrap">Copy an epic and everything under it from ADO. It costs no tokens.</Text>
+            </Box>
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Button key="start-bugs" label="Triage bugs" onPress={() => void openBugsPage($)} />
+              <Text dimColor wrap="wrap">Sort every bug and issue, change many at once, and start a fix from a row.</Text>
+            </Box>
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Button key="start-help" label="Help" onPress={() => fill('/sdd:help')} />
+              <Text dimColor wrap="wrap">A first-time walk-through and every command.</Text>
+            </Box>
+          </Box>
+
+          {start.open.length > 0
+            ? (
+              <Box flexDirection="column" gap={1} borderStyle="round" borderColor={C.line} paddingX={1}>
+                <Text bold>{`Open in this workspace (${start.open.length + start.more})`}</Text>
+                {start.open.map(o => (
+                  <Button key={`start-open-${o.id}`} plain label={`${o.waiting ? '● ' : '▸ '}${o.line}`} onPress={() => pick(String(o.id))} />
+                ))}
+                {start.more > 0 && <Text dimColor>{`and ${start.more} more: pick one from the Work item list.`}</Text>}
+              </Box>
+            )
+            : <Text dimColor wrap="wrap">Nothing is in progress in this workspace.</Text>}
+          {start.recent.length > 0 && (
+            <Box flexDirection="column">
+              <Text dimColor>Finished lately</Text>
+              {start.recent.map((r, n) => <Text key={`start-done-${n}`} dimColor wrap="truncate-end">{`✓ ${r}`}</Text>)}
+            </Box>
+          )}
+          {start.more > 0 && picker(false)}
         </Box>
       )
     }

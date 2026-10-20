@@ -104,6 +104,29 @@ const mountPane = async ($: any, f: Fake, surface: 'terminal' | 'desktop', colum
   return ui
 }
 
+test('desktop: with no work item the pane is a start page: what to start, and the open items to pick up', async ($: any, on: any) => {
+  const f = fake(on)
+  await $.session.start({ cwd: '/ws', surface: 'terminal', isInteractive: true })
+  if (!f.registered.includes('sdd-view')) {
+    await new Promise(r => setTimeout(r, 100))
+    return
+  }
+  await $.command.run({ command: 'sdd-view', args: '' })
+  const ui = await $.ui.mount({ plugin: 'sdd', surface: 'desktop', component: 'Pane', props: { title: 'sdd', isFocused: true, bodyColumns: 100, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} } as never,
+    requestId: 'sdd-view', viewport: { columns: 100, rows: 40 } })
+  for (let i = 0; i < 100 && !(await texts(ui)).includes('Start something'); i++) await new Promise(r => setTimeout(r, 10))
+  const t = await texts(ui)
+  expect(t).toContain('This chat is not working on a work item yet.')
+  expect(t).toContain('Start something')
+  expect(t).toContain('Open in this workspace (2)')
+  const labels = (await ui.findAll({ type: 'Button' })).map((b: any) => b.props?.label ?? '')
+  expect(labels).toEqual(expect.arrayContaining(['Work an item', 'Take the next item', 'Pull the specs', 'Triage bugs', 'Help', '● 92100 Second thing · Design · waiting on you', '▸ 92012 Author tags · Design · active']))
+  // a press on an open item shows it
+  await ui.press({ key: 'start-open-92012' })
+  for (let i = 0; i < 100 && (await texts(ui)).includes('Start something'); i++) await new Promise(r => setTimeout(r, 10))
+  expect(await texts(ui)).not.toContain('Start something')
+})
+
 for (const surface of ['desktop'] as const) {
   test(`${surface}: the pane lists the session's agents, the working one first, without the plugin prefix`, async ($: any, on: any) => {
     const f = fake(on)

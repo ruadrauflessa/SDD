@@ -44,7 +44,7 @@ pandoc, Ollama (meaning search).
 | `/sdd-bugs [mine]` | The bug manager (Claude Desktop app): triage the bugs and issues of your ADO projects in a pane. See below |
 | `/sdd-worktrees` | Lists every work item that still has worktrees, with each worktree's live state (needs the repowatch plugin, which installs with sdd). Read-only. Each work item is a header; each worktree under it is one line (a colour dot, `repo · branch`, a state word, its age). Press a line to open its facts, 📋 copy folder and a **History** button that asks repowatch to draw that branch against its base. Clean-up is in `/repowatch worktrees` |
 
-The sdd view opens by itself the first time a chat takes up a work item. In it:
+The sdd view opens by itself the first time a chat takes up a work item. With no item to show it is a start page: buttons that put `/sdd `, `/sdd next `, `/sdd sync ` or `/sdd:help` in the prompt, one for the bug manager, the workspace's open items to pick up (the ones waiting on you first) and the last finished ones. In it:
 
 - the header tags the flow and, for the spec flow, the path: `[Spec flow] [short path]`, or
   `[path not chosen]` while the flow still has to ask (`[Bug flow]` for a bug);
@@ -82,6 +82,7 @@ A pane in the Claude Desktop app for triaging bugs and issues; the **Bugs** butt
 It costs no tokens to use: PowerShell scripts (`scripts/bugs/*.ps1`) do the ADO and git work, and the pane
 reads the files they write. Only **Find probable cause** calls a model, once, with a short prompt.
 
+- Before the first Sync the pane says what Sync will pull (types, projects, areas, states left out), has its own **Sync from ADO** and **Change what it pulls** buttons, and lists what the bug manager does once it has the list.
 - **⚙ Config**, beside Sync, opens the settings panel, so nobody has to dig around in the JSON files. Its sections
   are the dev team and its area paths (`.claude/developers.json`), what Sync pulls, the categories (name, icon,
   colour, rules, alternatives, order), the state, severity and priority pickers, the probable-cause model, and your

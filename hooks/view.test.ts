@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { SddItem, SddSnapshot } from '../types'
-import { contextTone, moneyText, spendTokens, tokenText, tokensLine, spendLine, spendHead, spendTotal, agentRows, itemOptions, itemSuggestions, gateChips, MARK_WORD, railSlice, stageWord, flowAlt, RAIL, railBarColor, clipboardArgv, defaultStage, stepStage, shortStamp, flowTag, spinnerNote, yourTurn, questionBadge, answerMessage, answersFor, approveAnswers, approveFor, approveMessage, fileLinks, flowFinished, fileTarget, gateStory, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, phaseKey, refLink, stageRows, stageSummary } from './view/model'
+import { contextTone, moneyText, spendTokens, tokenText, tokensLine, spendLine, spendHead, spendTotal, agentRows, itemOptions, itemSuggestions, startPage, gateChips, MARK_WORD, railSlice, stageWord, flowAlt, RAIL, railBarColor, clipboardArgv, defaultStage, stepStage, shortStamp, flowTag, spinnerNote, yourTurn, questionBadge, answerMessage, answersFor, approveAnswers, approveFor, approveMessage, fileLinks, flowFinished, fileTarget, gateStory, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, phaseKey, refLink, stageRows, stageSummary } from './view/model'
 import type { SddLiveState } from '../types'
 import { historyArgs, historyRefs, agoText, cleanupNote, conflictNote, counts, groupByItem, joinWorktrees, lineFacts, pathKey, sortLines, lineTone, lineWord, ageShort, lineKey, linePath, type WtLine } from './view/worktrees'
 
@@ -285,6 +285,16 @@ test('the work item dropdown: the ones waiting on you first, then the newest id,
   expect(o[1].label).toBe('92200 Third thing · Implement · active')
   expect(itemOptions({ items: [], flows: {} })).toEqual([])
   expect(itemOptions({ items: [{ ...ITEM, title: 'x'.repeat(200) }], flows: SNAP.flows })[0].label.length).toBe(90)
+})
+
+test('the start page: the open items, the ones waiting first and the rest counted, and the last finished ones', () => {
+  const s = startPage({ ...MANY, done: [{ ...ITEM, id: 1, title: 'Old', removed: '2026-01-01T00:00:00Z' }, { ...ITEM, id: 2, title: 'Newer', removed: '2026-03-01T00:00:00Z' }] }, 2)
+  expect(s.open.map(o => [o.id, o.waiting])).toEqual([[92100, true], [92200, false]])
+  expect(s.open[0].line).toBe('92100 Second thing · Design · waiting on you')
+  expect(s.more).toBe(1)
+  expect(s.recent).toEqual(['2 Newer', '1 Old'])                                   // the latest first
+  expect(startPage({ items: [], done: [], flows: {} })).toEqual({ open: [], more: 0, recent: [] })
+  expect(startPage({ items: [{ ...ITEM, title: 'x'.repeat(200) }], done: [], flows: SNAP.flows }, 6, 40).open[0].line.length).toBe(40)
 })
 
 test('autocomplete: only after /sdd, by id prefix or a word of the title', () => {
