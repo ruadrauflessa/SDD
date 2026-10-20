@@ -44,7 +44,7 @@ pandoc, Ollama (meaning search).
 | `/sdd-bugs [mine]` | The bug manager (Claude Desktop app): triage the bugs and issues of your ADO projects in a pane. See below |
 | `/sdd-worktrees` | Lists every work item that still has worktrees, with each worktree's live state (needs the repowatch plugin, which installs with sdd). Read-only. Each work item is a header; each worktree under it is one line (a colour dot, `repo · branch`, a state word, its age). Press a line to open its facts, 📋 copy folder and a **History** button that asks repowatch to draw that branch against its base. Clean-up is in `/repowatch worktrees` |
 
-The sdd view opens by itself the first time a chat takes up a work item. With no item to show it is a start page: buttons that put `/sdd `, `/sdd next `, `/sdd sync ` or `/sdd:help` in the prompt, one for the bug manager, the workspace's open items to pick up (the ones waiting on you first) and the last finished ones. In it:
+The sdd view opens by itself in the Claude Desktop app: at the start of every session in an sdd workspace (the **Open the sdd view when a Desktop session starts** row in `/config`, on by default; `"view": { "autoOpen": false }` in `.claude/sdd.json` keeps it shut for that workspace), and the first time a chat takes up a work item. With no item to show it is a start page: buttons that put `/sdd `, `/sdd next `, `/sdd sync ` or `/sdd:help` in the prompt, one for the bug manager, the workspace's open items to pick up (the ones waiting on you first) and the last finished ones. In it:
 
 - the header tags the flow and, for the spec flow, the path: `[Spec flow] [short path]`, or
   `[path not chosen]` while the flow still has to ask (`[Bug flow]` for a bug);

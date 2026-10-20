@@ -89,6 +89,8 @@ to trust the plugin directory, and each case is a paid agent run. A full TypeScr
   (commands, first read, cost baseline, timers) runs from `session.start` and `session.attach` when a Desktop app is
   attached, every draw hook returns `next(e)` unless `e.surface === 'desktop'`, and every other hook passes through until
   setup ran. Never set up from a draw hook: the engine refuses state writes while a draw is dispatched.
+  The view opens itself at a Desktop session's start (`openAtSessionStart`, from `setupDesktop`; once per session, `sdd.startOpened`) unless the `openAtStart`
+  option (`userConfig` in `plugin.json`, a row in `/config`) is off or the workspace's `view.autoOpen` is false.
 - **The view writes one thing**: what each turn cost, in dollars and tokens, through `env.py cost` (one appended
   line in the item's `cost.jsonl`; `view` reports the totals). Otherwise `register.tsx` reads `env.py view` and posts the user's
   messages. It never passes a gate or runs another state-changing command. The bug manager (`/sdd-bugs`) is

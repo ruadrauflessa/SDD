@@ -321,6 +321,8 @@ declare module 'claude-code' {
       gate: string | null
       /** The view opened by itself in this session already. */
       opened: boolean
+      /** The start page was opened by itself at this session's start (`openAtStart`), once. */
+      startOpened: boolean
       /** This chat's work item: the one it last ran /sdd or an sdd script for. */
       mine: number | null
       /** The item this chat took up with /sdd (or, with no /sdd, the first its scripts named): what each turn costs is charged to it. */

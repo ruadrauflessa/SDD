@@ -28,6 +28,7 @@ const place = { plugin: 'sdd', key: 'workspace' } as const
 const feedback = { plugin: 'sdd', key: 'feedback' } as const
 const gate = { plugin: 'sdd', key: 'gate' } as const
 const autoOpened = { plugin: 'sdd', key: 'opened' } as const
+const startOpened = { plugin: 'sdd', key: 'startOpened' } as const
 const mine = { plugin: 'sdd', key: 'mine' } as const
 const home = { plugin: 'sdd', key: 'home' } as const
 const asked = { plugin: 'sdd', key: 'asked' } as const
@@ -69,6 +70,7 @@ let isOpen = false
 let isWorkspace = false
 // Cost and context, from session.measure. The cost is charged to the stage the item was in when the turn began.
 let desktopReady = false  // a Desktop app is attached: until then the mod does nothing
+let openAtStart = true    // the `openAtStart` option (/config): open the view when a Desktop session starts in an sdd workspace
 let sessionId = ''
 /** Why the last finished turn charged nothing, for the pane to say when an item shows no cost; null = it was recorded. */
 let costWhy: string | null = null
@@ -335,6 +337,20 @@ async function baseline($: EngineInterface): Promise<void> {
   }
 }
 
+/** The view opens by itself when a Desktop session starts in an sdd workspace, once per session: as the start page when this
+ *  chat has no work item. Not when the `openAtStart` option is off (/config), when the workspace's `view.autoOpen` is false, or when
+ *  no sdd workspace was found from here (the read failed: there is nothing to show but a setup page, and not in every project). */
+async function openAtSessionStart($: EngineInterface): Promise<void> {
+  if (!openAtStart) return
+  const s = (await $.state.get(snap)).value ?? null
+  if (!s || s.autoOpen === false) return
+  if ((await $.state.get(startOpened)).value) return
+  await $.state.set(startOpened, true)
+  const own = (await $.state.get(mine)).value ?? null
+  if (own != null) return                                       // this chat took an item up already: its own auto-open ran
+  await openPane($, null)
+}
+
 /** The sdd view is for the Claude Desktop app. This sets it up once a Desktop app is attached to the session (at the start,
  *  or when it attaches; never from a draw, which may not write state): the commands, the first read of the work items, the cost baseline and the
  *  timers. Anywhere else (a terminal, the VS Code extension, a phone, `claude -p`) it does nothing, and every hook passes
@@ -371,7 +387,7 @@ async function setupDesktop($: EngineInterface, isAttach = false): Promise<boole
     await $.state.set(error, v.why)
   }
   // background reads: if the session ends under one, there is nobody to tell
-  void sync().catch(() => undefined)
+  void sync().then(() => openAtSessionStart($)).catch(() => undefined)
   await baseline($)
   $.clock.every(30_000, () => {
     if (isOpen || isWorkspace) void sync().catch(() => undefined)
@@ -667,7 +683,8 @@ async function openBugsPage($: EngineInterface, args = ''): Promise<string> {
   return w ? 'sdd bugs opened.' : 'sdd bugs opened (no workspace: see the pane).'
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  openAtStart = options?.openAtStart !== false  // a change in /config reloads the module with the new value
   // ---------------------------------------------------------------- the Worktrees page (/sdd-worktrees)
   // It lives in this file: older engines follow `$` into a function of the same file only.
 

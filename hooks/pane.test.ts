@@ -39,7 +39,7 @@ const AGENTS = [
 type Cost = { id: number; stage: string; usd: number; session: string; turns: number; input: number; output: number; cacheRead: number; cacheWrite: number }
 type Row = { usd: number; turns: number; input: number; output: number; cacheRead: number; cacheWrite: number }
 type Fake = { registered: string[]; usd: number | null; costs: Cost[]; costFails: boolean; toasts: string[]
-  ran: string[]; opened: string[]; runs: string[][]; finishFirst?: boolean; surfaces: string[]; sid: string; spend: Record<string, Row>; spendOther: Record<string, Row> }
+  ran: string[]; opened: string[]; runs: string[][]; finishFirst?: boolean; noAutoOpen?: boolean; surfaces: string[]; sid: string; spend: Record<string, Row>; spendOther: Record<string, Row> }
 
 function fake(on: (event: any, hook: (...a: never[]) => unknown) => void, agents = AGENTS): Fake {
   const f: Fake = { registered: [], usd: 1, costs: [], costFails: false, toasts: [], ran: [], opened: [], runs: [], sid: 's1', surfaces: ['desktop'], spend: {}, spendOther: {} }
@@ -61,7 +61,7 @@ function fake(on: (event: any, hook: (...a: never[]) => unknown) => void, agents
     }
     const all = (SNAP as any).items.map((i: any) => ({ ...i, spend: i.id === 92012 ? f.spend : f.spendOther }))
     const snap = f.finishFirst ? { ...(SNAP as any), items: all.filter((i: any) => i.id !== 92012), done: all.filter((i: any) => i.id === 92012) } : { ...(SNAP as any), items: all }
-    return done(0, JSON.stringify(snap))
+    return done(0, JSON.stringify(f.noAutoOpen ? { ...snap, autoOpen: false } : snap))
   }) as never)
   on('tool.call' as never, (() => ({ result: 'ok' })) as never)  // a Bash run: the plugin only watches it
   on('session.cwd' as never, (() => ({ value: '/ws' })) as never)
@@ -548,6 +548,36 @@ async function bandCheck($: any, f: Fake) {
   expect(tag.text).toBe('[spec\u00a0·\u00a0full]')                                      // no plain space to wrap at
 }
 
+test('a Desktop session start in an sdd workspace opens the start page by itself, once', async ($: any, on: any) => {
+  const f = fake(on)
+  await $.session.start({ cwd: '/ws', surface: 'terminal', isInteractive: true })
+  if (!f.registered.includes('sdd-view')) { await new Promise(r => setTimeout(r, 100)); return }
+  await until(async () => f.opened.includes('sdd-view'))
+  expect(f.opened.filter(id => id === 'sdd-view')).toHaveLength(1)
+  // a reload runs the session start again: the page is not opened a second time
+  await $.session.start({ cwd: '/ws', surface: 'terminal', isInteractive: true })
+  await new Promise(r => setTimeout(r, 150))
+  expect(f.opened.filter(id => id === 'sdd-view')).toHaveLength(1)
+})
+
+test('view.autoOpen false in sdd.json keeps the view shut at the start of a session', async ($: any, on: any) => {
+  const f = fake(on)
+  f.noAutoOpen = true
+  await $.session.start({ cwd: '/ws', surface: 'terminal', isInteractive: true })
+  if (!f.registered.includes('sdd-view')) { await new Promise(r => setTimeout(r, 100)); return }
+  await until(async () => f.runs.length > 0)
+  await new Promise(r => setTimeout(r, 200))
+  expect(f.opened).not.toContain('sdd-view')
+})
+
+test('no Desktop app attached: nothing opens at the start', async ($: any, on: any) => {
+  const f = fake(on)
+  f.surfaces = ['terminal']
+  await $.session.start({ cwd: '/ws', surface: 'terminal', isInteractive: true })
+  await new Promise(r => setTimeout(r, 200))
+  expect(f.opened).toEqual([])
+})
+
 const mountBand = ($: any, columns = 100) => $.ui.mount({ plugin: 'sdd', surface: 'desktop', component: 'AbovePrompt',
   props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: columns, scroll: { offset: 0, bodyRows: 3 }, view: {} } as never, requestId: 'band', viewport: { columns, rows: 40 } })
 
@@ -555,6 +585,8 @@ test('the launcher: with no item running the band still offers the panels, and e
   const f = fake(on, [])
   await $.session.start({ cwd: '/ws', surface: 'terminal', isInteractive: true })
   if (!f.registered.includes('sdd-view')) { await new Promise(r => setTimeout(r, 100)); return }
+  await until(async () => f.opened.includes('sdd-view'))   // the session start opened the start page by itself
+  f.opened.length = 0
   const ui = await mountBand($)          // this chat has taken no item up
   expect(await texts(ui)).toContain('Open a panel')
   await ui.press({ key: 'band-worktrees' })

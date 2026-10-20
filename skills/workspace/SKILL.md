@@ -167,8 +167,11 @@ The scripts are `scripts/bugs/*.ps1`: `Sync-Bugs`, `Get-BugDetail`, `Save-BugCha
 
 ## The sdd view
 
-In a workspace with `.claude/sdd.json` the view (`/sdd-view`) opens by itself once per session: the one
-item in progress, or the list when there are several. `"view": { "autoOpen": false }` turns that off.
+In a workspace with `.claude/sdd.json` the view (`/sdd-view`) opens by itself in the Claude Desktop app, once per session:
+at the session's start, as a start page when the chat has no work item (the plugin's `openAtStart` option, a row in
+`/config` named *Open the sdd view when a Desktop session starts*, on by default), and when the chat takes up an item.
+`"view": { "autoOpen": false }` in `.claude/sdd.json` turns both off for that workspace. No sdd workspace found from the
+session folder: nothing opens.
 
 ### Colours
 
