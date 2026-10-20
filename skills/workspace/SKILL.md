@@ -79,9 +79,10 @@ take.
 | `new ... --base Repo=main` | Per-repo base branch, repeatable. Overrides `--version` for that repo | For repos without `team/*` branches |
 | `new ... --branch <name>` | Overrides the branch name | Default is `branchTemplate`: `dev/{developer}/{version}/{type}/{id}-{slug}` |
 | `new ... --no-graph` | Skips the graph | |
-| `status --id N [--json]` | Verdict, live ADO state, recorded progress and history, spec files and tasks done, per-repo branch/ahead/dirty, live PR status and votes | Read-only. Works before start and after cleanup (record in `.done/`) |
+| `status --id N [--json]` | Verdict, live ADO state, recorded progress and history, spec files and tasks done, per-repo branch/ahead/dirty, live PR status and votes, and `lookups`: graph queries against hand searches, and the stages that searched before asking the graph | Read-only. Works before start and after cleanup (record in `.done/`) |
 | `progress --id N --flow bug\|spec --phase P --status S [--gate G] [--next X] [--note T] [--ref R] [--caveat T] [--passed G] [--revoke G]` | Checkpoints the flow in `workitem.json` (last 50 kept) and records or revokes gates | Creates the folder if missing. `S`: active, waiting, blocked, done, abandoned. **`waiting` requires `--ref`** and prints the links |
-| `graph --id N` | Rebuilds `graph/` from `src/` | AST only, no LLM, seconds. Run after edits |
+| `graph --id N` | Rebuilds `graph/` from `src/`, and notes in `workitem.json` which code it was built from | AST only, no LLM, seconds. Run after edits |
+| `anchors --id N` | Checks each row of `design.md`'s Affected components against `graph/graph.json`: a modified or removed component names a node the graph has, in that component's file; a new one is `new` and does not exist yet; the graph is not older than the code | The proof `Design agreed` needs, on `design.md` as it is now. Exit 1 lists every row to fix |
 | `pr --id N --title T --description-file F` | For each repo with commits ahead and a clean tree: `git push -u origin <branch>`, opens the PR against its base, links the work items, records the PR in `workitem.json` | `--repos A` limits it, `--work-items 1,2` links more items (default `--id`), `--draft`. Refuses a description over 4,000 chars. Re-running is safe: repos with a PR are skipped, and an already-open PR is picked up |
 | `refs --id N --ref <file[:line[-end]]\|ado> ...` | The "Links" block for a question to the user: ADO item, `requirements.md`, each ref (ADO web link for code on a pushed branch), and the files to send | Errors on a ref that does not exist |
 | `can --id N --op start\|resume\|phase\|pr\|done\|abandon [--flow F --phase P] [--json]` | Is the operation allowed in the item's current state? Exit 0 yes, 3 no, with reasons and notes | Read-only. The single source of truth for state guards — `pr` and `remove` enforce it themselves |
@@ -117,6 +118,12 @@ graphify path "A" "B"        --graph <folder>/graph/graph.json
 
 Read `graph/GRAPH_REPORT.md` first for the community overview. The graph is a map, not the
 truth: confirm anything it says by reading the file it points at.
+
+**Use is counted.** `hooks/graph_use.py` (PostToolUse) appends one line to the folder's
+`graph-use.jsonl` for each graph query (`graphify query|explain|affected|path`) and each hand search
+(Grep, Glob, grep, rg, findstr, Select-String, git grep, find) of the folder. It never blocks a call.
+`status` shows the totals and the stages that searched first; the totals stay in the record after
+`remove`. Self-check: `python ${CLAUDE_PLUGIN_ROOT}/hooks/test_graph_use.py`.
 
 ## Self-check
 

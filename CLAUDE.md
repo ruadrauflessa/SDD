@@ -22,10 +22,10 @@ the user's view; this file is for working on the plugin itself.
 | `scripts/env.py` | Work item folders, worktrees, progress, gates, stage guards, proofs, PRs |
 | `scripts/spec.py` | The ADO mirror and index, impact, rev-tested ADO writes, `next`, metrics.json, Ai Agent Request `request` / `route` |
 | `scripts/sddlib.py` | Shared helpers, `DEFAULTS` for `.claude/sdd.json`, config upgrade, the output style install |
-| `scripts/adowrite.py`, `proof.py`, `nextpick.py`, `metrics.py` | ADO writes; recorded test runs; next-item rules; metrics.json — logic as plain functions, tested without ADO |
+| `scripts/adowrite.py`, `proof.py`, `nextpick.py`, `metrics.py`, `anchors.py` | ADO writes; recorded test runs; next-item rules; metrics.json; design.md's Affected components checked against the code graph (`env.py anchors`, the proof "Design agreed" needs) — logic as plain functions, tested without ADO |
 | `scripts/bugs/` | The bug manager's mechanics (`/sdd-bugs`), in PowerShell: `Sync-Bugs`, `Get-BugDetail`, `Save-BugChanges` (rev-tested batch writes), `Find-BugEvidence` (git, no tokens); `BugsCommon.ps1` is what they share, `defaults.json` the one source of the `bugs` settings (sddlib, the scripts and the view all read it) |
 | `scripts/fakeado.py` | Offline ADO for tests and evals: on when `SDD_FAKE_ADO` names a JSON world file |
-| `hooks/` | `question_guard.py`, `agent_guard.py`, `edit_guard.py`, and `register.tsx` + `view/model.ts` (the sdd view, a mod), `view/worktrees.ts` (pure helpers of the `/sdd-worktrees` page, whose hooks live in `register.tsx`), `view/bugs.ts` (pure helpers of the `/sdd-bugs` bug manager: categories, filters, staged changes, the probable-cause prompt), `view/settings.ts` (pure helpers of its ⚙ Config panel: the draft, the fields, the category rules, and `applyToSdd` / `applyToDevelopers`, which write only changed keys) |
+| `hooks/` | `question_guard.py`, `agent_guard.py`, `edit_guard.py`, `graph_use.py` (counts graph queries against hand searches into the item folder's `graph-use.jsonl`; never blocks), and `register.tsx` + `view/model.ts` (the sdd view, a mod), `view/worktrees.ts` (pure helpers of the `/sdd-worktrees` page, whose hooks live in `register.tsx`), `view/bugs.ts` (pure helpers of the `/sdd-bugs` bug manager: categories, filters, staged changes, the probable-cause prompt), `view/settings.ts` (pure helpers of its ⚙ Config panel: the draft, the fields, the category rules, and `applyToSdd` / `applyToDevelopers`, which write only changed keys) |
 | `agents/` | `investigator` and `skeptic`, the read-only sub-agents |
 | `evals/` | `claude plugin eval` cases; `_fixtures/workspace.py` builds each case's workspace |
 | `repowatch/` | A second, standalone plugin (sdd depends on it, same marketplace): tracks many git repos and worktrees. `scripts/repowatch.py` does the git mechanics and writes `.claude/repowatch/state.json`; `hooks/register.tsx` draws the pane and status line from it, and runs a clean-up only after `plan`, a confirm and `apply` (which re-checks). Has its own `plugin.json` and version |
@@ -43,6 +43,7 @@ python scripts/check_evals.py        # needs PyYAML; checks the eval cases, runs
 python hooks/test_question_guard.py
 python hooks/test_agent_guard.py
 python hooks/test_edit_guard.py
+python hooks/test_graph_use.py
 python repowatch/scripts/test_repowatch.py   # needs git; real repos in temp folders
 claude plugin test repowatch         # also mounts and presses the pane (hooks/pane.test.ts)
 claude plugin validate repowatch

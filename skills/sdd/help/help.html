@@ -147,7 +147,7 @@
       <li><b>Specify</b><span>Claims the item, mirrors it, runs impact.</span><span class="you">You: pick the path.</span></li>
       <li><b>Open Questions</b><span>Asks the questions in <code>questions.md</code>, one by one.</span><span class="you">You: answer, or say "Continue with this open".</span></li>
       <li class="stop"><b>Requirements</b><span>Shows the requirements as understood.</span><span class="you">You: approve.</span></li>
-      <li class="stop"><b>Design</b><span>Writes <code>design.md</code> after reading the real code. Skipped on the short path.</span><span class="you">You: approve.</span></li>
+      <li class="stop"><b>Design</b><span>Writes <code>design.md</code> after reading the real code. Each component it names is checked against the code graph (<code>env.py anchors</code>) before you can approve. Skipped on the short path.</span><span class="you">You: approve.</span></li>
       <li class="stop"><b>Decompose</b><span>Writes <code>tasks.md</code>. May propose tech stories.</span><span class="you">You: approve.</span></li>
       <li><b>Implement</b><span>One task at a time, each with its tests.</span></li>
       <li class="stop"><b>Verify</b><span>Checks drift from the spec and overlap with other work.</span><span class="you">You: approve.</span></li>

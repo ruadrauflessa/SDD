@@ -1,4 +1,4 @@
-"""Self-check for gate proofs (proof.py, env.py run / revert-check / verify) on a real git worktree.
+"""Self-check for gate proofs (proof.py, env.py run / revert-check / verify / anchors) on a real git worktree.
 
     python scripts/test_proof.py      (temp folders only; needs git)
 """
@@ -137,6 +137,83 @@ def main():
 
         runs = env.read_env(env_dir)["runs"]
         assert all(set(x) >= {"at", "gate", "repo", "ok", "tree"} for x in runs), runs[-1]
+
+        # Design agreed: design.md's Affected components checked against the code graph (env.py anchors)
+        def design_lacks():
+            return env.proof_missing("spec", env.read_env(env_dir), env_dir, "Design agreed", root, cfg)
+
+        def anchors_run():
+            return env_py(root, "anchors", "--id", "5", check=False)
+
+        need = "'Design agreed' needs design.md's Affected components checked against the code graph (env.py anchors)"
+        assert design_lacks() == [need]
+        r = anchors_run()
+        assert r.returncode == 1 and "no design.md" in r.stderr, (r.stdout, r.stderr)
+        table = ("# Design\n\n## Affected components\n\n| Component | Change | Graph node | Notes |\n| --- | --- | --- | --- |\n"
+                 "{rows}\n## Contracts and data\n\n- Endpoints: none\n")
+        good = ("| `src/Repo/calc.py` | modified | `repo_calc_add` | the sum |\n"
+                "| `Repo/money.py` | new | new | a helper |\n")
+        (spec / "design.md").write_text(table.format(rows=good), encoding="utf-8")
+        r = anchors_run()
+        assert r.returncode == 1 and "no graph in" in r.stdout and "graphifyy" in r.stdout, r.stdout
+        (env_dir / "graph").mkdir()
+        (env_dir / "graph" / "graph.json").write_text(json.dumps({"directed": False, "nodes": [
+            {"id": "repo_calc", "label": "calc.py", "source_file": "Repo/calc.py", "source_location": "L1"},
+            {"id": "repo_calc_add", "label": "add()", "source_file": "Repo/calc.py", "source_location": "L1"},
+            {"id": "repo_test_calc", "label": "test_calc.py", "source_file": "Repo/test_calc.py"}], "links": []}))
+        r = anchors_run()
+        assert r.returncode == 1 and "no record of the code it was built from" in r.stdout, r.stdout
+        env.record_graph(env_dir)                                       # what env.py graph does after graphify
+        r = anchors_run()
+        assert r.returncode == 0 and "anchors OK (2 components)" in r.stdout and "repo_calc_add (Repo/calc.py:L1)" in r.stdout, r.stdout
+        assert design_lacks() == []
+        assert env.proof_missing("spec", env.read_env(env_dir), env_dir, "Design agreed") == [need]  # no design.md to compare
+        (spec / "design.md").write_text(table.format(rows=good).replace("\n", "\r\n"), encoding="utf-8")
+        assert design_lacks() == []                                     # line ends do not count as a change
+        (spec / "design.md").write_text(table.format(rows=good + "| `Repo/calc.py` | removed | `repo_calc` | x |\n"),
+                                        encoding="utf-8")
+        assert design_lacks() == [need + " on design.md as it is now (it changed since the last check)"]
+        assert anchors_run().returncode == 0 and design_lacks() == []
+
+        # every way a row can be wrong, each named
+        bad = ("| `Repo/calc.py` | modified | `repo_nothing` | unknown node |\n"
+               "| `Repo/calc.py` | modified | `repo_test_calc` | a node of another file |\n"
+               "| `calc.py` | new | new | exists already |\n"
+               "| `Repo/calc.py` | modified | new | no node |\n"
+               "| `Repo/calc.py` | tweaked | `repo_calc` | odd change |\n"
+               "| `{path or project}` | new | new | the template |\n")
+        (spec / "design.md").write_text(table.format(rows=bad), encoding="utf-8")
+        r = anchors_run()
+        out = r.stdout
+        assert r.returncode == 1 and "NOT OK (6 components)" in out, out
+        for x in ("no node 'repo_nothing' in the graph", "node 'repo_test_calc' is in Repo/test_calc.py, not in Repo/calc.py",
+                  "is marked new but already exists in src/", "a modified component needs its graph node",
+                  "Change is 'tweaked'", "still the template's placeholder"):
+            assert x in out, (x, out)
+        assert design_lacks() == [need + " on design.md as it is now (it changed since the last check)"]  # a failed check proves nothing
+        (spec / "design.md").write_text(table.format(rows=good).replace("| Graph node ", "").replace("| `repo_calc_add` ", "")
+                                        .replace("| new | a helper", "| a helper").replace("| --- | --- | --- | --- |", "| --- | --- | --- |"),
+                                        encoding="utf-8")
+        r = anchors_run()
+        assert r.returncode == 1 and "no Graph node column" in r.stdout, r.stdout
+
+        # code that changed after the graph was built: rebuild it before the check counts
+        (spec / "design.md").write_text(table.format(rows=good), encoding="utf-8")
+        (wt / "calc.py").write_text(FIXED + "\ndef sub(a, b):\n    return a - b\n")
+        r = anchors_run()
+        assert r.returncode == 1 and "Repo: the code changed since the graph was built" in r.stdout, r.stdout
+        env.record_graph(env_dir)
+        assert anchors_run().returncode == 0
+        (wt / "calc.py").write_text(FIXED)
+
+        import anchors
+        assert anchors.under("Repo/Orders/OrderService.cs", "Orders") and anchors.under("Repo/a/b.py", "src\\Repo\\a")
+        assert not anchors.under("Repo/Orders2/x.cs", "Orders") and not anchors.under("Repo/x.cs", "")
+        assert anchors.parse("# x\n")[1] == ['design.md has no "## Affected components" section']
+        assert anchors.parse("## Affected components\n\nnone yet\n## Risks\n")[1] == ["the Affected components section has no table"]
+        rows, _ = anchors.parse("## Affected components\n| Component | Change | Graph node |\n|---|---|---|\n"
+                                "| `A/b.py` | **Modified** (rename) | `a_b`, `a_b_c` |\n")
+        assert rows == [{"line": 4, "component": "A/b.py", "change": "modified", "nodes": ["a_b", "a_b_c"]}], rows
     print("ok")
 
 
