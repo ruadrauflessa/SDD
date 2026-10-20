@@ -6,19 +6,21 @@
         graph-use.jsonl one line per graph query or hand search of this folder (hooks/graph_use.py, append-only)
         CLAUDE.md       generated: work only here
         src/{Repo}/     git worktrees
-        graph/          graphify code graph of src/
+        graph/          graphify code graph of src/ (built.json: the code it was built from)
+        graph.lock      while a graph build runs
 
 Commands (run from anywhere inside the workspace):
     init   --spec-root documents/spec        create .claude/sdd.json for this workspace
     doctor [--json]                          check every requirement; read-only
     type   --id N                            work item type and which sdd flow it belongs to
-    new    --id N --repos A,B --version 1.1.0 [--base Repo=branch] [--no-graph]
-                                             create the folder, or add repos to it
+    new    --id N --repos A,B --version 1.1.0 [--base Repo=branch]
+                                             create the folder, or add repos to it, and build the graph
     status --id N [--json]                   ADO state, recorded progress, spec files and tasks, repos, live PRs
     progress --id N --flow bug|spec --phase P --status active|waiting|blocked|done|skipped|abandoned
              [--gate G] [--next X] [--note T] [--caveat T] [--passed G] [--revoke G] [--ref R ...] [--no-visual WHY]
                                              checkpoint the flow; record gates; creates the folder if needed
-    graph  --id N                            rebuild graph/ from src/ (no LLM, seconds)
+    graph  --id N [--if-stale]               build graph/ from src/ (no LLM, seconds; incremental); the hooks
+                                             run --if-stale before every read of the graph
     anchors --id N [--gate G]                check design.md's Affected components against graph/graph.json;
                                              the proof "Design agreed" needs
     pr     --id N --title T --description-file F [--repos A] [--work-items 1,2] [--draft]
@@ -39,6 +41,7 @@ Commands (run from anywhere inside the workspace):
                                              began in (the sdd view calls this after each turn; `view` reports the totals)
 """
 import argparse
+import contextlib
 import hashlib
 import json
 import math
@@ -49,6 +52,7 @@ import stat
 import subprocess
 import urllib.parse
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -311,9 +315,10 @@ def write_env_claude(env_dir, info, spec_root):
 Everything for this work item happens in this folder. Do not edit the main checkout.
 
 - `src/<Repo>/` — one git worktree per repo. Edit, build, test and commit only here.
-- `graph/graph.json` — graphify code graph of `src/`. Query with
-  `graphify query "<question>" --graph graph/graph.json`. Rebuild after edits:
-  `{ENV_PY} graph --id {info["id"]}`.
+- `graph/graph.json` — graphify code graph of `src/`. Find code by asking it first:
+  `graphify query "<question>" --graph graph/graph.json` (or `explain` / `affected "<name>"`).
+  A search of `src/` is refused until you have asked the graph in this stage, and the graph is
+  rebuilt before every read once the code changed (`{ENV_PY} graph --id {info["id"]}` by hand).
 - `workitem.json` — which repo is on which base branch, its dev branch and its PR.
 - Spec for this item: `{spec_root}/**/{info['id']}-*/` at the workspace root (read-only mirror of ADO).
 - Each worktree has a copy of its repo's `CLAUDE.md` when the repo has one.
@@ -387,7 +392,11 @@ def cmd_new(a):
 
     write_env(env_dir, data)
     if names and not a.no_graph:
-        build_graph(env_dir)
+        try:
+            build_graph(env_dir)
+        except RuntimeError as e:
+            die(f"{e}\nThe worktrees are in place ({env_dir}). Every stage that reads code needs the graph: "
+                f"once graphify works, run env.py graph --id {a.id}")
     print(f"work item folder: {env_dir}")
 
 
@@ -876,59 +885,127 @@ def cmd_view(a):
                       "flows": FLOWS["flows"], "derived": FLOWS["derived"], "items": items, "done": done},
                      indent=None if a.compact else 2))
 
-def build_graph(env_dir):
+GRAPH_BUILT = "built.json"  # in graph/: the code the graph was built from
+GRAPH_LOCK = "graph.lock"   # in the work item folder: one build at a time (the hooks rebuild too)
+
+
+@contextlib.contextmanager
+def graph_lock(env_dir, wait=600):
+    """Hold the folder's graph lock: a second build waits for the first (sub-agents query at once)."""
+    p = env_dir / GRAPH_LOCK
+    end = time.time() + wait
+    while True:
+        try:
+            fd = os.open(str(p), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode())
+            os.close(fd)
+            break
+        except FileExistsError:
+            try:
+                if time.time() - p.stat().st_mtime > 900:  # left by a build that died
+                    p.unlink()
+                    continue
+            except OSError:
+                continue
+            if time.time() > end:
+                raise RuntimeError(f"another graph build has held {p} for {wait}s; if none is running, delete it")
+            time.sleep(0.3)
+    try:
+        yield
+    finally:
+        try:
+            p.unlink()
+        except OSError:
+            pass
+
+
+def _build_graph(env_dir):
+    """graphify straight into graph/ (GRAPHIFY_OUT), so its cache stays and a rebuild is incremental."""
     src, out = env_dir / "src", env_dir / "graph"
     exe = shutil.which("graphify")
     if not exe:
-        print("warning: graphify not on PATH; skipped the graph (pip install graphifyy)")
-        return
-    r = subprocess.run([exe, "update", str(src)], text=True, capture_output=True)
+        raise RuntimeError("graphify is not on PATH, and every work item needs its code graph. Install it: "
+                           f"{sys.executable} -m pip install --user graphifyy   (then open a new terminal if "
+                           "`graphify` is still not found)")
+    old = src / "graphify-out"  # where builds before GRAPHIFY_OUT left it
+    if old.is_dir():
+        shutil.rmtree(old, onerror=_force)
+    r = subprocess.run([exe, "update", str(src)], text=True, capture_output=True, encoding="utf-8",
+                       errors="replace", env={**os.environ, "GRAPHIFY_OUT": str(out)})
+    if r.returncode != 0 or not (out / "graph.json").is_file():
+        raise RuntimeError(f"graphify failed (exit {r.returncode}):\n{(r.stderr or r.stdout or '').strip()[-800:]}")
     for line in (r.stdout or "").splitlines():
         if "Rebuilt" in line:
             print(line.strip())
-    produced = src / "graphify-out"
-    if r.returncode != 0 or not produced.is_dir():
-        print(f"warning: graphify failed:\n{(r.stderr or r.stdout).strip()[-800:]}")
-        return
-    if out.exists():
-        shutil.rmtree(out, onerror=_force)
-    shutil.move(str(produced), str(out))
     record_graph(env_dir)
-    print(f"graph: {out / 'graph.json'}")
+    return out / "graph.json"
 
 
-def record_graph(env_dir):
-    """Note in workitem.json which code the graph was built from: each repo's content tree (proof.py)."""
-    data = read_env(env_dir)
+def build_graph(env_dir):
+    """Build or update the folder's code graph. Raises RuntimeError when it cannot: the graph is required."""
+    with graph_lock(env_dir):
+        path = _build_graph(env_dir)
+    print(f"graph: {path}")
+    return path
+
+
+def ensure_graph(env_dir):
+    """Rebuild the graph when the code changed since it was built. -> True when it rebuilt.
+    Raises RuntimeError when it is stale and cannot be rebuilt."""
+    if not graph_stale(env_dir, read_env(env_dir)):
+        return False
+    with graph_lock(env_dir):
+        if graph_stale(env_dir, read_env(env_dir)):  # another build may have finished while we waited
+            _build_graph(env_dir)
+            return True
+    return False
+
+
+def code_trees(env_dir, data):
+    """{repo: content tree of its worktree as it is now} (proof.py); None for a repo that cannot be read."""
     trees = {}
     for repo, (d, _) in repo_dirs(env_dir, data).items():
         try:
             trees[repo] = proof.content_tree(d) if d.exists() else None
         except RuntimeError:
             trees[repo] = None
-    data["graph"] = {"at": now(), "trees": trees}
-    write_env(env_dir, data)
+    return trees
+
+
+def record_graph(env_dir):
+    """Write graph/built.json: when the graph was built and from which code. Kept apart from workitem.json
+    so a rebuild (the hooks run one) never races a progress write."""
+    rec = {"at": now(), "trees": code_trees(env_dir, read_env(env_dir))}
+    (env_dir / "graph" / GRAPH_BUILT).write_text(json.dumps(rec, indent=2) + "\n", encoding="utf-8")
+    return rec
+
+
+def graph_built(env_dir):
+    try:
+        return json.loads((env_dir / "graph" / GRAPH_BUILT).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
 
 
 def graph_stale(env_dir, data):
     """Why the graph cannot be trusted for the code as it is now; [] when it is current."""
+    wid = data.get("id")
     if not (env_dir / "graph" / "graph.json").is_file():
-        return [f"no graph in {env_dir / 'graph'}: install graphify (pip install graphifyy), then "
-                f"env.py graph --id {data.get('id')}"]
-    rec = data.get("graph") or {}
-    if not rec.get("trees"):
-        return [f"the graph has no record of the code it was built from: env.py graph --id {data.get('id')}"]
+        return [f"no code graph in {env_dir / 'graph'}: env.py graph --id {wid}"]
+    rec = graph_built(env_dir)
+    if not isinstance(rec.get("trees"), dict):
+        return [f"the graph has no record of the code it was built from: env.py graph --id {wid}"]
     out = []
     for repo, (d, _) in repo_dirs(env_dir, data).items():
         if not d.exists():
             continue
         try:
-            now_tree = proof.content_tree(d)
+            tree = proof.content_tree(d)
         except RuntimeError as e:
             out.append(f"{repo}: could not read the worktree ({e})")
             continue
-        if rec["trees"].get(repo) != now_tree:
-            out.append(f"{repo}: the code changed since the graph was built: env.py graph --id {data.get('id')}")
+        if rec["trees"].get(repo) != tree:
+            out.append(f"{repo}: the code changed since the graph was built: env.py graph --id {wid}")
     return out
 
 
@@ -952,7 +1029,11 @@ def cmd_anchors(a):
     if not design or not design.is_file():
         die(f"no design.md for {a.id}: Design writes it from assets/design.md.template")
     rows, problems = anchors.parse(design.read_text(encoding="utf-8", errors="replace"))
-    stale = graph_stale(env_dir, data)
+    try:
+        ensure_graph(env_dir)  # checked against the code as it is now: rebuild a stale graph first
+        stale = graph_stale(env_dir, data)
+    except RuntimeError as e:
+        stale = [str(e)]
     results = []
     if rows and not stale:
         try:
@@ -970,7 +1051,7 @@ def cmd_anchors(a):
         print(f"  {x}")
     rec = proof.record(data, {"at": now(), "kind": "anchors", "gate": a.gate, "repo": "", "ok": not problems,
                               "design": design_hash(root, cfg, a.id), "rows": len(rows),
-                              "graph": (data.get("graph") or {}).get("at", ""), "problems": problems[:40]})
+                              "graph": graph_built(env_dir).get("at", ""), "problems": problems[:40]})
     write_env(env_dir, data)
     print(f"{a.id}: anchors {'OK' if rec['ok'] else 'NOT OK'} ({len(rows)} component{'s' if len(rows) != 1 else ''})"
           + ("" if rec["ok"] else f" — '{a.gate}' cannot pass until each one is fixed"))
@@ -980,7 +1061,17 @@ def cmd_anchors(a):
 
 def cmd_graph(a):
     root = require_root()
-    build_graph(env_or_die(root, load_config(root), a.id))
+    env_dir = env_or_die(root, load_config(root), a.id)
+    try:
+        if a.if_stale:
+            if not ensure_graph(env_dir):
+                print(f"graph: current ({env_dir / 'graph' / 'graph.json'})")
+            else:
+                print(f"graph: rebuilt ({env_dir / 'graph' / 'graph.json'})")
+        else:
+            build_graph(env_dir)
+    except RuntimeError as e:
+        die(str(e))
 
 
 # ---------------------------------------------------------------- pr
@@ -1278,6 +1369,8 @@ def gates_met(root, cfg, wid, data, env_dir):
     repos = (data or {}).get("repos") or {}
     if repos and env_dir and all((env_dir / r["path"]).exists() for r in repos.values()):
         met.add("Worktree")
+        if (env_dir / "graph" / "graph.json").is_file() and isinstance(graph_built(env_dir).get("trees"), dict):
+            met.add("Graph")  # built; whether it is current is checked when a stage starts (check_op)
     if any(r.get("pr") for r in repos.values()):
         met.add("PR raised")
     sp = spec_state(root, cfg, wid) or {}
@@ -1376,7 +1469,10 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
                            f"env.py path --id {wid} --set <path> --confirmed \"<the user's words>\"")
         missing = [g for g in stage_needs(flow, data, key) if g not in met]
         reasons += [f"{key} needs '{g}' first — " + ("not true on disk yet" if g in DERIVED else "not recorded as passed")
+                    + (f": env.py graph --id {wid}" if g == "Graph" else "")
                     for g in missing]
+        if "Graph" in stage_needs(flow, data, key) and "Graph" in met:
+            reasons += [f"{key} needs the graph current — {x}" for x in graph_stale(env_dir, data)]
         return not reasons, reasons, notes
 
     repos = []
@@ -1596,9 +1692,10 @@ def main():
     s.add_argument("--branch", help="override the branch name")
     s.add_argument("--title", help="skip the ADO lookup (with --type)")
     s.add_argument("--type", help="skip the ADO lookup (with --title)")
-    s.add_argument("--no-graph", action="store_true")
+    s.add_argument("--no-graph", action="store_true", help=argparse.SUPPRESS)  # the tests' fixtures only
     s = sp.add_parser("status"); s.add_argument("--id", type=int, required=True); s.add_argument("--json", action="store_true")
     s = sp.add_parser("graph"); s.add_argument("--id", type=int, required=True)
+    s.add_argument("--if-stale", action="store_true", help="rebuild only when the code changed since the last build")
     s = sp.add_parser("anchors", help="check design.md's Affected components against the code graph; proof for Design agreed")
     s.add_argument("--id", type=int, required=True)
     s.add_argument("--gate", default="Design agreed")

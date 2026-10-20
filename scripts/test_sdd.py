@@ -203,7 +203,8 @@ def main():
         assert not ok and any("Phase 7 was never worked" in w for w in why), why  # no jumping past a stage
         rec["stages"]["Phase 7"] = {"at": "t", "status": "done"}
         (wdir / "workitem.json").write_text(json.dumps(rec))
-        assert env.check_op(root, cfg, 5, "phase", None, "Phase 8")[0]
+        ok, why = env.check_op(root, cfg, 5, "phase", None, "Phase 8")[:2]
+        assert not ok and why == ["Phase 8 needs 'Graph' first — not true on disk yet: env.py graph --id 5"], why  # code stages need the graph
         assert not env.check_op(root, cfg, 5, "phase", None, "Phase 4")[0]         # derived Worktree missing
 
         # progress: a stage is never skipped silently, only with the user's recorded yes

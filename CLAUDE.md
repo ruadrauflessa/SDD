@@ -25,7 +25,7 @@ the user's view; this file is for working on the plugin itself.
 | `scripts/adowrite.py`, `proof.py`, `nextpick.py`, `metrics.py`, `anchors.py` | ADO writes; recorded test runs; next-item rules; metrics.json; design.md's Affected components checked against the code graph (`env.py anchors`, the proof "Design agreed" needs) — logic as plain functions, tested without ADO |
 | `scripts/bugs/` | The bug manager's mechanics (`/sdd-bugs`), in PowerShell: `Sync-Bugs`, `Get-BugDetail`, `Save-BugChanges` (rev-tested batch writes), `Find-BugEvidence` (git, no tokens); `BugsCommon.ps1` is what they share, `defaults.json` the one source of the `bugs` settings (sddlib, the scripts and the view all read it) |
 | `scripts/fakeado.py` | Offline ADO for tests and evals: on when `SDD_FAKE_ADO` names a JSON world file |
-| `hooks/` | `question_guard.py`, `agent_guard.py`, `edit_guard.py`, `graph_use.py` (counts graph queries against hand searches into the item folder's `graph-use.jsonl`; never blocks), and `register.tsx` + `view/model.ts` (the sdd view, a mod), `view/worktrees.ts` (pure helpers of the `/sdd-worktrees` page, whose hooks live in `register.tsx`), `view/bugs.ts` (pure helpers of the `/sdd-bugs` bug manager: categories, filters, staged changes, the probable-cause prompt), `view/settings.ts` (pure helpers of its ⚙ Config panel: the draft, the fields, the category rules, and `applyToSdd` / `applyToDevelopers`, which write only changed keys) |
+| `hooks/` | `question_guard.py`, `agent_guard.py`, `edit_guard.py`, `graph_use.py` (the graph first: rebuilds a stale graph before any read of it, refuses a search of a work item's code until that caller asked the graph in the stage, and counts both in `graph-use.jsonl`), and `register.tsx` + `view/model.ts` (the sdd view, a mod), `view/worktrees.ts` (pure helpers of the `/sdd-worktrees` page, whose hooks live in `register.tsx`), `view/bugs.ts` (pure helpers of the `/sdd-bugs` bug manager: categories, filters, staged changes, the probable-cause prompt), `view/settings.ts` (pure helpers of its ⚙ Config panel: the draft, the fields, the category rules, and `applyToSdd` / `applyToDevelopers`, which write only changed keys) |
 | `agents/` | `investigator` and `skeptic`, the read-only sub-agents |
 | `evals/` | `claude plugin eval` cases; `_fixtures/workspace.py` builds each case's workspace |
 | `repowatch/` | A second, standalone plugin (sdd depends on it, same marketplace): tracks many git repos and worktrees. `scripts/repowatch.py` does the git mechanics and writes `.claude/repowatch/state.json`; `hooks/register.tsx` draws the pane and status line from it, and runs a clean-up only after `plan`, a confirm and `apply` (which re-checks). Has its own `plugin.json` and version |
@@ -78,6 +78,10 @@ to trust the plugin directory, and each case is a paid agent run. A full TypeScr
   `UPGRADE_KEYS` when a person should find them in the file to tune.
 - **Skill text is for a tired reader**: short sentences, active voice, exact paths and commands.
   A skill's `SKILL.md` stays an outline; stage detail goes in the stage's own file.
+- **The code graph is a hard dependency.** `env.py new` fails without one, stages that read code need the derived `Graph`
+  gate (and a current graph to start), and `hooks/graph_use.py` refuses code searches until the graph was asked and
+  rebuilds it before every read. The build record lives in `graph/built.json`, never in `workitem.json`: the hooks
+  rebuild in the background and must not race a progress write. `--no-graph` is for the tests' fixtures only.
 - **repowatch deletes nothing on a remote except a stale `sync/<x>-<y>` branch.** `remote_delete_refusal` in
   `repowatch/scripts/repowatch.py` refuses every other deleting `git push` (and `--mirror`, `--prune`), and
   `test_remote_deletes` pins it. A new action must not route around `git()` for pushes.

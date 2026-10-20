@@ -1,11 +1,15 @@
-"""Self-check for graph_use.py: python test_graph_use.py"""
+"""Self-check for graph_use.py: python test_graph_use.py   (temp folders; needs git)"""
 import json
+import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 HOOK = Path(__file__).with_name("graph_use.py")
+sys.path.insert(0, str(HOOK.parent.parent / "scripts"))
+from test_proof import fake_graphify  # noqa: E402  (a stand-in graphify, also for Windows)
+SDD = "python C:/plugins/sdd/scripts/env.py progress --id 5 --flow bug --phase \"Phase 4\" --status active"
 
 
 def run(ws, tool, tool_input, cwd=None, agent=None):
@@ -83,7 +87,103 @@ def main():
         assert p.returncode == 0 and not p.stderr
         run(ws, "Bash", {"command": None}, item)
         run(Path(t) / "nowhere", "Bash", {"command": "grep -rn x ."}, Path(t))
+    guard()
     print("ok")
+
+
+def sh(args, cwd):
+    subprocess.run(args, cwd=str(cwd), check=True, capture_output=True, text=True)
+
+
+def pre(ws, tool, tool_input, cwd=None, session="s1", agent_id=None, transcript=None, path=None):
+    """Run the guard, and the recorder after it as Claude Code does when the call goes ahead."""
+    data = {"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": tool_input, "cwd": str(cwd or ws),
+            "session_id": session, "transcript_path": str(transcript or "")}
+    if agent_id:
+        data["agent_id"], data["agent_type"] = agent_id, "sdd:investigator"
+    env = {**os.environ, "PATH": path if path is not None else os.environ["PATH"]}
+    p = subprocess.run([sys.executable, str(HOOK), "pre"], input=json.dumps(data), capture_output=True, text=True, env=env)
+    assert p.returncode in (0, 2), p.stderr
+    if p.returncode == 0:
+        subprocess.run([sys.executable, str(HOOK), "post"], input=json.dumps({**data, "hook_event_name": "PostToolUse"}),
+                       capture_output=True, text=True, env=env)
+    return p.returncode, p.stderr
+
+
+def guard():
+    with tempfile.TemporaryDirectory() as t:
+        t = Path(t).resolve()
+        gitcfg = t / "gitconfig"
+        gitcfg.write_text("[user]\n\tname = Dev\n\temail = dev@x.co\n")
+        os.environ["GIT_CONFIG_GLOBAL"] = str(gitcfg)
+        with_graphify = str(fake_graphify(t)) + os.pathsep + os.environ["PATH"]
+        ws = t / "ws"
+        (ws / ".claude").mkdir(parents=True)
+        (ws / ".claude" / "sdd.json").write_text(json.dumps({"specRoot": "docs/spec", "ado": {"org": "O", "projects": ["P"]}}))
+        (ws / "Shop" / ".git").mkdir(parents=True)                  # the main checkout of repo Shop
+        item = ws / ".claude" / "worktrees" / "5-fix-it"
+        code = item / "src" / "Shop"
+        code.mkdir(parents=True)
+        (code / "calc.py").write_text("def add(a, b):\n    return a - b\n")
+        sh(["git", "init", "-q"], code)
+        sh(["git", "add", "-A"], code)
+        sh(["git", "commit", "-q", "-m", "base"], code)
+        rec = {"id": 5, "flow": "bug", "repos": {"Shop": {"path": "src/Shop", "base": "team/1.0.0", "source": "Shop"}},
+               "progress": {"flow": "bug", "phase": "Phase 4 — Reproduce", "status": "active"}}
+        (item / "workitem.json").write_text(json.dumps(rec))
+        graph = item / "graph" / "graph.json"
+        query = {"command": f'graphify query "where is add" --graph "{graph}"'}
+        search = {"command": f"grep -rn add {code}"}
+        P = os.environ["PATH"]
+
+        code_, err = pre(ws, "Bash", search)
+        assert code_ == 2 and "from its graph first" in err and "graphify query" in err and str(graph) in err, err
+        assert pre(ws, "Grep", {"pattern": "add", "path": str(code)})[0] == 2
+        assert pre(ws, "Glob", {"pattern": ".claude/worktrees/5-fix-it/src/**/*.py"})[0] == 2
+        assert pre(ws, "Bash", {"command": "grep -rn add ."}, cwd=item)[0] == 2           # the whole folder holds the code
+        assert pre(ws, "Bash", {"command": f"grep -n phase {item / 'workitem.json'}"})[0] == 0   # not the code
+        assert pre(ws, "Bash", {"command": f"cat {code / 'calc.py'}"})[0] == 0                   # reading is open
+        assert pre(ws, "Read", {"file_path": str(code / "calc.py")})[0] == 0
+
+        code_, err = pre(ws, "Bash", query, path=P)                        # no graphify: no graph to read
+        assert code_ == 2 and "could not be rebuilt" in err and "graphify is not on PATH" in err, err
+        assert pre(ws, "Bash", query, path=with_graphify)[0] == 0          # builds the graph before the query runs
+        assert graph.is_file() and (item / "graph" / "built.json").is_file()
+        assert pre(ws, "Bash", search)[0] == 0                             # asked the graph in Phase 4: search is open
+        assert pre(ws, "Grep", {"pattern": "add", "path": str(code)})[0] == 0
+        assert pre(ws, "Bash", search, agent_id="a7")[0] == 2              # a sub-agent asks the graph itself
+        assert pre(ws, "Bash", query, agent_id="a7", path=with_graphify)[0] == 0
+        assert pre(ws, "Bash", search, agent_id="a7")[0] == 0
+        assert pre(ws, "Bash", search, session="s2")[0] == 2               # a new session starts from the graph again
+        rec["progress"]["phase"] = "Phase 4"                               # the same stage, written another way
+        (item / "workitem.json").write_text(json.dumps(rec))
+        assert pre(ws, "Bash", search)[0] == 0
+        rec["progress"]["phase"] = "Phase 5 — Root cause"                  # a new stage: the graph first again
+        (item / "workitem.json").write_text(json.dumps(rec))
+        assert pre(ws, "Bash", search)[0] == 2
+
+        # the graph is rebuilt before any read of it once the code changed
+        built = (item / "graph" / "built.json").read_text()
+        (code / "calc.py").write_text("def add(a, b):\n    return a + b\n\ndef sub(a, b):\n    return a - b\n")
+        assert pre(ws, "Read", {"file_path": str(item / "graph" / "GRAPH_REPORT.md")}, path=with_graphify)[0] == 0
+        assert (item / "graph" / "built.json").read_text() != built and "shop_calc_sub" in graph.read_text()
+        (code / "calc.py").write_text("def add(a, b):\n    return a + b\n")
+        code_, err = pre(ws, "Bash", query, path=P)                        # stale, and graphify is gone
+        assert code_ == 2 and "older than the code" in err, err
+        built = (item / "graph" / "built.json").read_text()
+        assert pre(ws, "Bash", query, path=with_graphify)[0] == 0 and (item / "graph" / "built.json").read_text() != built
+        assert pre(ws, "Bash", search)[0] == 0
+
+        # the main checkout is not searched while a flow runs in this session
+        tp = t / "t.jsonl"
+        tp.write_text("\n".join(json.dumps(r) for r in [
+            {"type": "user", "message": {"role": "user", "content": "fix 5"}},
+            {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": SDD}}]}}]))
+        code_, err = pre(ws, "Bash", {"command": "grep -rn add Shop/"}, transcript=tp)
+        assert code_ == 2 and "main checkout of Shop" in err and str(code) in err, err
+        assert pre(ws, "Grep", {"pattern": "add", "path": str(ws / "Shop")}, transcript=tp)[0] == 2
+        assert pre(ws, "Bash", {"command": "grep -rn add Shop/"})[0] == 0  # no flow in this session: left alone
+        assert pre(ws, "Bash", {"command": "grep -rn x docs/"}, transcript=tp)[0] == 0
 
 
 if __name__ == "__main__":

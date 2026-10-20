@@ -7,6 +7,8 @@
 1. **Create the work item's folder first:** `env.py new --id <id> --repos <affected repos>
    --version <version>` (`--base Repo=main` for a repo without `team/*` branches). It branches
    each repo off the freshly fetched `team/{version}` into `src\{Repo}` and builds the graph.
+   Without graphify it stops after the worktrees: fix graphify (`env.py doctor`), then
+   `env.py graph --id <id>`. Decompose, Implement and Verify need the graph.
    Design is read against the branch the change will actually land on, not against whatever the
    main checkout happens to have. Mechanics in `references/branching.md`.
 2. **Read the code** — inside `src\{Repo}` — the modules, contracts and data the change touches.

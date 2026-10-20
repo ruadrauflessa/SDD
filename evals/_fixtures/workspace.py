@@ -1,6 +1,6 @@
 """Build an sdd workspace for an eval case, in the current folder. Run by each case's scaffold.sh.
 
-    python workspace.py --cr cents|rounds [--stage none|phase3|phase4|phase7] [--graph]
+    python workspace.py --cr cents|rounds [--stage none|phase3|phase4|phase7]
 
   --cr      what Change Request 500 specifies for export totals: `cents` (two decimals — so bug 501,
             "export drops the cents", is a real defect) or `rounds` (whole rand — so 501 asks for
@@ -8,7 +8,9 @@
   --stage   how far bug 501 has gone: `none` (nothing started), `phase3` (Phases 1–2 done: claimed,
             worktree on team/1.0.0 — Phase 3 is next), `phase4` (Phases 1–3 done — Phase 4, reproduce
             and locate, is next), `phase7` (Phases 1–6 done, the fix summary approved — Phase 7 is next)
-  --graph   build the work item's code graph (graphify must be on PATH); without it the folder has none
+
+Every stage past `none` builds the work item's code graph, as `env.py new` does: graphify must be on PATH
+(the code stages refuse to start without a current graph).
 
 The workspace gets: .claude/sdd.json; world.json, the offline ADO (scripts/fakeado.py) that the
 case's SDD_FAKE_ADO names; a git repo `Exporter` with the bug in it, pushed to a bare origin as
@@ -66,7 +68,6 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cr", choices=["cents", "rounds"], required=True)
     ap.add_argument("--stage", choices=["none", "phase3", "phase4", "phase7"], default="none")
-    ap.add_argument("--graph", action="store_true")
     a = ap.parse_args()
     root = Path.cwd()
 
@@ -123,9 +124,7 @@ def main():
     script("spec.py", "claim", "--id", "501", "--email", "dev@example.com")
     script("env.py", "progress", "--id", "501", "--flow", "bug", "--phase", "Phase 1", "--status", "done",
            "--passed", "Claimed", "--note", "claimed; repo Exporter")
-    script("env.py", "new", "--id", "501", "--repos", "Exporter", "--version", "1.0.0", *([] if a.graph else ["--no-graph"]))
-    if a.graph and not list((root / ".claude" / "worktrees").glob("501-*/graph/graph.json")):
-        raise SystemExit("--graph: no graph was built. Install graphify (pip install graphifyy) and put it on PATH")
+    script("env.py", "new", "--id", "501", "--repos", "Exporter", "--version", "1.0.0")  # fails without graphify
     script("env.py", "progress", "--id", "501", "--flow", "bug", "--phase", "Phase 2", "--status", "done",
            "--note", "team version 1.0.0, chosen by the user")
     if a.stage == "phase3":

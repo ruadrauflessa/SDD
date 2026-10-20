@@ -1,7 +1,7 @@
 schema_version: "1.0"
 name: bug-locate-from-graph
 description: >-
-  Bug 501 has passed Gate 1 and its folder has a code graph. Phase 4 (reproduce and locate) must start from the graph: a graphify query before any grep or Grep of the worktree, as hooks/graph_use.py records it. The scaffold needs graphify on PATH.
+  Bug 501 has passed Gate 1 and its folder has a code graph. Phase 4 (reproduce and locate) must start from the graph: a graphify query before any grep or Grep of the worktree, as hooks/graph_use.py records it. Like every case past a fresh start, its scaffold needs graphify on PATH.
 tags: [bug, graph, measure]
 runs: 3
 context:

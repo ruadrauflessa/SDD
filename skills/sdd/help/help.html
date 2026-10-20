@@ -217,7 +217,7 @@
     <h3>Work item folder: <code>.claude/worktrees/&lt;id&gt;-&lt;slug&gt;/</code></h3>
     <ul>
       <li><code>src/&lt;Repo&gt;/</code>: your code. Every edit, build, test and commit happens here.</li>
-      <li><code>graph/</code>: code graph of <code>src/</code>. Start with <code>GRAPH_REPORT.md</code>.</li>
+      <li><code>graph/</code>: code graph of <code>src/</code>. Start with <code>GRAPH_REPORT.md</code>. Claude finds code by asking the graph first (a search is refused until it has), and the graph is rebuilt as the code changes.</li>
       <li><code>workitem.json</code>: which repo is on which branch, its PR, and where the flow stopped.</li>
     </ul>
     <h3>Spec folder: <code>specRoot</code> in <code>.claude/sdd.json</code>, then <code>**/&lt;id&gt;-&lt;TYPE&gt;-&lt;slug&gt;/</code></h3>
