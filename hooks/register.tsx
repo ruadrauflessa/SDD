@@ -1383,7 +1383,7 @@ export const register: Register = on => {
           <Button key="pend-revert" label="Revert all" onPress={() => edit('revert-all')} />
         </Box>
         {editing === 'revert-all' && (
-          <Box flexDirection="row" gap={1} alignItems="center">
+          <Box flexDirection="row" gap={1} alignItems="center" marginTop={1}>
             <Text color={C.revoked}>{`Drop all ${pending.length} staged changes? Nothing was sent to ADO.`}</Text>
             <Button key="pend-revert-yes" label="Yes, revert all" onPress={() => void (async () => {
               await bugsStage($, () => [])
@@ -1425,18 +1425,20 @@ export const register: Register = on => {
 
     // ---- the items ticked for one change to all of them
     const bulk = picked.length > 0 && Select && (
-      <Box flexDirection="column" borderStyle="round" borderColor={C.gate} paddingX={1}>
+      <Box flexDirection="column" borderStyle="round" borderColor={C.gate} paddingX={1} gap={1}>
         <Box flexDirection="row" gap={1} alignItems="center">
           <Box flexGrow={1}><Text bold color={C.gate}>{`☑ ${picked.length} picked: change them all at once`}</Text></Box>
           <Button key="bulk-clear" label="Clear picks" onPress={() => void $.state.set(bugsPickedS, [])} />
         </Box>
-        <Box flexDirection="row" gap={2} flexWrap="wrap">
+        <Box flexDirection="row" gap={2}>
           <Select key="bulk-state" label="State" value="*" options={[{ value: '*', label: '—' }, ...opt(allStates)]}
             onSelect={v => { if (v !== '*') stageAll(F.state, v) }} />
           <Select key="bulk-severity" label="Severity" value="*" options={[{ value: '*', label: '—' }, ...opt(cfg.severities ?? [])]}
             onSelect={v => { if (v !== '*') stageAll(F.severity, v) }} />
           <Select key="bulk-priority" label="Priority" value="*" options={[{ value: '*', label: '—' }, ...opt((cfg.priorities ?? []).map(String))]}
             onSelect={v => { if (v !== '*') stageAll(F.priority, v) }} />
+        </Box>
+        <Box flexDirection="row" gap={2}>
           <Select key="bulk-assign" label="Assign" value="*"
             options={[{ value: '*', label: '—' }, { value: '-', label: 'Nobody' }, ...team.map(p => ({ value: p.email, label: p.email === index.me?.email ? `${p.name} (me)` : p.name }))]}
             onSelect={v => { if (v !== '*') stageAll(F.assigned, v === '-' ? '' : v) }} />
@@ -1606,7 +1608,7 @@ export const register: Register = on => {
             </Box>
           )}
 
-          <Box flexDirection="column">
+          <Box flexDirection="column" gap={1}>
             <Text bold>Tags</Text>
             <Box flexDirection="row" gap={1} flexWrap="wrap" alignItems="center">
               {item.tags.length === 0 && <Text dimColor>No tags.</Text>}
@@ -1619,7 +1621,7 @@ export const register: Register = on => {
               ))}
             </Box>
             {Input && (
-              <Box flexDirection="row" gap={1} marginTop={1}>
+              <Box flexDirection="row" gap={1}>
                 <Box flexGrow={1}><Input key={`tag-in-${id}-${mine.filter(c => c.kind === 'tagAdd').length}`} placeholder={`Add a tag (${tagOptions(index!.items).slice(0, 4).join(', ') || 'e.g. Quick Win'})`} submitLabel="add tag" onSubmit={v => tag(id, 'tagAdd', v)} /></Box>
               </Box>
             )}
@@ -1635,7 +1637,7 @@ export const register: Register = on => {
 
           {mine.length > 0 && (
             <Box flexDirection="column" borderStyle="round" borderColor={C.now} paddingX={1}>
-              <Box flexDirection="row" gap={1} alignItems="center">
+              <Box flexDirection="row" gap={1} alignItems="center" marginBottom={1}>
                 <Box flexGrow={1}><Text bold color={C.now}>{`✎ ${mine.length} staged on this item, not saved to ADO yet`}</Text></Box>
                 <Button key={`item-save-${id}`} variant="primary" label="Save this item" onPress={() => save(id)} />
                 <Button key={`item-undo-${id}`} label="↶ Revert item" onPress={() => void bugsStage($, p => revertItem(p, id))} />
@@ -1680,7 +1682,7 @@ export const register: Register = on => {
             ))}
           </Box>
 
-          <Box flexDirection="column" borderStyle="round" borderColor={C.gate} paddingX={1}>
+          <Box flexDirection="column" borderStyle="round" borderColor={C.gate} paddingX={1} gap={1}>
             <Box flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
               <Box flexGrow={1}><Text bold color={C.gate}>🔎 Probable cause</Text></Box>
               <Button key={`ev-${id}`} label="Evidence only (no tokens)" onPress={() => findEvidence(id)} />
@@ -1695,7 +1697,7 @@ export const register: Register = on => {
               </Box>
             )}
             {ev && (
-              <Box flexDirection="column" marginTop={1}>
+              <Box flexDirection="column">
                 <Text dimColor wrap="wrap">{`Searched ${ev.repos.join(', ') || 'no repos'} for ${ev.terms.join(', ') || 'nothing'} (${ev.seconds}s)`}</Text>
                 {ev.hits.length === 0 && <Text dimColor>No match in the repos.</Text>}
                 {ev.hits.slice(0, 6).map((hit, n) => (
