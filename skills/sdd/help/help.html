@@ -396,8 +396,8 @@
 
   <section id="hooks">
     <h2>The hooks in a picture</h2>
-    <p>Every hook sdd installs, on one page: the five guards in <code>hooks/hooks.json</code>, the Desktop view in <code>hooks/register.tsx</code>, and repowatch.</p>
-    <img class="picture" src="hooks-picasso.jpg" alt="The hooks of sdd as a cubist collage: the five guards with their events and rules, the Desktop view's hooks in five groups, and repowatch's three hooks.">
+    <p>Every hook sdd installs, on one page: the guards in <code>hooks/hooks.json</code>, the Desktop view in <code>hooks/register.tsx</code>, and repowatch.</p>
+    <img class="picture" src="hooks-picasso.jpg" alt="The hooks of sdd as a cubist collage: the guards with their events and rules, the Desktop view's hooks in five groups, and repowatch's three hooks.">
     <h3>Change the picture</h3>
     <p>The picture is made by Google's Gemini image model (Nano Banana) from the prompt below. When a hook is added, removed or changed:</p>
     <ol>
@@ -412,12 +412,13 @@
 Three sections, stacked top to bottom. All text is sharp, horizontal and readable, and spelled exactly as written below. No card or scrap may cover any text on another card. No signatures.
 
 SECTION I: "THE GUARDIANS" (subtitle "(hooks/hooks.json · exit 2 blocks)")
-Five cubist portraits in a row, each face seen front-on and in profile at once. Below each portrait is a pasted card with three lines: the event, the script name and the rule.
+Six cubist portraits in a row, each face seen front-on and in profile at once. Below each portrait is a pasted card with three lines: the event, the script name and the rule.
 1. "PreToolUse · AskUserQuestion" / "question_guard.py pre" / "Every question bears its Links"
 2. "Stop" / "question_guard.py stop" / "Ask with the tool, not in prose"
 3. "PreToolUse · Bash | PowerShell" / "agent_guard.py pre" / "Sub-agents only read"
 4. "PreToolUse · Edit | Write" / "edit_guard.py pre" / "Work in the worktree"
-5. "SessionStart" / "env.py upgrade-config" / "The Herald: adds new config keys"
+5. "PreToolUse · Bash | PowerShell | Grep | Glob | Read" / "graph_use.py pre + post" / "Explore the code from the graph"
+6. "SessionStart" / "env.py upgrade-config" / "The Herald: adds new config keys"
 
 SECTION II: "THE VIEW" (subtitle "(hooks/register.tsx · Claude Desktop only)")
 Exactly five tilted collage cards side by side. Each card has a heading and its hooks, one per line:
