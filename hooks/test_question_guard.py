@@ -1,5 +1,6 @@
 """Self-check for question_guard.py: python test_question_guard.py  (temp files only)."""
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -29,11 +30,15 @@ def tool(cmd):
 
 
 def run(mode, transcript, cwd, **extra):
+    # delete=False: Windows will not let the hook open a file this process still holds; so it is removed here
     with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8") as f:
         f.write("\n".join(json.dumps(r) for r in transcript))
-    payload = {"transcript_path": f.name, "cwd": str(cwd), **extra}
-    r = subprocess.run([sys.executable, str(HOOK), mode], input=json.dumps(payload), capture_output=True, text=True)
-    return r.returncode
+    try:
+        payload = {"transcript_path": f.name, "cwd": str(cwd), **extra}
+        r = subprocess.run([sys.executable, str(HOOK), mode], input=json.dumps(payload), capture_output=True, text=True)
+        return r.returncode
+    finally:
+        os.unlink(f.name)
 
 
 def main():
