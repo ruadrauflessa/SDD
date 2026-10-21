@@ -718,7 +718,7 @@ def stage_docs():
 
 
 def hook_launcher():
-    """Every hook runs through hooks/run.cmd (sh on macOS and Linux, cmd.exe on Windows), which finds a real Python, not
+    """Every hook runs through hooks/run.cmd (sh; on Windows Git Bash or cmd.exe, by engine), which finds a real Python, not
     Windows' Microsoft Store stand-in. The script gets the hook's input and arguments, and its exit code is the hook's."""
     import subprocess
     plugin = Path(__file__).resolve().parent.parent
