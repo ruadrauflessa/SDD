@@ -13,19 +13,20 @@ the user's view; this file is for working on the plugin itself.
 
 | Path | What |
 | --- | --- |
-| `skills/sdd/` | The `/sdd` router, `help/help.html` (the one help page: first-time walk-through and every command; `env.py help` copies it into the workspace, because Desktop cannot open files in the plugin cache), and `references/flow-rules.md` — the rules both flows share (Abandon, Decision briefs, bugs this work did not cause, checkpoints, stage guards, proof runs, resuming, sub-agents). Change a shared rule there, once |
+| `skills/sdd/` | The `/sdd` router, `help/help.html` (the one help page: first-time walk-through and every command; `env.py help` copies it, and `help/hooks-picasso.jpg` the hooks picture it shows, into the workspace, because Desktop cannot open files in the plugin cache; the prompt that regenerates the picture is in the page's "The hooks in a picture" section), and `references/flow-rules.md` — the rules both flows share (Abandon, Decision briefs, bugs this work did not cause, checkpoints, stage guards, proof runs, resuming, sub-agents). Change a shared rule there, once |
 | `skills/bug/`, `skills/spec/` | Each flow: `SKILL.md` is the outline (rules, gates, stage index); each stage's steps are in `phases/NN-*.md` / `modes/*.md` |
 | `skills/request/` | Ai Agent Request triage: report on a hand-over, ask spec or bug, route the work (`spec.py request` / `route`), then hand over to that flow. No stages of its own: `route.json` in the request's spec folder is its record |
 | `skills/help/` | `/sdd:help`: a thin skill that sends the same page as `/sdd:sdd` with no arguments; the steps live once, in `skills/sdd/SKILL.md` |
 | `skills/next/`, `sync/`, `impact/`, `harness/`, `visual/`, `workspace/` | The other skills. `visual/` is a fork of visual-explainer (MIT) |
 | `scripts/flows.json` | **The source of truth for the flows**: stages, gates each stage needs and passes, stops, `doc` (the stage file `env.py can` prints), `proofs`, `paths`. Scripts, hooks and the view all read it |
 | `scripts/env.py` | Work item folders, worktrees, progress, gates, stage guards, proofs, PRs |
+| `scripts/graphfocus.py` | `env.py graph-focus`: which nodes of graphify's graph the design (`design.md`, `tasks.md`) or the changed lines touch, and the script injected into graphify's `graph.html` that lights them. Pure functions; `lens` in `flows.json` says what each stage lights |
 | `scripts/spec.py` | The ADO mirror and index, impact, rev-tested ADO writes, `next`, metrics.json, Ai Agent Request `request` / `route` |
 | `scripts/sddlib.py` | Shared helpers, `DEFAULTS` for `.claude/sdd.json`, config upgrade, the output style install |
 | `scripts/adowrite.py`, `proof.py`, `nextpick.py`, `metrics.py`, `anchors.py` | ADO writes; recorded test runs; next-item rules; metrics.json; design.md's Affected components checked against the code graph (`env.py anchors`, the proof "Design agreed" needs) — logic as plain functions, tested without ADO |
 | `scripts/bugs/` | The bug manager's mechanics (`/sdd-bugs`), in PowerShell: `Sync-Bugs`, `Get-BugDetail`, `Save-BugChanges` (rev-tested batch writes), `Find-BugEvidence` (git, no tokens); `BugsCommon.ps1` is what they share, `defaults.json` the one source of the `bugs` settings (sddlib, the scripts and the view all read it) |
 | `scripts/fakeado.py` | Offline ADO for tests and evals: on when `SDD_FAKE_ADO` names a JSON world file |
-| `hooks/` | `question_guard.py`, `agent_guard.py`, `edit_guard.py`, `graph_use.py` (the graph first: rebuilds a stale graph before any read of it, refuses a search of a work item's code until that caller asked the graph in the stage, and counts both in `graph-use.jsonl`), and `register.tsx` + `view/model.ts` (the sdd view, a mod), `view/worktrees.ts` (pure helpers of the `/sdd-worktrees` page, whose hooks live in `register.tsx`), `view/bugs.ts` (pure helpers of the `/sdd-bugs` bug manager: categories, filters, staged changes, the probable-cause prompt), `view/settings.ts` (pure helpers of its ⚙ Config panel: the draft, the fields, the category rules, and `applyToSdd` / `applyToDevelopers`, which write only changed keys) |
+| `hooks/` | `question_guard.py`, `agent_guard.py`, `edit_guard.py`, `graph_use.py` (the graph first: rebuilds a stale graph before any read of it, refuses a search of a work item's code until that caller asked the graph in the stage, and counts both in `graph-use.jsonl`), `spec_use.py` (meaning first: while Ollama is on, refuses a grep of the spec folder until that caller ran `spec.py query search` or `similar` in the turn; the runs go in `.claude/sdd/spec-use.jsonl`), and `register.tsx` + `view/model.ts` (the sdd view, a mod), `view/worktrees.ts` (pure helpers of the `/sdd-worktrees` page, whose hooks live in `register.tsx`), `view/bugs.ts` (pure helpers of the `/sdd-bugs` bug manager: categories, filters, staged changes, the probable-cause prompt), `view/settings.ts` (pure helpers of its ⚙ Config panel: the draft, the fields, the category rules, and `applyToSdd` / `applyToDevelopers`, which write only changed keys) |
 | `agents/` | `investigator` and `skeptic`, the read-only sub-agents |
 | `evals/` | `claude plugin eval` cases; `_fixtures/workspace.py` builds each case's workspace |
 | `repowatch/` | A second, standalone plugin (sdd depends on it, same marketplace): tracks many git repos and worktrees. `scripts/repowatch.py` does the git mechanics and writes `.claude/repowatch/state.json`; `hooks/register.tsx` draws the pane and status line from it, and runs a clean-up only after `plan`, a confirm and `apply` (which re-checks). Has its own `plugin.json` and version |
@@ -44,6 +45,7 @@ python hooks/test_question_guard.py
 python hooks/test_agent_guard.py
 python hooks/test_edit_guard.py
 python hooks/test_graph_use.py
+python hooks/test_spec_use.py
 python repowatch/scripts/test_repowatch.py   # needs git; real repos in temp folders
 claude plugin test repowatch         # also mounts and presses the pane (hooks/pane.test.ts)
 claude plugin validate repowatch
@@ -58,7 +60,8 @@ to trust the plugin directory, and each case is a paid agent run. A full TypeScr
 
 ## Rules for changes
 
-- **Scripts are standard library only and must run on Python 3.9 and on Windows.** The users run
+- **Scripts are standard library only and must run on Python 3.9 and on Windows.** A third-party module may only
+  speed a path up (`spec.top_similar` uses numpy when it is there), never be needed. The users run
   PowerShell on Windows: no shell-only paths, no 3.10+ syntax (`match`, `X | Y` types, a quote in an
   f-string's `{}` that matches its own quotes).
 - **Mechanics go in a script, judgement in a skill.** If a rule can be checked, the script enforces
@@ -94,9 +97,11 @@ to trust the plugin directory, and each case is a paid agent run. A full TypeScr
   (commands, first read, cost baseline, timers) runs from `session.start` and `session.attach` when a Desktop app is
   attached, every draw hook returns `next(e)` unless `e.surface === 'desktop'`, and every other hook passes through until
   setup ran. Never set up from a draw hook: the engine refuses state writes while a draw is dispatched.
+  The view opens itself at a Desktop session's start (`openAtSessionStart`, from `setupDesktop`; once per session, `sdd.startOpened`) unless the `openAtStart`
+  option (`userConfig` in `plugin.json`, a row in `/config`) is off or the workspace's `view.autoOpen` is false.
 - **The view writes one thing**: what each turn cost, in dollars and tokens, through `env.py cost` (one appended
   line in the item's `cost.jsonl`; `view` reports the totals). Otherwise `register.tsx` reads `env.py view` and posts the user's
-  messages. It never passes a gate or runs another state-changing command. The bug manager (`/sdd-bugs`) is
+  messages. It never passes a gate or runs another state-changing command; the one exception is `env.py graph-focus` (the **Open code graph** button), which writes only files under the item's `graph/`. The bug manager (`/sdd-bugs`) is
   apart: it writes the staged changes to `<bugs folder>/pending.json` and a probable cause to `items/<id>.analysis.json`,
   and runs the bug scripts on the person's press; its one model call is the probable cause, on a press. Its ⚙ Config
   panel is the one place the view writes config: on Save it rewrites `.claude/sdd.json` (only the `bugs` keys that

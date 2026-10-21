@@ -64,6 +64,12 @@
   .tip { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
   .tip > b:first-child { display: block; margin-bottom: 2px; }
   .tip span { color: var(--dim); font-size: 15px; }
+  .picture { display: block; width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); margin: 12px 0; }
+  .prompt-head { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+  .prompt-head button { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 6px;
+    padding: 2px 10px; cursor: pointer; font-size: 13px; }
+  pre.prompt { white-space: pre-wrap; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px; margin: 6px 0 0; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   footer { color: var(--dim); font-size: 14px; margin-top: 24px; }
 </style>
 </head>
@@ -80,7 +86,7 @@
     <a href="#bug">4 First bug</a><a href="#spec">5 First spec item</a><a href="#after">While you work</a>
     <a href="#flows">The two flows</a><a href="#ado">What sdd writes to ADO</a><a href="#next">Pick the next item</a><a href="#request">Ai Agent Request</a>
     <a href="#panels">Panels (Desktop app)</a><a href="#bugmgr">Bug manager</a><a href="#repos">Repos and worktrees</a>
-    <a href="#visuals">Visual pages</a><a href="#guards">Safety nets</a><a href="#config">Configure</a>
+    <a href="#visuals">Visual pages</a><a href="#guards">Safety nets</a><a href="#hooks">The hooks in a picture</a><a href="#config">Configure</a>
     <a href="#commands">Every command</a><a href="#places">Where things live</a><a href="#rules">Rules</a><a href="#fix">If something goes wrong</a><a href="#update">Update sdd</a>
   </nav>
 
@@ -124,7 +130,7 @@
       <li>A removed item is kept and marked <code>[REMOVED]</code>. An item ADO no longer returns is marked <code>MISSING</code>: deleted, moved to a project not in your list, or no access.</li>
       <li>A folder keeps its name when the title changes, is renamed when the type changes, and moves (with your own files) when the item gets a new parent.</li>
       <li>Every sync also writes <code>.index/metrics.json</code>: each item with what a decision needs (state, board column, assignee, versions, epic chain, what blocks it and what it blocks) and <b>what this sync changed</b>, with the fields before and after. A <b>MATERIAL</b> change is one to the requirement itself (title, description, acceptance criteria, repro steps, type or links); an <i>incidental</i> one is a tracked field such as the state. For a new or material item it lists the items it likely affects. No tokens used.</li>
-      <li>Search the synced spec in chat: ask for a word search or an items-like-this search (meaning search needs Ollama).</li>
+      <li>Search the synced spec in chat: ask for a search or for items like one you know. With Ollama on, every search ranks the items by their words <b>and</b> by their meaning, in one list, so an item that says the same thing in other words is found too. Without Ollama it is a word search.</li>
     </ul>
   </section>
 
@@ -278,11 +284,12 @@
     <h2>Panels in the Claude Desktop app</h2>
     <p>The panels are a mod of the Claude Desktop app. They draw from files the scripts write. They never pass a gate on their own: a button only posts your own answer. In a terminal, the VS Code extension or on a phone they do nothing. The band above the prompt always has three buttons, <b>Bugs</b>, <b>Worktrees</b> and <b>repowatch</b>, plus <b>sdd view</b>. With no item running it reads "Open a panel".</p>
     <h3>The sdd view <code>/sdd-view [id]</code></h3>
-    <p>Opens by itself the first time a chat takes up a work item (turn it off with <code>"view": { "autoOpen": false }</code>). <code>/sdd-view &lt;id&gt;</code> opens another item.</p>
+    <p>With no item to show it is a <b>start page</b>: buttons that put <code>/sdd </code>, <code>/sdd next </code>, <code>/sdd sync </code> or <code>/sdd:help</code> in the prompt, one for the bug manager, your open work items to pick up (the ones waiting on you first) and the last finished ones. It opens by itself in the Desktop app at the start of every session in an sdd workspace (on by default; the <b>Open the sdd view when a Desktop session starts</b> row in <code>/config</code> turns it off for you), and again the first time a chat takes up a work item. <code>"view": { "autoOpen": false }</code> in <code>.claude/sdd.json</code> turns both off for that workspace. <code>/sdd-view &lt;id&gt;</code> opens another item.</p>
     <ul>
       <li><b>Header:</b> the flow tag (<code>[Spec flow] [short path]</code>, <code>[path not chosen]</code>, or <code>[Bug flow]</code>), the money spent on the item and the token split.</li>
       <li><b>Stage rail:</b> one vertical rail of the flow's stages, each with its state in a word and its cost. Press a stage to open it: the latest note, the cost split, its <b>Stage log</b>, <b>gates</b> (what you were asked, what you answered, what was revoked), its documents, and a <b>Give feedback</b> box. One stage is open at a time. The pane opens on the stage the item is at and follows it as it moves.</li>
       <li><b>Buttons that talk for you:</b> <b>Approve</b> at the Requirements, Design, Decompose and Verify stops; <b>Approved / Merged / Rejected</b> at the review stage (spec: Review, bug: Phase 15); answers to a question after its dialog closed; the feedback box. Each posts a message as you (<code>sdd approve for &lt;id&gt;, stage &lt;stage&gt;</code>, <code>sdd review for &lt;id&gt;: …</code>, <code>sdd answer for …</code>, <code>sdd feedback for …</code>) and the flow treats it as your own answer. The flow checks that the item still waits at that stage first.</li>
+      <li><b>🕸 Open code graph:</b> under the stages, once the item has worktrees. It rebuilds the graph (graphify, no tokens) and opens it in your browser with the item's nodes lit. At <b>Design</b> and <b>Decompose</b> they are the nodes <code>design.md</code> and <code>tasks.md</code> name (a path, or a symbol in backticks). From <b>Implement</b> on (bug flow: Phase 7 on) they are the nodes the work changed, in gold, and what the design named but the work has not touched yet, in blue. The rest of their files and their neighbours are fainter; everything else is dimmed. A panel on the page lists the lit nodes (press one to centre it), switches the lighting off, or hides the rest. Needs graphify; the page loads vis-network from the internet.</li>
       <li><b>Worktrees:</b> open a worktree in File Explorer or VS Code from its box; the spanner (🔧) opens it in repowatch, on that one worktree.</li>
       <li><b>Work item</b> dropdown: switch to another open item. After <code>/sdd </code> the prompt box offers your open items by id or a word of the title.</li>
       <li><b>Agents:</b> the session's sub-agents and what each is doing.</li>
@@ -299,6 +306,7 @@
     <h3>Get the list</h3>
     <ul>
       <li><b>↻ Sync from ADO</b> pulls the bugs and issues into <code>&lt;spec folder&gt;/.bugs/</code> (<code>index.json</code> and <code>items/&lt;id&gt;.json</code> with repro steps, description and comments). What it pulls is set by <code>bugs.query</code> (projects, states left out, area and iteration paths, a WIQL clause, a top limit).</li>
+      <li>Before the first Sync the pane says what Sync will pull, with a <b>Sync from ADO</b> button and <b>Change what it pulls</b> (the Config panel).</li>
       <li>The header says how many items you see, the org and projects, when it synced and who you are in ADO (<code>bugs.me</code> if <code>git config user.email</code> is not it).</li>
     </ul>
     <h3>Find the ones that matter</h3>
@@ -378,6 +386,7 @@
       <tr><td>State guards</td><td><code>env.py can</code> answers whether a stage, PR, <code>done</code>, <code>abandon</code> or <code>reopen</code> is allowed in the item's state. A refusal says why and what gets it there; sdd never works around it. <code>env.py pr</code> and <code>env.py remove</code> enforce the same checks themselves.</td></tr>
       <tr><td>Proof runs</td><td>The failing test, the revert check, the repeat run, the full suite and the task Verify commands are <b>recorded runs</b> (exit code, output, a fingerprint of the code). A gate passes only on a record that matches the current code. A later edit voids it. <b>Design agreed</b> passes only on an <code>env.py anchors</code> check of <code>design.md</code> against the code graph, and an edit of <code>design.md</code> voids it.</td></tr>
       <tr><td>Graph guard (hook)</td><td>Claude finds code from the work item's <b>code graph</b>, not by grepping: a search of the code is refused until it has asked the graph in that stage, and while a flow runs a search of the main checkout is refused. The graph is rebuilt before every read once the code changed, and a stage that reads code starts only on a current graph. <code>env.py status</code> counts graph queries against searches.</td></tr>
+      <tr><td>Spec search guard (hook)</td><td>While meaning search is on (Ollama answers with the model, and the specs are embedded), Claude searches the synced specs by meaning first: a grep of the spec folder, or of a folder of items in it, is refused until it ran <code>spec.py query search</code> or <code>query similar</code> in that turn. After that, grep is open for exact text: an id, a field name, a quoted phrase. Reading one spec and finding a folder by its id stay open. Silent without Ollama.</td></tr>
       <tr><td>Question guard (hook)</td><td>Blocks a question to you unless its Links block ran first, blocks a question that has a link inside it, and sends a plain-text question back to be asked as a pick-list. Silent unless an sdd flow is running.</td></tr>
       <tr><td>Edit guard (hook)</td><td>While a flow runs, blocks edits to a repo file in the <b>main checkout</b>. Your spec folder, <code>.claude/</code> and <code>CLAUDE.md</code> stay open.</td></tr>
       <tr><td>Agent guard (hook)</td><td>Keeps the sub-agents read-only: no git writes (an allowlist of read commands) and no <code>env.py</code> or <code>spec.py</code> runs.</td></tr>
@@ -386,6 +395,45 @@
       <tr><td>ADO writes</td><td>Rev-tested, re-read and decided again on a conflict; a work item is written <code>ADO 4471</code>, never <code>#4471</code>.</td></tr>
       <tr><td>Session start</td><td>A hook adds the defaults of new settings to <code>.claude/sdd.json</code> after a plugin update. It never changes a value you set and never writes a file that is not valid JSON.</td></tr>
     </table>
+  </section>
+
+  <section id="hooks">
+    <h2>The hooks in a picture</h2>
+    <p>Every hook sdd installs, on one page: the guards in <code>hooks/hooks.json</code>, the Desktop view in <code>hooks/register.tsx</code>, and repowatch.</p>
+    <img class="picture" src="hooks-picasso.jpg" alt="The hooks of sdd as a cubist collage: the guards with their events and rules, the Desktop view's hooks in five groups, and repowatch's three hooks.">
+    <h3>Change the picture</h3>
+    <p>The picture is made by Google's Gemini image model (Nano Banana) from the prompt below. When a hook is added, removed or changed:</p>
+    <ol>
+      <li>Edit the lists in the prompt below, in <code>skills/sdd/help/help.html</code>, to match <code>hooks/hooks.json</code>, <code>hooks/register.tsx</code> and <code>repowatch/hooks/register.tsx</code>. The page then keeps the prompt that made the picture.</li>
+      <li>Copy the prompt and paste it into a new Gemini chat.</li>
+      <li>Check every word against the prompt. If one is wrong, reply in the same chat: <i>Fix only this text and keep everything else identical: it should read "…"</i>.</li>
+      <li>Save the result as <code>skills/sdd/help/hooks-picasso.jpg</code> in the plugin repo.</li>
+    </ol>
+    <div class="prompt-head"><b>Prompt</b><button data-copy-from="hooks-prompt">Copy</button></div>
+<pre class="prompt" id="hooks-prompt">Create a tall portrait poster (2:3) titled "THE HOOKS of sdd", as a Synthetic Cubism painting and collage in the spirit of Picasso's 1920s work. Flat fragmented planes in ochre, umber, muted blue, rose and green, thick black outlines, dotted and striped patterns, scraps of newspaper and faux wood-grain paper. The title is cut-out newspaper lettering pasted at angles, with a fractured cubist guitar beside it.
+
+Three sections, stacked top to bottom. All text is sharp, horizontal and readable, and spelled exactly as written below. No card or scrap may cover any text on another card. No signatures.
+
+SECTION I: "THE GUARDIANS" (subtitle "(hooks/hooks.json · exit 2 blocks)")
+Seven cubist portraits in a row, each face seen front-on and in profile at once. Below each portrait is a pasted card with three lines: the event, the script name and the rule.
+1. "PreToolUse · AskUserQuestion" / "question_guard.py pre" / "Every question bears its Links"
+2. "Stop" / "question_guard.py stop" / "Ask with the tool, not in prose"
+3. "PreToolUse · Bash | PowerShell" / "agent_guard.py pre" / "Sub-agents only read"
+4. "PreToolUse · Edit | Write" / "edit_guard.py pre" / "Work in the worktree"
+5. "PreToolUse · Bash | PowerShell | Grep | Glob | Read" / "graph_use.py pre + post" / "Explore the code from the graph"
+6. "PreToolUse · Bash | PowerShell | Grep" / "spec_use.py pre + post" / "Search the specs by meaning first"
+7. "SessionStart" / "env.py upgrade-config" / "The Herald: adds new config keys"
+
+SECTION II: "THE VIEW" (subtitle "(hooks/register.tsx · Claude Desktop only)")
+Exactly five tilted collage cards side by side. Each card has a heading and its hooks, one per line:
+"Setting up": session.start, session.attach
+"Commands": command.run sdd, sdd-view, sdd-worktrees, sdd-bugs, prompt.autocomplete
+"Tool calls": tool.call Bash | PowerShell, tool.call AskUserQuestion
+"Cost &amp; status": turn.start, turn.complete, session.measure, session.end
+"Drawing": ui.render Spinner, ui.render AbovePrompt, ui.render Pane, ui.close
+
+SECTION III: "THE WATCHER" (subtitle "repowatch")
+A strip of faux wood-grain paper holding three pasted labels: "session.start", "command.run repowatch", "ui.render Pane".</pre>
   </section>
 
   <section id="config">
@@ -399,7 +447,7 @@
       <tr><td><code>branchTemplate</code></td><td>Default <code>dev/{developer}/{version}/{type}/{id}-{slug}</code>.</td></tr>
       <tr><td><code>doneStates</code></td><td>The ADO states that count as done for <code>/sdd done</code> (default Resolved, Closed, Done).</td></tr>
       <tr><td><code>embeddings</code></td><td>Meaning search: provider <code>ollama</code>, its url, and the model.</td></tr>
-      <tr><td><code>view</code></td><td><code>autoOpen</code>, and <code>colors</code>: <code>done</code>, <code>now</code> (waiting on you), <code>work</code>, <code>revoked</code>, <code>gate</code>, <code>dim</code>, <code>line</code>, <code>hoverText</code>, each a CSS colour. The view picks a change up on its next refresh.</td></tr>
+      <tr><td><code>view</code></td><td><code>autoOpen</code> (<code>false</code> keeps the view shut in this workspace; the per-person switch is the <b>Open the sdd view when a Desktop session starts</b> row in <code>/config</code>), and <code>colors</code>: <code>done</code>, <code>now</code> (waiting on you), <code>work</code>, <code>revoked</code>, <code>gate</code>, <code>dim</code>, <code>line</code>, <code>hoverText</code>, each a CSS colour. The view picks a change up on its next refresh.</td></tr>
       <tr><td><code>agents.models</code></td><td>The model of <code>investigator</code> and <code>skeptic</code>: <code>sonnet</code>, <code>opus</code> or <code>haiku</code>.</td></tr>
       <tr><td><code>agentRequest</code></td><td><code>types</code> (the hand-over types) and <code>create</code> (the type made per flow: <code>bug</code> → Bug, <code>spec</code> → Tech Story).</td></tr>
       <tr><td><code>next</code></td><td><code>weights</code> (priority, severity, complexity), <code>complexity</code> (<code>complex-first</code>), <code>types</code> (the order of groups), <code>inProgress</code> and <code>pastDev</code> (what makes an item not free).</td></tr>
@@ -450,6 +498,7 @@
     <h3>Check on it, finish or stop</h3>
     <table>
       <tr><td><code>/sdd status &lt;id&gt;</code></td><td>Where it stands: ADO state, the step reached, tasks done, PRs.</td></tr>
+      <tr><td><code>/sdd graph &lt;id&gt;</code></td><td>The item's code graph in your browser, with the nodes of its design or of what the work changed lit. The same as <b>🕸 Open code graph</b> in the sdd view.</td></tr>
       <tr><td><code>/sdd &lt;id&gt; feedback &lt;stage&gt;: &lt;text&gt;</code></td><td>Back to a done or waiting stage with your feedback.</td></tr>
       <tr><td><code>/sdd done &lt;id&gt;</code></td><td>After the PRs merge and the work item is closed out. Shows what goes, then asks.</td></tr>
       <tr><td><code>/sdd abandon &lt;id&gt;</code></td><td>Stop an item and clean up what it created. Asks before anything outward-facing.</td></tr>
@@ -546,6 +595,12 @@
   document.querySelectorAll('[data-copy]').forEach(function (b) {
     b.addEventListener('click', function () {
       try { navigator.clipboard.writeText(b.dataset.copy); b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1200); } catch (e) {}
+    });
+  });
+  // a long text to copy lives in the element it names, not in the button
+  document.querySelectorAll('[data-copy-from]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      try { navigator.clipboard.writeText(document.getElementById(b.dataset.copyFrom).textContent); b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1200); } catch (e) {}
     });
   });
 </script>

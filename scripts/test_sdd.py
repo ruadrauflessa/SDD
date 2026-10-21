@@ -26,9 +26,73 @@ def wi(i, title, parent=None, rels=(), desc="", typ="User Story", rev=1, state="
 def check_help_copy():
     with tempfile.TemporaryDirectory() as t:
         out = env.help_copy(Path(t) / ".claude" / "sdd" / "help")
-        assert [p.name for p in out] == ["help.html"]
+        assert [p.name for p in out] == ["help.html", "hooks-picasso.jpg"]
         text = out[0].read_text(encoding="utf-8")
         assert "<html" in text and 'id="commands"' in text and 'id="init"' in text   # the guide and the reference, in one page
+        assert 'src="hooks-picasso.jpg"' in text and out[1].stat().st_size > 0   # the picture the page shows sits beside it
+
+
+def check_search(ctx):
+    """query search: words alone without Ollama; words and meaning in one ranked list with it."""
+    import argparse
+    import array
+    import contextlib
+    import io
+
+    # rank fusion: found by both beats found by one; each list keeps its own facts
+    got = spec.fuse([(3, 9.1), (4, 2.0)], [(0.91, 1), (0.80, 3)])
+    assert [d["id"] for d in got] == [3, 1, 4], got
+    assert got[0]["found_by"] == ["words", "meaning"] and got[0]["words_rank"] == 1 and got[0]["cosine"] == 0.80
+    assert got[1]["found_by"] == ["meaning"] and "bm25" not in got[1] and spec.found_by(got[1]) == "meaning 0.91"
+    assert spec.found_by(got[0]) == "words #1 + meaning 0.8"
+
+    # impact --all's similarity without numpy gives the same neighbours
+    vecs = {1: [1.0, 0.0], 2: [0.9, 0.1], 3: [0.0, 1.0]}
+    real = sys.modules.get("numpy")
+    sys.modules["numpy"] = None  # import numpy -> ImportError
+    try:
+        plain = spec.top_similar(vecs, [1, 3])
+    finally:
+        if real is None:
+            del sys.modules["numpy"]
+        else:
+            sys.modules["numpy"] = real
+    assert [j for _, j in plain[1]] == [2, 3] and plain[1][0][0] == 0.994, plain
+    try:
+        import numpy  # noqa: F401
+        assert {i: [j for _, j in v] for i, v in spec.top_similar(vecs, [1, 3]).items()} == \
+            {i: [j for _, j in v] for i, v in plain.items()}
+    except ImportError:
+        pass
+
+    def search(text):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            spec.cmd_query(argparse.Namespace(what="search", text=text, id=None, hops=2, json=False))
+        return out.getvalue().splitlines()
+
+    real = spec.Ctx, spec.meaning_status, spec.embed_texts
+    spec.Ctx = lambda: ctx
+    try:
+        spec.meaning_status = lambda c: (None, "Ollama is not running")
+        lines = search("ChatSession")
+        assert lines[0] == "meaning search: off (Ollama is not running): ranked by words only", lines
+        assert {int(x.split()[0]) for x in lines[1:]} == {3, 4} and all("words #" in x for x in lines[1:]), lines
+
+        # with Ollama: the epic says nothing of ChatSession, but means the same as the query
+        ctx.db.executemany("INSERT OR REPLACE INTO emb VALUES(?,?,?,?)", [
+            (i, "h", "m", array.array("f", v).tobytes()) for i, v in [(1, [1, 0]), (2, [0, 1]), (3, [0.6, 0.8]), (4, [0, 1])]])
+        spec.meaning_status = lambda c: ("m", "")
+        spec.embed_texts = lambda c, model, texts: [[1.0, 0.0]]
+        lines = search("ChatSession")
+        assert lines[0] == "meaning search: on (m): ranked by words and by meaning", lines
+        by = {int(x.split()[0]): x for x in lines[1:]}
+        assert by[1].endswith("meaning 1.0") and "words #" not in by[1], by
+        assert "words #" in by[3] and "meaning 0.6" in by[3], by
+        assert int(lines[1].split()[0]) == 3, lines        # found by words and by meaning: first
+    finally:
+        spec.Ctx, spec.meaning_status, spec.embed_texts = real
+        ctx.db.execute("DELETE FROM emb")
 
 
 def main():
@@ -171,6 +235,7 @@ def main():
         spec.impact_all(ctx, _ap.Namespace(scope=2, hops=2))
         sub = json.loads(next((root / "docs/spec").rglob("2-FEAT-*/impact-all.json")).read_text(encoding="utf-8"))
         assert all({p["a"], p["b"]} <= {2, 4} for p in sub["pair_list"])  # 3 moved under the epic
+        check_search(ctx)
         ctx.db.close()
 
         # decision links: requirements.md always included, a missing ref is an error, never skipped
@@ -407,6 +472,7 @@ def main():
         assert env.view_item(root, cfg, got, qdir, False)["graphUse"] == use
         os.chdir(Path(__file__).parent)
     stage_docs()
+    graph_focus()
     short_path()
     config_upgrade()
     output_style()
@@ -574,6 +640,34 @@ def short_path():
     assert "Design agreed" in env.stage_needs("spec", {"path": "short"}, "Implement")
     assert env.flow_path("spec", {}) is None and env.flow_path("bug", {}) is None
     assert env.flow_path("spec", {"gates": {"Design agreed": "t"}}) == "full"      # started before paths existed
+
+
+def graph_focus():
+    import graphfocus as gf
+    refs = gf.refs_from_text("Change `Billing/Totals.cs:40-52`, `Round()` and `Totals.Round` in `src/Repo/a b/x.ts`. Run `python x.py`, `42`, `foo bar`.")
+    assert refs["files"] == [("Billing/Totals.cs", 40, 52), ("src/Repo/a b/x.ts", None, None)], refs
+    assert refs["symbols"] == ["round"], refs                                    # a dotted name is its last part; a command is neither
+    diff = "--- a/f.py\n+++ b/f.py\n@@ -3,0 +4,2 @@\n@@ -9 +12 @@\n--- /dev/null\n+++ b/new.py\n@@ -0,0 +1,5 @@\n--- a/gone.py\n+++ /dev/null\n"
+    assert gf.changed_from_diff(diff, "R") == {"R/f.py": [(4, 5), (12, 12)], "R/new.py": [(1, 5)]}
+    node = lambda i, label, f, line: {"id": i, "label": label, "source_file": f, "source_location": f"L{line}"}
+    g = {"nodes": [node("f", "f.py", "R/f.py", 1), node("a", "alpha()", "R/f.py", 3), node("b", "beta()", "R/f.py", 20), node("g", "g.py", "R/g.py", 1),
+                   node("c", ".run()", "R/g.py", 4)], "links": [{"source": "a", "target": "c"}]}
+    got = gf.focus(g, "implementation", gf.refs_from_text("`beta()` and `R/g.py`"), {"R/f.py": [(4, 5)]})
+    assert got["primary"] == ["a"] and sorted(got["planned"]) == ["b", "g"], got          # alpha changed; beta and g.py named, not changed
+    assert got["secondary"] == ["f"] and got["neighbors"] == ["c"] and got["files"] == ["R/f.py"], got
+    got = gf.focus(g, "design", gf.refs_from_text("`beta`"), None)
+    assert got["primary"] == ["b"] and got["secondary"] == ["f", "a"] and got["planned"] == [], got
+    many = {"nodes": [node(f"n{i}", "get()", f"R/m{i}.py", 1) for i in range(9)]}
+    got = gf.focus(many, "design", gf.refs_from_text("`get()` and `R/m2.py`"), None)
+    assert got["primary"] == ["n2"], got                                         # a name in a file the design names is that file's
+    got = gf.focus(many, "design", gf.refs_from_text("`get()`"), None)
+    assert got["primary"] == [] and got["skipped"] == ["get"], got               # a name that matches too many places is left out
+    assert gf.focus(g, "none", None, None)["primary"] == []
+    html = gf.render("<html><body><p>x</p></body></html>", {**gf.focus(g, "design", gf.refs_from_text("`beta`"), None), "labels": {"b": "</script><b>"}})
+    assert html.count("</script>") == 1 and html.index('id="sdd-graph-focus"') < html.index("</body>"), html   # a label cannot close the tag
+    assert gf.render("<html></html>", gf.focus(g, "none", None, None)) == "<html></html>"
+    assert env.stage_lens("spec", "Design (reading)") == "design" and env.stage_lens("spec", "Implement (task 2/4)") == "implementation"
+    assert env.stage_lens("bug", "Phase 8 — Apply the fix") == "implementation" and env.stage_lens("bug", "Phase 5") is None
 
 
 def stage_docs():

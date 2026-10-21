@@ -489,6 +489,19 @@ function itemLine(flows: Record<string, SddFlow>, item: SddItem): string {
   return [`${item.id} ${item.title}`, where, item.progress ? statusWord(item) : ''].filter(Boolean).join(' · ')
 }
 
+/** What the start page lists, for a pane with no work item to show: the open items (the ones waiting on the person first,
+ *  `max` of them, `more` left over) and the last few finished ones. */
+export function startPage(snap: Pick<SddSnapshot, 'items' | 'done' | 'flows'>, max = 6, maxCut = 90):
+  { open: { id: number; line: string; waiting: boolean }[]; more: number; recent: string[] } {
+  const all = openItems(snap)
+  const when = (i: SddItem) => i.removed || i.progress?.at || i.created || ''
+  return {
+    open: all.slice(0, max).map(i => ({ id: i.id, line: cutAt(itemLine(snap.flows, i), maxCut), waiting: i.progress?.status === 'waiting' })),
+    more: Math.max(0, all.length - max),
+    recent: [...(snap.done ?? [])].sort((a, b) => when(b).localeCompare(when(a))).slice(0, 3).map(i => cutAt(`${i.id} ${i.title}`, maxCut)),
+  }
+}
+
 /** The choices of the pane's work item dropdown: value is the id, label the line. `current` is the item the pane shows. */
 export function itemOptions(snap: Pick<SddSnapshot, 'items' | 'flows'>, current?: SddItem, maxLabel = 90): { value: string; label: string }[] {
   // the item the pane shows may be a finished one, which is not among the open items: the list holds it last, so it shows
