@@ -206,6 +206,26 @@ export function categorize(items: BugRecord[], categories: BugCategory[], me: Bu
   return out
 }
 
+/** The pattern a team version tag matches: the "version" category's eachTag, else the default one. */
+export const VERSION_TAG = '^\\d+(\\.\\d+){1,3}$'
+
+/** The item's team branch versions: its tags that match the version pattern, highest first. None: no version tag. */
+export function versionTags(item: BugRecord, categories: BugCategory[] | undefined): string[] {
+  const cat = (categories ?? []).find(c => c && c.id === 'version' && c.eachTag)
+  let re: RegExp
+  try {
+    re = new RegExp(cat?.eachTag ?? VERSION_TAG, 'i')
+  } catch {
+    re = new RegExp(VERSION_TAG)
+  }
+  return item.tags.filter(t => re.test(t)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
+}
+
+/** The Branch column: the highest version, and how many more there are; empty with no version tag. */
+export function branchText(versions: string[]): string {
+  return versions.length ? `${versions[0]}${versions.length > 1 ? ` +${versions.length - 1}` : ''}` : ''
+}
+
 // ---------------------------------------------------------------- the list
 
 export function severityRank(s: string): number {
