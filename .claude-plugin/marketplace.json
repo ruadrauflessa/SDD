@@ -16,6 +16,11 @@
       "name": "repowatch",
       "source": "./repowatch",
       "description": "Track many git repos and their worktrees: ahead/behind, dirty files, stale worktrees, in a pane and the status line."
+    },
+    {
+      "name": "devops",
+      "source": "./devops",
+      "description": "Release and branch skills for Azure DevOps repos: release-prep, sync-team-branches, release-notes and pre-pr-verify."
     }
   ]
 }
