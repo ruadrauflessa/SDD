@@ -7,7 +7,7 @@ import type { DvStatus } from '../types'
 
 const NOW = Math.floor(Date.now() / 1000)
 
-function status(approved: boolean, done = false): DvStatus {
+function status(approved: boolean, done = false, extra: Partial<DvStatus> = {}): DvStatus {
   return {
     root: '/ws', generated: NOW,
     config: { reposDir: 'projects', sourcePattern: 'team/{0}', targetPattern: 'release/{0}', branchPrefix: 'team/',
@@ -33,8 +33,26 @@ function status(approved: boolean, done = false): DvStatus {
     plans: [{ token: 'aaaaaaaaaa', kind: 'release-prs', summary: 'Open 1 release PR', created: NOW, items: 1, approved, done, ref: 'release 1.1.0',
       lines: ['Open PR Gateway: Team/1.1.0 → Release/1.1.0 · links ADO 12345'] }],
     guard: { recent: [{ at: NOW - 60, rule: 'protected-branch', detail: 'team/1.1.0 is a protected branch' }] },
+    reviews: null, pipelines: null, deployments: null, doctor: null,
+    ...extra,
   }
 }
+
+const PIPELINES = { generated: NOW - 30, version: '1.1.0', branches: ['release/1.1.0', 'team/1.1.0'], errors: [], rows: [
+  { org: 'O', project: 'P', repo: 'Gateway', branch: 'team/1.1.0', pipeline: 'Gateway CI', id: 12, number: '20261021.3', status: 'completed', result: 'failed',
+    queued: '2026-10-21T09:00:00Z', finished: '2026-10-21T09:10:00Z', url: 'https://dev.azure.com/O/P/_build/results?buildId=12',
+    failing: { step: 'Run tests', message: '2 tests failed' } },
+  { org: 'O', project: 'P', repo: 'UserStore', branch: 'release/1.1.0', pipeline: 'UserStore CI', id: 13, number: '20261021.4', status: 'completed', result: 'succeeded',
+    queued: '2026-10-21T09:00:00Z', finished: '2026-10-21T09:10:00Z', url: 'https://dev.azure.com/O/P/_build/results?buildId=13', failing: null }] }
+const DEPLOYMENTS = { generated: NOW - 30, errors: [], rows: [
+  { org: 'O', project: 'P', env: 'PROD' as const, envName: 'Production', pipeline: 'Gateway-CD', repo: 'Gateway', branch: 'release/1.0.2', version: '1.0.2',
+    build: '20261001.4', commit: 'abc', at: '2026-10-01T10:00:00Z', kind: 'yaml' as const, url: 'https://dev.azure.com/O/P/_build/results?buildId=21' }] }
+const DOCTOR = { generated: NOW - 10, root: '/ws', rows: [{ name: 'Git', state: 'ok' as const, detail: 'git 2.43', fix: '' },
+  { name: 'P: UserStore', state: 'fail' as const, detail: 'you cannot contribute to pull requests', fix: 'Ask a project admin for Contribute to pull requests.' }] }
+const notesRun = (stage: 'rendered' | 'published', needText: boolean, approved: boolean) => ({
+  run: '20261021-100000', stage, release: '1.1.0', project: 'P', title: 'Release 1.1.0 — PROD', file: '/ws/documents/release-notes/release-notes-20261021-1.md',
+  token: 'bbbbbbbbbb', approved, needText: needText ? [{ id: 12345, title: 'Login crash' }] : [], url: stage === 'published' ? 'https://wiki/page' : null,
+  facts: { version: '1.1.0', env: 'PROD', day: '2026-10-21', wikiPath: '/Release Notes/x', items: 1, since: { version: '1.0.2', build: '20261001.4', at: '2026-10-01T10:00:00Z' } } })
 
 const ROW = (id: number, extra: Record<string, unknown> = {}) => ({ org: 'O', project: 'P', id, repo: 'Gateway', title: `Fix ${id}`, author: 'Bo',
   mine: false, source: 'dev/bo/fix', target: 'team/1.1.0', created: '2026-10-20T10:00:00Z', draft: false, conflicts: false, role: 'required',
@@ -52,22 +70,40 @@ const PROPS = { title: 'devops', isFocused: true, bodyColumns: 100, placement: '
 
 // `claude plugin test .` at the repo root also finds this file and runs it with another plugin under test. These
 // tests mean something only when `devops` registered its command; everything a stand-in remembers lives on it.
-type Fake = string[][] & { registered: string[]; filled: string[]; approved: boolean; done: boolean; stdin: Record<string, string>; prompts: string[] }
+type Fake = string[][] & { registered: string[]; filled: string[]; approved: boolean; done: boolean; stdin: Record<string, string>; prompts: string[]
+  piped: boolean; doctored: boolean; notes: '' | 'needs' | 'rendered' | 'approved' | 'published' }
 
 function fake(on: (event: string, hook: (...a: never[]) => unknown) => void): Fake {
   const calls = Object.assign([] as string[][], { registered: [] as string[], filled: [] as string[], approved: false, done: false,
-    stdin: {} as Record<string, string>, prompts: [] as string[] })
+    stdin: {} as Record<string, string>, prompts: [] as string[], piped: false, doctored: false, notes: '' as Fake['notes'] })
   on('process.run', ((_$: unknown, e: { argv: string[]; init?: { stdin?: string } }) => {
     const mine = String(e.argv[1]).endsWith('devops.py')
     const args = e.argv.slice(2)
     if (mine) calls.push(args)
     let out = mine ? '' : JSON.stringify({ repos: {}, root: '/ws', specRoot: 'docs/spec', flows: {}, derived: [], items: [], done: [] })
-    if (mine && args[0] === 'status') out = JSON.stringify(status(calls.approved, calls.done))
+    if (mine && e.init?.stdin != null) calls.stdin[args[1] ?? args[0] ?? ''] = e.init.stdin
+    if (mine && args[0] === 'status') {
+      const n = calls.notes
+      const notePlan = { token: 'bbbbbbbbbb', kind: 'notes' as const, summary: 'Publish the PROD release notes for 1.1.0 to the P wiki', created: NOW, items: 1,
+        approved: n === 'approved' || n === 'published', done: n === 'published', ref: 'notes 20261021-100000', lines: ['Publish /Release Notes/x to the P wiki'] }
+      out = JSON.stringify(status(calls.approved, calls.done, {
+        ...(calls.piped ? { pipelines: PIPELINES, deployments: DEPLOYMENTS } : {}),
+        ...(calls.doctored ? { doctor: DOCTOR } : {}),
+        ...(n ? { notes: { files: [], runs: [notesRun(n === 'published' ? 'published' : 'rendered', n === 'needs', n === 'approved' || n === 'published')] } } : {}),
+        ...(n && n !== 'needs' ? { plans: [...status(calls.approved, calls.done).plans, notePlan] } : {}),
+      }))
+    }
+    if (mine && args[0] === 'pipelines') { calls.piped = true; out = 'Pipelines on release/1.1.0, team/1.1.0: 1 failed' }
+    if (mine && args[0] === 'deployments') out = 'Deployed now:'
+    if (mine && args[0] === 'doctor') { calls.doctored = true; out = '1 problem, 0 warnings.' }
+    if (mine && args[0] === 'notes' && args[1] === 'release') calls.notes = 'needs'
+    if (mine && args[0] === 'notes' && args[1] === 'text') calls.notes = 'rendered'
+    if (mine && args[0] === 'notes' && args[1] === 'publish') calls.notes = 'published'
+    if (mine && args[0] === 'approve' && args[2] === 'bbbbbbbbbb') calls.notes = 'approved'
     if (mine && args[0] === 'versions') out = JSON.stringify({ '1.0.0': ['a'], '1.1.0': ['a'], '1.10.0': ['a'] })
-    if (mine && args[0] === 'approve') { calls.approved = true; out = 'Plan aaaaaaaaaa approved.' }
+    if (mine && args[0] === 'approve' && args[2] === 'aaaaaaaaaa') { calls.approved = true; out = 'Plan aaaaaaaaaa approved.' }
     if (mine && args[0] === 'release' && args[1] === 'open') { calls.done = true; out = 'OPENED PR 101 Gateway' }
     if (mine && args[0] === 'reviews') {
-      if (e.init?.stdin != null) calls.stdin[args[1] ?? ''] = e.init.stdin
       const id = Number(args[args.indexOf('--id') + 1])
       if (args[1] === 'list') out = JSON.stringify(REVIEWS)
       if (args[1] === 'show') out = JSON.stringify(detail(id))
@@ -108,7 +144,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     }
     await $.command.run({ command: 'devops', args })
     const ui = await $.ui.mount({ plugin: 'devops', surface, component: 'Pane', props: PROPS, requestId: 'devops', viewport: { columns: 100, rows: 60 } })
-    for (let i = 0; i < 100 && !/Needs you|scanned|As Ann Lee/.test(await texts(ui)); i++) await new Promise(r => setTimeout(r, 10))
+    for (let i = 0; i < 100 && !/Needs you|scanned|As Ann Lee|Deployed now/.test(await texts(ui)); i++) await new Promise(r => setTimeout(r, 10))
     return ui
   }
 
@@ -119,7 +155,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(calls[0]).toEqual(['status', '--json'])
     const t = await texts(ui)
     expect(t).toContain('Needs you')
-    const needs = (await ui.findAll({ type: 'Button' })).map((b: any) => b.props.label).filter((l: string) => l && !['Overview', '[Overview]', 'Release', 'Sync', 'Notes', 'Reviews', 'Guard', 'Refresh'].includes(l))
+    const needs = (await ui.findAll({ type: 'Button' })).map((b: any) => b.props.label).filter((l: string) => l && !['Overview', '[Overview]', 'Release', 'Sync', 'Notes', 'Reviews', 'Pipelines', 'Guard', 'Refresh', 'Check setup'].includes(l))
     expect(needs[0]).toContain('Resolve the conflicts in UserStore')
     expect(needs.some((l: string) => l.includes('Approve or turn down: Open 1 release PR'))).toBe(true)
     expect(needs.some((l: string) => l.includes('Create release/1.1.0 in Docs'))).toBe(true)
@@ -177,6 +213,76 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(calls.some(c => c[1] === 'restore')).toBe(false)
     await ui.press({ key: 'restore-yes' })
     expect(calls).toContainEqual(['sync', 'restore'])
+  })
+
+  test(`${surface}: the Pipelines tab reads the builds and deployments, and names the step that failed`, async ($: any, on: any) => {
+    const calls = fake(on)
+    const ui = await mount($, calls, 'pipelines')
+    if (!ui) return
+    expect(calls).toContainEqual(['pipelines'])
+    expect(calls).toContainEqual(['deployments'])
+    const t = await texts(ui)
+    expect(t).toContain('Run tests: 2 tests failed')
+    expect(t).toContain('PROD')
+    expect((await ui.find({ key: 'b-12' }))?.props.label).toBe('Gateway · Gateway CI · team/1.1.0')
+    await ui.press({ key: 'b-12' })
+    expect(await texts(ui)).toContain('20261021.3')
+    await ui.press({ key: 'read-builds' })
+    expect(calls.filter(c => c[0] === 'pipelines').length).toBe(2)
+  })
+
+  test(`${surface}: after the PRs, the release notes are one press away, and the environment is never guessed`, async ($: any, on: any) => {
+    const calls = fake(on)
+    calls.approved = true
+    calls.done = true
+    const ui = await mount($, calls, 'release 1.1.0')
+    if (!ui) return
+    expect(await texts(ui)).toContain('✓ Open the PRs')
+    await ui.press({ key: 'write-notes' })
+    expect(calls.some(c => c[0] === 'notes')).toBe(false)
+    expect(await texts(ui)).toContain('it is never guessed')
+    await ui.press({ key: 'env-PROD' })
+    await ui.press({ key: 'opt-skills' })
+    await ui.press({ key: 'write-notes' })
+    expect(calls).toContainEqual(['notes', 'release', '--version', '1.1.0', '--env', 'PROD', '--scope', 'all', '--priority', 'none', '--migrations', '--skills'])
+    let t = await texts(ui)
+    expect(t).toContain('ADO 12345 Login crash')
+    expect(t).toContain('after PROD 1.0.2')
+    expect(await ui.find({ key: 'review-bbbbbbbbbb' })).toBe(undefined)     // no approving before the bug lines
+    await ui.press({ key: 'ask-bugs-20261021-100000' })
+    expect(calls.filled[0]).toContain('notes run 20261021-100000')
+    if (await ui.find({ key: 'bugline-20261021-100000-12345' })) {
+      await ui.input({ key: 'bugline-20261021-100000-12345', text: 'Signing in no longer crashes.' })
+      expect(calls).toContainEqual(['notes', 'text', '--run', '20261021-100000', '--id', '12345'])
+      expect(calls.stdin.text).toBe('Signing in no longer crashes.')
+    } else {
+      calls.notes = 'rendered'
+      await ui.press({ key: 'refresh' })
+    }
+    await ui.press({ key: 'review-bbbbbbbbbb' })
+    expect(calls.some(c => c[0] === 'notes' && c[1] === 'publish')).toBe(false)
+    await ui.press({ key: 'approve-bbbbbbbbbb' })
+    expect(calls).toContainEqual(['approve', '--token', 'bbbbbbbbbb', '--via', 'pane'])
+    expect(calls.some(c => c[0] === 'notes' && c[1] === 'publish')).toBe(false)
+    await ui.press({ key: 'run-bbbbbbbbbb' })
+    expect(calls).toContainEqual(['notes', 'publish', '--run', '20261021-100000'])
+    t = await texts(ui)
+    expect(t).toContain('✓ Publish')
+  })
+
+  test(`${surface}: Check setup runs the doctor and shows each problem with its fix`, async ($: any, on: any) => {
+    const calls = fake(on)
+    const ui = await mount($, calls)
+    if (!ui) return
+    expect(await texts(ui)).toContain('not checked yet')
+    await ui.press({ key: 'doctor' })
+    expect(calls).toContainEqual(['doctor'])
+    const t = await texts(ui)
+    expect(t).toContain('P: UserStore: you cannot contribute to pull requests')
+    expect(t).toContain('Ask a project admin')
+    expect(t).not.toContain('git 2.43')
+    const labels = (await ui.findAll({ type: 'Button' })).map((b: any) => b.props.label)
+    expect(labels.some((l: string) => l?.startsWith('Setup: 1 problem'))).toBe(true)
   })
 
   test(`${surface}: the guard view shows its rules and what it refused`, async ($: any, on: any) => {

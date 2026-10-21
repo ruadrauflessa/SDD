@@ -21,6 +21,7 @@ sys.path.insert(0, str(HERE))
 import devops  # noqa: E402
 import devopslib as L  # noqa: E402
 import notes as N  # noqa: E402
+import pipelines as PI  # noqa: E402
 import prs as P  # noqa: E402
 import reviews as R  # noqa: E402
 
@@ -408,7 +409,12 @@ def check_notes_flow(t):
                                                       "System.AssignedTo": {"displayName": "Ann Lee"}, "System.AreaPath": "Proj\\Gateway"}),
              "2": item(2, "Feature", "Login", parent=1), "1": item(1, "Epic", "Platform")}
     wp = world(t, {"pullRequests": prs_, "items": items,
-                   "pages": {"Proj/w1//Release Notes": {"content": "# Release Notes\n\nIntro.\n\n## Releases\n\n- [Release 1.0.1 [QA] - 2026-07-10](/Release-Notes/old) — **QA** — Only bugs\n", "etag": "\"4\""}}})
+                   "pages": {"Proj/w1//Release Notes": {"content": "# Release Notes\n\nIntro.\n\n## Releases\n\n- [Release 1.0.1 [QA] - 2026-07-10](/Release-Notes/old) — **QA** — Only bugs\n", "etag": "\"4\""}},
+                   "environments": {"Proj": [{"id": 1, "name": "Production"}]},
+                   "envRecords": {"1": [{"id": 1, "definition": {"id": 5, "name": "Gateway-CD"}, "owner": {"id": 21}, "result": "succeeded",
+                                         "finishTime": "2026-07-01T10:00:00Z"}]},
+                   "builds": {"Proj": [{"id": 21, "buildNumber": "20260701.4", "sourceBranch": "refs/heads/release/1.0.1",
+                                        "repository": {"name": "Gateway"}, "definition": {"id": 3, "name": "Gateway CI"}}]}})
     w = json.loads(wp.read_text())
     w["pullRequests"][0]["lastMergeCommit"] = {"commitId": "f00d"}
     w["pullRequests"][1]["commits"] = ["beef"]
@@ -434,6 +440,8 @@ def check_notes_flow(t):
     assert len(files) == 1 and files[0].name.endswith("-1.md"), files  # a re-render keeps its own file
     md = files[0].read_text(encoding="utf-8")
     assert "# Release 1.0.2 — PROD" in md and "skill `tariff-search`" in md and "README" not in md and "SQL Script: `SQL Scripts/add.sql`" in md
+    assert "- Last deployed to PROD: 1.0.1 (build 20260701.4, 2026-07-01)" in md, md
+    assert "**Last deployed to PROD:** 1.0.1" in L.state_dir(ws, "notes", run_id, "wiki.md").read_text(encoding="utf-8")
     meta = L.read_json(L.state_dir(ws, "notes", run_id, "meta.json"))
     code, text = run(ws, "notes", "publish", "--run", run_id)
     assert code == 2 and "not approved" in text
@@ -571,12 +579,134 @@ def check_reviews(t):
     assert votes == [(201, "me-1", 10), (202, "me-1", 0)], votes
 
 
+def check_pipelines(t):
+    ws, origins = make_ws(t)
+    for name in ("Gateway", "UserStore"):
+        branch(make_repo(ws, origins, name), "team/1.1.0")
+    gw = {"id": "r-Gateway", "name": "Gateway"}
+    us = {"id": "r-UserStore", "type": "TfsGit"}           # no name: ADO may name the repo by id only
+    ci = {"id": 3, "name": "Gateway CI"}
+
+    def b(i, repo, br, when, status="completed", result="succeeded", definition=None, number=None):
+        return {"id": i, "repository": repo, "sourceBranch": f"refs/heads/{br}", "queueTime": when, "status": status, "result": result,
+                "definition": definition or ci, "buildNumber": number or f"n{i}", "_links": {"web": {"href": f"https://b/{i}"}}}
+    builds = [b(11, gw, "team/1.1.0", "2026-10-21T08:00:00Z"),
+              b(12, gw, "team/1.1.0", "2026-10-21T09:00:00Z", result="failed"),
+              b(13, us, "release/1.1.0", "2026-10-21T09:30:00Z", status="inProgress", result=None, definition={"id": 4, "name": "UserStore CI"}),
+              b(14, {"id": "r-x", "name": "Elsewhere"}, "team/1.1.0", "2026-10-21T09:00:00Z", definition={"id": 9, "name": "X"}),
+              b(15, gw, "dev/x", "2026-10-21T10:00:00Z", result="failed"),
+              b(21, gw, "release/1.0.2", "2026-10-01T08:00:00Z", definition={"id": 3, "name": "Gateway CI"}, number="20261001.4"),
+              b(22, gw, "release/1.1.0", "2026-10-15T08:00:00Z", number="20261015.1"),
+              b(23, gw, "release/1.1.0", "2026-10-16T08:00:00Z", number="20261016.1")]
+    rec = lambda i, owner, when, result="succeeded": {"id": i, "definition": {"id": 5, "name": "Gateway-CD"}, "owner": {"id": owner},
+                                                      "result": result, "finishTime": when}
+    wp = world(t, {
+        "builds": {"Proj": builds},
+        "timelines": {"12": [{"type": "Job", "name": "Job", "result": "failed"},
+                             {"type": "Task", "name": "Run tests", "result": "failed", "startTime": "2026-10-21T09:05:00Z",
+                              "issues": [{"type": "warning", "message": "slow"}, {"type": "error", "message": "2 tests\n failed"}]},
+                             {"type": "Task", "name": "Publish", "result": "failed", "startTime": "2026-10-21T09:09:00Z"}]},
+        "environments": {"Proj": [{"id": 1, "name": "Production"}, {"id": 2, "name": "Pre-Prod"}, {"id": 3, "name": "uat-eu"}]},
+        "envRecords": {"1": [rec(1, 21, "2026-10-01T10:00:00Z"), rec(2, 23, "2026-10-16T10:00:00Z", "failed")],
+                       "2": [rec(3, 22, "2026-10-15T10:00:00Z"), rec(4, 23, "2026-10-16T10:00:00Z")]},
+        "releaseDeployments": {"Proj": [{"deploymentStatus": "succeeded", "releaseDefinition": {"id": 7, "name": "Legacy"},
+                                         "releaseEnvironment": {"name": "UAT"}, "completedOn": "2026-10-10T10:00:00Z",
+                                         "release": {"webAccessUri": "https://r/7", "artifacts": [
+                                             {"isPrimary": True, "definitionReference": {"branch": {"name": "refs/heads/release/1.0.3"},
+                                                                                         "version": {"name": "55"}, "repository": {"name": "UserStore"}}}]}}]},
+    })
+    assert PI.env_of("Pre-Prod", L.DEFAULTS["deployments"]["environments"]) == "STAGE"
+    assert [PI.env_of(n, L.DEFAULTS["deployments"]["environments"]) for n in ("Production", "uat-eu", "app-prod-westeu", "Dev")] == ["PROD", "UAT", "PROD", None]
+    assert PI.version_of_branch("refs/heads/Release/1.1.0", ["release/{0}"]) == "1.1.0"
+    code, text = run(ws, "pipelines")        # the version: the newest team version the repos know
+    assert code == 0 and "Pipelines on release/1.1.0, team/1.1.0: 1 failed, 1 running, 1 passed" in text, text
+    assert 'FAILED        Gateway · Gateway CI · team/1.1.0 · n12 · step "Run tests": 2 tests failed' in text, text
+    assert "Elsewhere" not in text and "dev/x" not in text and "n11" not in text
+    data = L.read_json(L.state_dir(ws, "pipelines.json"))
+    assert data["version"] == "1.1.0" and [r["id"] for r in data["rows"]] == [23, 12, 13]
+    code, text = run(ws, "deployments")
+    assert code == 0, text
+    rows = L.read_json(L.state_dir(ws, "deployments.json"))["rows"]
+    got = [(r["env"], r["pipeline"], r["version"], r["build"]) for r in rows]
+    assert got == [("UAT", "Legacy", "1.0.3", "55"), ("STAGE", "Gateway-CD", "1.1.0", "20261016.1"), ("PROD", "Gateway-CD", "1.0.2", "20261001.4")], got
+    assert PI.last_deploy(rows, "proj", "PROD")["version"] == "1.0.2" and PI.last_deploy(rows, "Proj", "QA") is None
+    st = json.loads(run(ws, "status", "--json")[1])
+    assert st["pipelines"]["rows"] and st["deployments"]["rows"] and st["doctor"] is None
+    # no classic releases on the vsrm host, no environments: an empty answer, not an error
+    w = json.loads(wp.read_text())
+    w["environments"], w["releaseDeployments"] = {}, {}
+    wp.write_text(json.dumps(w))
+    code, text = run(ws, "deployments")
+    assert code == 0 and "No deployments found" in text, text
+
+
+def check_notes_release(t):
+    ws, origins = make_ws(t)
+    make_repo(ws, origins, "Gateway")
+    repo = {"id": "r-Gateway", "name": "Gateway", "project": {"id": "p-1", "name": "Proj"}}
+    wp = world(t, {"pullRequests": [{"pullRequestId": 101, "repository": repo, "sourceRefName": "refs/heads/Team/1.1.0",
+                                     "targetRefName": "refs/heads/Release/1.1.0", "title": "Merge Team/1.1.0 into Release/1.1.0",
+                                     "status": "active", "creationDate": "2026-10-21T10:00:00Z", "workItems": [12345, 12346]}],
+                   "items": {"12345": item(12345, "Bug", "Login crash"), "12346": item(12346, "Task", "Add X")}})
+    code, text = run(ws, "notes", "release", "--version", "1.1.0", "--env", "QA")
+    assert code == 2 and "no scan of 1.1.0" in text, text
+    rel = {"version": "1.1.0", "repos": [{"repo": "Gateway", "project": "Proj", "org": "Org", "pr": None}], "results": []}
+    L.write_json(L.state_dir(ws, "release", "1.1.0.json"), rel)
+    code, text = run(ws, "notes", "release", "--version", "1.1.0", "--env", "QA")
+    assert code == 2 and "no release PR yet" in text, text
+    rel["results"] = [{"repo": "Gateway", "project": "Proj", "prId": 101, "action": "opened", "url": "u", "linked": [12345, 12346], "missing": []}]
+    L.write_json(L.state_dir(ws, "release", "1.1.0.json"), rel)
+    code, text = run(ws, "notes", "release", "--version", "1.1.0", "--env", "QA", "--scope", "all")
+    assert code == 0 and "PR 101 Gateway" in text and "No one-line fix summary yet for bugs [12345]" in text, text
+    runs = [L.read_json(d / "meta.json") for d in L.state_dir(ws, "notes").iterdir()]
+    assert len(runs) == 1 and runs[0]["release"] == "1.1.0" and runs[0]["needText"] == [{"id": 12345, "title": "Login crash"}], runs
+    run_id, tok = runs[0]["run"], runs[0]["token"]
+    # the person types the bug's line in the pane: stored, rendered again with the same choices, a new plan to approve
+    r = subprocess.run([sys.executable, str(HERE / "devops.py"), "--root", str(ws), "notes", "text", "--run", run_id, "--id", "12345"],
+                       input="Signing in with an empty token\n no longer crashes.\n", capture_output=True, text=True)
+    assert r.returncode == 0 and "No one-line" not in r.stdout, r.stdout + r.stderr
+    meta = L.read_json(L.state_dir(ws, "notes", run_id, "meta.json"))
+    assert meta["needText"] == [] and meta["facts"]["env"] == "QA" and meta["token"] != tok
+    md = Path(meta["file"]).read_text(encoding="utf-8")
+    assert "Signing in with an empty token no longer crashes." in md and len(list((ws / "documents" / "release-notes").glob("*.md"))) == 1
+    assert run(ws, "notes", "render", "--run", run_id)[0] == 0       # a re-render keeps the last choices
+    assert not [x for x in json.loads(wp.read_text())["writes"]], "rendering writes nothing to ADO"
+
+
+def check_doctor(t):
+    ws, origins = make_ws(t)
+    for name in ("Gateway", "UserStore", "Lost"):
+        branch(make_repo(ws, origins, name), "team/1.1.0")
+    (ws / ".claude").mkdir()
+    (ws / ".claude" / "devops.json").write_text('{"reposDir": "projects", "gaurd": {}}')
+    world(t, {"me": {"id": "me-1", "providerDisplayName": "Ann Lee"},
+              "wikis": {"Proj": [{"id": "w1", "name": "Proj.wiki", "type": "projectWiki", "projectId": "p-1", "repositoryId": "wr"}]},
+              "denied": {"repoV2/p-1/r-UserStore": [16384, 16], "repoV2/p-1/wr": [4]}})
+    code, text = run(ws, "doctor", "--json")
+    rows = {r["name"]: r for r in json.loads(text)["rows"]}
+    assert code == 1, text           # a problem: exit 1, with --json too
+    assert rows["Config"]["state"] == "warn" and "gaurd" in rows["Config"]["detail"]
+    assert rows["Repos"]["state"] == "ok" and rows["Team branches"]["state"] == "ok"
+    assert rows["ADO Org"]["detail"] == "signed in as Ann Lee"
+    assert rows["Proj: repos"]["state"] == "warn" and "lost" in rows["Proj: repos"]["detail"]
+    assert rows["Proj: UserStore"]["state"] == "fail" and "contribute to pull requests" in rows["Proj: UserStore"]["detail"]
+    assert "create branches" in rows["Proj: UserStore"]["detail"] and "Proj: Gateway" not in rows
+    assert rows["Proj: wiki"]["state"] == "fail" and rows["Proj: pipelines"]["state"] == "ok"
+    code, text = run(ws, "doctor")
+    assert code == 1 and "FAIL Proj: UserStore: you cannot contribute to pull requests, create branches" in text and "fix: Ask a project admin" in text, text
+    assert L.read_json(L.state_dir(ws, "doctor.json"))["rows"]
+    (ws / ".claude" / "devops.json").write_text("{not json")
+    rows = {r["name"]: r for r in json.loads(run(ws, "doctor", "--json")[1])["rows"]}
+    assert rows["Config"]["state"] == "fail"
+
+
 def main():
     check_lint()
     check_helpers()
     check_notes()
     print("pure functions: ok")
-    for name, fn in (("release", check_release), ("sync", check_sync), ("notes", check_notes_flow), ("reviews", check_reviews)):
+    for name, fn in (("release", check_release), ("sync", check_sync), ("notes", check_notes_flow), ("reviews", check_reviews),
+                     ("pipelines", check_pipelines), ("notes release", check_notes_release), ("doctor", check_doctor)):
         if name in ("release", "sync") and not HAVE_PWSH:
             print(f"{name}: skipped (no pwsh)")
             continue

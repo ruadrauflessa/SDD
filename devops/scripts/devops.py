@@ -26,8 +26,15 @@ ADO output. Every outward write (a PR, a wiki page) goes through a plan the user
     notes collect [--org O] [--project P] [--pr N ...] [--commit SHA --repo R] [--top 50]
     notes ingest --file F                    the MCP fallback: data saved by the agent
     notes detect --run ID [--migrations] [--skills]
-    notes render --run ID --scope S --priority M --env E [--texts F]
+    notes render --run ID [--scope S --priority M --env E] [--texts F]   (a re-render keeps the last choices)
     notes publish --run ID
+    notes release --version V --env E [--scope S] [--priority M] [--migrations] [--skills]
+                                             the pane's one press: notes from the version's release PRs
+    notes text --run ID --id N               a bug's one-line fix summary, from stdin; renders again
+
+    pipelines [--version V] [--json]         the newest build of each pipeline on the version's team and release branches
+    deployments [--json]                     what each environment (QA, UAT, STAGE, PROD) runs now
+    doctor [--json]                          what devops needs (tools, sign-in, access, the wiki) and how to fix what is missing
 
 
     reviews list [--all] [--json]            PRs waiting on you (or every active one) in the workspace's projects
@@ -42,7 +49,10 @@ Exit 0 = done, 1 = something blocks (conflicts, lint, a failed check), 2 = refus
 import argparse
 import collections
 import json
+import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -52,6 +62,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import devopslib as L  # noqa: E402
 import notes as N  # noqa: E402
+import pipelines as PI  # noqa: E402
 import prs as P  # noqa: E402
 import reviews as R  # noqa: E402
 
@@ -220,6 +231,9 @@ def cmd_status(a):
         "plans": sorted([plan_view(root, p) for p in L.plans(root)], key=lambda p: p["created"], reverse=True)[:20],
         "guard": {"recent": L.read_jsonl(L.state_dir(root, "guard.jsonl"))[-20:][::-1]},
         "reviews": reviews_summary(root),
+        "pipelines": L.read_json(L.state_dir(root, "pipelines.json")),
+        "deployments": L.read_json(L.state_dir(root, "deployments.json")),
+        "doctor": L.read_json(L.state_dir(root, "doctor.json")),
     }
     if a.json:
         print(json.dumps(data, ensure_ascii=False))
@@ -1020,6 +1034,21 @@ def cmd_notes_collect(a):
         how = f"{len(rel)} active PRs into release/*, newest group of {len(prs)}"
     if not prs:
         raise L.Refused("no active PR into release/* in ADO. Check the project, the branch names, or the PR status.")
+    run = save_run(root, cfg, ado, org, proj, prs, how)
+    out(f"Next: devops.py notes detect --run {run} (if opted in), then notes render --run {run} ...")
+    return 0
+
+
+def new_run_id(root):
+    run = datetime.now().strftime("%Y%m%d-%H%M%S")
+    n = 1
+    while L.state_dir(root, "notes", run if n == 1 else f"{run}-{n}").exists():  # two projects in one second
+        n += 1
+    return run if n == 1 else f"{run}-{n}"
+
+
+def save_run(root, cfg, ado, org, proj, prs, how, release=None):
+    """Reads the PRs' work items up to Epic, and what each environment runs now, into a new notes run."""
     pw, ids = {}, set()
     for p in prs:
         pw[str(p["id"])] = ado.pr_work_items(p["project"], p["repo"], p["id"])
@@ -1033,17 +1062,20 @@ def cmd_notes_collect(a):
         for g in got:
             items[str(g["id"])] = g
         todo = {int(g["parent"]) for g in got if g.get("parent") and str(g["parent"]) not in items}
-    run = datetime.now().strftime("%Y%m%d-%H%M%S")
+    deployed, _ = read_deployments(cfg, org, proj, ado)  # so the notes name the last deploy; best effort
+    run = new_run_id(root)
     data = {"org": org, "project": proj, "generated": int(time.time()), "how": how, "prs": prs, "workItems": items,
-            "prWorkItems": pw, "migrations": {}, "skills": {}, "gaps": []}
+            "prWorkItems": pw, "migrations": {}, "skills": {}, "gaps": [], "deployed": deployed}
     L.write_json(L.state_dir(root, "notes", run, "data.json"), data)
-    L.write_json(L.state_dir(root, "notes", run, "meta.json"), {"run": run, "stage": "collected", "project": proj,
-                                                                "prs": [p["id"] for p in prs], "generated": int(time.time())})
+    meta = {"run": run, "stage": "collected", "project": proj, "prs": [p["id"] for p in prs], "generated": int(time.time())}
+    if release:
+        meta["release"] = release
+    L.write_json(L.state_dir(root, "notes", run, "meta.json"), meta)
     out(f"Run {run}: {how}.")
     for p in prs:
         out(f"  PR {p['id']} {p['repo']}: {p['source']} -> {p['target']} \"{short(p['title'], 60)}\" · {len(pw[str(p['id'])])} work items")
-    out(f"{len(items)} work items with parents. Next: devops.py notes detect --run {run} (if opted in), then notes render --run {run} ...")
-    return 0
+    out(f"{len(items)} work items with parents.")
+    return run
 
 
 def cmd_notes_ingest(a):
@@ -1092,7 +1124,12 @@ def front_matter_name(text):
 
 def cmd_notes_detect(a):
     root, cfg = ctx(a)
-    d = run_dir(root, a.run)
+    detect(root, cfg, a.run, a.migrations, a.skills)
+    return 0
+
+
+def detect(root, cfg, run, migrations, skills):
+    d = run_dir(root, run)
     data = L.read_json(d / "data.json")
     repos = L.discover_repos(root, cfg)
     for extra in ("All Code Repositories",):
@@ -1120,32 +1157,41 @@ def cmd_notes_detect(a):
             st, path = bits[0], bits[-1]
             if st.startswith("D"):
                 continue
-            if a.migrations and migration_kind(path):
+            if migrations and migration_kind(path):
                 mig.append({"path": path, "kind": migration_kind(path)})
-            if a.skills and skill_file(path):
+            if skills and skill_file(path):
                 name = front_matter_name(L.git(["show", f"origin/{pr['source']}:{path}"], clone, check=False))
                 if name:
                     skl.append({"path": path, "change": "Added" if st.startswith("A") else "Modified", "name": name})
-        if a.migrations:
+        if migrations:
             data["migrations"][key] = mig
-        if a.skills:
+        if skills:
             data["skills"][key] = skl
     L.write_json(d / "data.json", data)
     out(f"Migration files: {sum(len(v) for v in data['migrations'].values())} · skill files: {sum(len(v) for v in data['skills'].values())}")
     for g in data["gaps"]:
         out(f"  gap: {g}")
-    return 0
 
 
 def cmd_notes_render(a):
     root, cfg = ctx(a)
-    d = run_dir(root, a.run)
+    return render(root, cfg, a.run, a.scope, a.priority, a.env, a.texts)
+
+
+def render(root, cfg, run, scope=None, priority=None, env=None, texts_path=None):
+    """Writes the file and the wiki page of a run, and plans the page. Choices left out are the last render's."""
+    d = run_dir(root, run)
     data = L.read_json(d / "data.json")
-    texts = L.read_json(a.texts, {}) if a.texts else (L.read_json(d / "texts.json", {}) or {})
-    if a.texts:
+    last = (L.read_json(d / "meta.json", {}) or {}).get("facts") or {}
+    scope, priority, env = scope or last.get("scope"), priority or last.get("mode"), env or last.get("env")
+    if not (scope and priority and env):
+        raise L.Refused("the first render needs --scope, --priority and --env")
+    texts = L.read_json(texts_path, {}) if texts_path else (L.read_json(d / "texts.json", {}) or {})
+    if texts_path:
         L.write_json(d / "texts.json", texts)
-    file_md, wiki_md, facts = N.build(data, a.scope, a.priority, a.env, texts)
-    problems = L.lint_outbound(file_md, "wiki", a.env) + L.lint_outbound(wiki_md, "wiki", a.env)
+    since = PI.last_deploy(data.get("deployed"), data["project"], env)
+    file_md, wiki_md, facts = N.build(data, scope, priority, env, texts, since=since)
+    problems = L.lint_outbound(file_md, "wiki", env) + L.lint_outbound(wiki_md, "wiki", env)
     if problems:
         for p in sorted(set(problems)):
             out(f"  BLOCKED: {p}")
@@ -1158,7 +1204,7 @@ def cmd_notes_render(a):
     if old and Path(old).exists() and meta.get("stage") == "rendered":
         fname = Path(old).name  # a re-render of this run rewrites its own file, never another day's
     else:
-        fname = N.slug_file(facts["day"].replace("-", ""), a.scope, [p.name for p in nd.glob("release-notes-*.md")])
+        fname = N.slug_file(facts["day"].replace("-", ""), scope, [p.name for p in nd.glob("release-notes-*.md")])
     (nd / fname).write_text(file_md, encoding="utf-8")
     (d / "wiki.md").write_text(wiki_md, encoding="utf-8")
     link = L.wiki_git_path(facts["wikiPath"])
@@ -1166,19 +1212,59 @@ def cmd_notes_render(a):
     item = {"op": "wiki", "org": data["org"], "project": data["project"], "path": facts["wikiPath"],
             "digest": L.digest(wiki_md), "indexEntry": f"[Release {facts['version']} [{facts['env']}] - {facts['day']}]("}
     token = L.save_plan(root, "notes", [item], f"Publish the {facts['env']} release notes for {facts['version']} to the {data['project']} wiki",
-                        {"ref": f"notes {a.run}"})
+                        {"ref": f"notes {run}"})
     meta.update({"stage": "rendered", "file": str(nd / fname), "wikiFile": str(d / "wiki.md"), "token": token, "facts": facts,
-                 "indexLine": line, "title": f"Release {facts['version']} — {facts['env']}"})
+                 "indexLine": line, "title": f"Release {facts['version']} — {facts['env']}",
+                 "needText": [{"id": i, "title": data["workItems"].get(str(i), {}).get("title", "")} for i in facts["needText"]]})
     L.write_json(d / "meta.json", meta)
     out(f"File: {nd / fname}")
-    out(f"Wiki page (not published): {facts['wikiPath']} · {facts['items']} work items · {len(facts['prs'])} PRs")
+    out(f"Wiki page (not published): {facts['wikiPath']} · {facts['items']} work items · {len(facts['prs'])} PR{'s' if len(facts['prs']) != 1 else ''}")
     if facts["needText"]:
         out(f"No one-line fix summary yet for bugs {facts['needText']}: write {{\"<id>\": \"<sentence>\"}} to a file and render again with --texts.")
     if facts["unassigned"]:
         out(f"Unassigned: {facts['unassigned']}")
     out(f"Plan {token}. Show the user the file path, then ask with AskUserQuestion: \"{L.approval_question(root, token)}\" "
-        f"options \"Yes, go ahead\" / \"No\". After a Yes: devops.py notes publish --run {a.run}")
+        f"options \"Yes, go ahead\" / \"No\". After a Yes: devops.py notes publish --run {run}")
     return 0
+
+
+def cmd_notes_release(a):
+    """The pane's one press after the release PRs: per project, collect from those PRs, detect, render."""
+    root, cfg = ctx(a)
+    plan = L.read_json(L.state_dir(root, "release", f"{a.version}.json")) or L.die(f"no scan of {a.version}: run release scan")
+    orgs = {r["project"]: r["org"] for r in plan.get("repos", []) if r.get("project") and r.get("org")}
+    groups = collections.defaultdict(set)
+    for r in plan.get("results", []):
+        if r.get("prId") and not r.get("error") and r.get("project") in orgs:
+            groups[(orgs[r["project"]], r["project"])].add(int(r["prId"]))
+    for r in plan.get("repos", []):
+        if (r.get("pr") or {}).get("id") and r.get("project") in orgs:
+            groups[(orgs[r["project"]], r["project"])].add(int(r["pr"]["id"]))
+    if not groups:
+        raise L.Refused(f"release {a.version} has no release PR yet: open them first (approve the plan, then open the PRs)")
+    worst = 0
+    for (org, proj), ids in sorted(groups.items()):
+        ado = L.Ado(org)
+        prs = [pr_view(org, proj, ado.pull_request(proj, i)) for i in sorted(ids)]
+        run = save_run(root, cfg, ado, org, proj, prs, f"the release PRs of {a.version}", release=a.version)
+        if a.migrations or a.skills:
+            detect(root, cfg, run, a.migrations, a.skills)
+        worst = max(worst, render(root, cfg, run, a.scope, a.priority, a.env))
+    return worst
+
+
+def cmd_notes_text(a):
+    """A bug's one-line fix summary, typed in the pane (stdin); empty takes it out. Renders the run again."""
+    root, cfg = ctx(a)
+    d = run_dir(root, a.run)
+    texts = L.read_json(d / "texts.json", {}) or {}
+    line = " ".join(sys.stdin.read().split())
+    if line:
+        texts[str(a.id)] = line
+    else:
+        texts.pop(str(a.id), None)
+    L.write_json(d / "texts.json", texts)
+    return render(root, cfg, a.run)
 
 
 def cmd_notes_publish(a):
@@ -1217,6 +1303,239 @@ def cmd_notes_publish(a):
     out(f"Published {item['path']} to {wiki.get('name')}: {meta['url']}")
     out(f"Index /Release Notes updated: {meta['indexUrl']}")
     return 0
+
+
+# ================================================================ pipelines, deployments, setup (read only)
+
+def default_version(root, cfg):
+    """The version of the newest release scan, else the newest team version the repos know."""
+    d = L.state_dir(root, "release")
+    scans = [L.read_json(f) or {} for f in d.glob("*.json") if not f.name.endswith(".scan.json")] if d.is_dir() else []
+    if scans:
+        return max(scans, key=lambda r: r.get("generated", 0)).get("version")
+    vs = list(L.local_versions(root, cfg))
+    return vs[-1] if vs else None
+
+
+def release_branches(root, cfg, version):
+    """A version's team and release branches: the patterns, and each repo's own spelling from the last scan."""
+    names = {cfg["sourcePattern"].format(version), cfg["targetPattern"].format(version)}
+    for r in (L.read_json(L.state_dir(root, "release", f"{version}.json")) or {}).get("repos", []):
+        names.update(x for x in (r.get("source"), r.get("target")) if x)
+    return sorted(names, key=lambda n: (n.lower(), n))
+
+
+def cmd_pipelines(a):
+    root, cfg = ctx(a)
+    v = a.version or default_version(root, cfg)
+    if not v:
+        raise L.Refused("no version: pass --version, or scan a release first")
+    branches = release_branches(root, cfg, v)
+    rows, errors = [], []
+    for (org, proj), clones in sorted(workspace_projects(root, cfg).items()):
+        ado = L.Ado(org)
+        try:
+            names = {r["id"].lower(): r["name"] for r in ado.repositories(proj)}  # a build may name its repo by id only
+            seen, builds = set(), []
+            for b in branches:
+                for x in ado.builds(proj, branch=b):
+                    repo = x.get("repository") or {}
+                    name = repo.get("name") or names.get((repo.get("id") or "").lower(), "")
+                    if x["id"] not in seen and name.lower() in clones:
+                        seen.add(x["id"])
+                        builds.append(dict(x, repository=dict(repo, name=name)))
+            for b in PI.latest_builds(builds):
+                failing = PI.failing_step(ado.build_timeline(proj, b["id"])) if b.get("result") in PI.FAILED else None
+                rows.append(PI.build_row(org, proj, b, failing))
+        except (L.Refused, RuntimeError) as e:
+            errors.append(f"{proj}: {short(str(e), 300)}")
+    rows.sort(key=lambda r: (r["repo"].lower(), r["branch"].lower(), r["pipeline"].lower()))
+    data = {"generated": int(time.time()), "version": v, "branches": branches, "rows": rows, "errors": errors}
+    L.write_json(L.state_dir(root, "pipelines.json"), data)
+    if a.json:
+        print(json.dumps(data, ensure_ascii=False))
+        return 0
+    c = PI.pipeline_counts(rows)
+    out(f"Pipelines on {', '.join(branches)}: {c['failed']} failed, {c['running']} running, {c['passed']} passed")
+    for r in sorted(rows, key=lambda r: PI.build_word(r) not in ("failed", "partly failed")):
+        w = PI.build_word(r)
+        why = f" · step \"{r['failing']['step']}\": {short(r['failing']['message'], 120)}" if r.get("failing") else ""
+        out(f"  {w.upper():13} {r['repo']} · {r['pipeline']} · {r['branch']} · {r['number']}{why}  {r['url']}")
+    for e in errors:
+        out(f"  could not read {e}")
+    if not rows and not errors:
+        out("  No builds on these branches.")
+    return 2 if errors and not rows else 0
+
+
+def read_deployments(cfg, org, proj, ado=None):
+    """(rows, errors) of one project: its YAML environments and its classic release stages."""
+    ado = ado or L.Ado(org)
+    aliases = cfg["deployments"]["environments"]
+    pats = [cfg["targetPattern"], cfg["sourcePattern"]]
+    rows, errors = [], []
+    try:
+        envs = ado.environments(proj)
+        recs = {e["id"]: ado.environment_records(proj, e["id"]) for e in envs}
+        ids = sorted({int((r.get("owner") or {}).get("id") or 0) for rs in recs.values() for r in rs
+                      if r.get("result") in ("succeeded", "succeededWithIssues")} - {0})
+        builds = {}
+        names = {r["id"].lower(): r["name"] for r in ado.repositories(proj)} if ids else {}
+        for i in range(0, len(ids), 100):
+            for b in ado.builds(proj, ids=ids[i:i + 100]):
+                repo = b.get("repository") or {}
+                builds[int(b["id"])] = dict(b, repository=dict(repo, name=repo.get("name") or names.get((repo.get("id") or "").lower(), "")))
+        for e in envs:
+            rows += PI.yaml_rows(org, proj, e, recs[e["id"]], builds, aliases, pats)
+    except (L.Refused, RuntimeError) as e:
+        errors.append(f"{proj} environments: {short(str(e), 300)}")
+    try:
+        rows += PI.classic_rows(org, proj, ado.release_deployments(proj), aliases, pats)
+    except (L.Refused, RuntimeError) as e:
+        errors.append(f"{proj} classic releases: {short(str(e), 300)}")
+    return rows, errors
+
+
+def cmd_deployments(a):
+    root, cfg = ctx(a)
+    rows, errors = [], []
+    for (org, proj) in sorted(workspace_projects(root, cfg)):
+        r, e = read_deployments(cfg, org, proj)
+        rows += r
+        errors += e
+    order = {e: i for i, e in enumerate(PI.ENV_ORDER)}
+    rows.sort(key=lambda r: (order.get(r["env"], 9), r["envName"].lower(), r["pipeline"].lower()))
+    data = {"generated": int(time.time()), "rows": rows, "errors": errors}
+    L.write_json(L.state_dir(root, "deployments.json"), data)
+    if a.json:
+        print(json.dumps(data, ensure_ascii=False))
+        return 0
+    out("Deployed now:" if rows else "No deployments found (YAML environments or classic release stages).")
+    for r in rows:
+        ver = r["version"] or r["branch"] or "?"
+        out(f"  {(r['env'] or r['envName'])[:12]:12} {r['pipeline']} → {r['repo'] or r['project']} {ver}"
+            f"{' (build ' + r['build'] + ')' if r['build'] else ''} · {r['at'][:10]}")
+    for e in errors:
+        out(f"  could not read {e}")
+    return 2 if errors and not rows else 0
+
+
+def doctor_checks(root, cfg):
+    C = PI.check
+    rows = [C("Python", "ok", sys.version.split()[0])]
+    rows.append(C("git", "ok", L.git(["--version"], root, check=False)) if shutil.which("git")
+                else C("git", "fail", "git not found", "Install Git (https://git-scm.com), then open a new terminal."))
+    ps = shutil.which("pwsh") or shutil.which("pwsh.exe")
+    rows.append(C("PowerShell 7", "ok", ps) if ps else C("PowerShell 7", "fail", "pwsh not found: the release and sync scans need it",
+                                                         "Install it: winget install Microsoft.PowerShell (or https://aka.ms/powershell)."))
+    cp = root / L.CONFIG
+    if not cp.is_file():
+        rows.append(C("Config", "ok", f"no {L.CONFIG}: the defaults apply"))
+    else:
+        try:
+            raw = json.loads(cp.read_text(encoding="utf-8-sig"))
+            odd = sorted(set(raw if isinstance(raw, dict) else {}) - set(L.DEFAULTS))
+            rows.append(C("Config", "warn", f"{L.CONFIG}: unknown keys {', '.join(odd)}", "Check their spelling against the README's config table.")
+                        if odd else C("Config", "ok", f"{L.CONFIG} read"))
+        except ValueError as e:
+            rows.append(C("Config", "fail", f"{L.CONFIG} is not valid JSON ({e})", "Fix the file; until then the defaults apply."))
+    repos = L.discover_repos(root, cfg)
+    coords = {n: L.repo_coords(d) for n, d in repos.items()}
+    with_ado = sorted(n for n, c in coords.items() if c)
+    if not repos:
+        rows.append(C("Repos", "fail", f"no git repos under {cfg['reposDir']}/", "Run devops from the workspace root, or set reposDir in .claude/devops.json."))
+    elif not with_ado:
+        rows.append(C("Repos", "fail", f"{len(repos)} repos, none with an Azure DevOps origin", "Clone the repos from Azure DevOps."))
+    else:
+        rows.append(C("Repos", "ok", f"{len(with_ado)} with an Azure DevOps origin"))
+        other = sorted(set(repos) - set(with_ado))
+        if other:
+            rows.append(C("Repos", "warn", f"no Azure DevOps origin, so devops skips them: {', '.join(other)}"))
+    vs = L.local_versions(root, cfg)
+    rows.append(C("Team branches", "ok", f"{len(vs)} version{'s' if len(vs) != 1 else ''} known, newest {list(vs)[-1]}") if vs else
+                C("Team branches", "warn", f"no origin/{cfg['branchPrefix']}* branch known in the repos", "Fetch the repos, or check branchPrefix in .claude/devops.json."))
+    rows.append(C("Guard", "ok", "on") if cfg["guard"]["enabled"] else C("Guard", "warn", "off", "Set guard.enabled to true in .claude/devops.json."))
+    pat = os.environ.get("AZURE_DEVOPS_EXT_PAT") or os.environ.get("DEVOPS_ADO_PAT")
+    az = shutil.which("az") or shutil.which("az.cmd")
+    if pat:
+        rows.append(C("Sign-in", "ok", "a PAT in AZURE_DEVOPS_EXT_PAT"))
+    elif not az and not os.environ.get("DEVOPS_FAKE_ADO"):
+        rows.append(C("Sign-in", "fail", "the Azure CLI (az) is not installed and no PAT is set",
+                      "Install it (winget install Microsoft.AzureCLI), then run az login."))
+    if az:
+        r = subprocess.run([az, "extension", "show", "--name", "azure-devops", "-o", "none"], capture_output=True, text=True)
+        rows.append(C("az devops", "ok", "the azure-devops extension is installed") if r.returncode == 0 else
+                    C("az devops", "warn", "the azure-devops extension is missing: the sync scan cannot check branch locks",
+                      "az extension add --name azure-devops"))
+    signed = {}
+    for org in sorted({c[0] for c in coords.values() if c}):
+        try:
+            me = L.Ado(org).me()
+            signed[org] = True
+            rows.append(C(f"ADO {org}", "ok", f"signed in as {me['name'] or me['id']}"))
+        except (L.Refused, RuntimeError) as e:
+            signed[org] = False
+            rows.append(C(f"ADO {org}", "fail", short(str(e), 200), "Run az login (or set AZURE_DEVOPS_EXT_PAT), then check again."))
+    for (org, proj), clones in (sorted(workspace_projects(root, cfg).items()) if with_ado else []):
+        if not signed.get(org):
+            continue
+        ado = L.Ado(org)
+        try:
+            listed = {r["name"].lower(): r for r in ado.repositories(proj)}
+        except (L.Refused, RuntimeError) as e:
+            rows.append(C(f"{proj}: repos", "fail", short(str(e), 200), "Ask a project admin for access to the project."))
+            continue
+        gone = sorted(n for n in clones if n not in listed)
+        if gone:
+            rows.append(C(f"{proj}: repos", "warn", f"not in Azure DevOps (renamed or deleted?): {', '.join(gone)}"))
+        known = [listed[n] for n in sorted(clones) if n in listed]
+        if known:
+            pid = known[0]["project"]["id"]
+            tokens = [f"repoV2/{pid}/{r['id']}" for r in known]
+            try:
+                got = {b: ado.has_permission(PI.GIT_NAMESPACE, b, tokens) for b in (PI.PR_CONTRIBUTE, PI.CONTRIBUTE, PI.CREATE_BRANCH)}
+                lacking = {r["name"]: PI.missing_bits({b: (v[i] if i < len(v) else True) for b, v in got.items()}) for i, r in enumerate(known)}
+                lacking = {k: v for k, v in lacking.items() if v}
+                if not lacking:
+                    rows.append(C(f"{proj}: access", "ok", f"{len(known)} repos: push, create branches, pull requests"))
+                for name, miss in sorted(lacking.items()):
+                    rows.append(C(f"{proj}: {name}", "fail" if "contribute to pull requests" in miss else "warn", "you cannot " + ", ".join(miss),
+                                  "Ask a project admin for Contribute, Create branch and Contribute to pull requests on this repo."))
+            except (L.Refused, RuntimeError) as e:
+                rows.append(C(f"{proj}: access", "warn", f"could not check permissions: {short(str(e), 160)}"))
+        try:
+            wiki = next((w for w in ado.wikis(proj) if w.get("type") == "projectWiki"), None)
+            if not wiki:
+                rows.append(C(f"{proj}: wiki", "warn", "no project wiki: release notes stay a file", "Create it once: Overview > Wiki > Create project wiki."))
+            else:
+                tok = f"repoV2/{wiki.get('projectId') or (known[0]['project']['id'] if known else '')}/{wiki.get('repositoryId')}"
+                can = ado.has_permission(PI.GIT_NAMESPACE, PI.CONTRIBUTE, [tok])
+                rows.append(C(f"{proj}: wiki", "ok", f"{wiki.get('name')}: you can write it") if (can or [True])[0] else
+                            C(f"{proj}: wiki", "fail", f"{wiki.get('name')}: you cannot write it", "Ask a project admin for Contribute on the wiki."))
+        except (L.Refused, RuntimeError) as e:
+            rows.append(C(f"{proj}: wiki", "warn", f"could not read the wikis: {short(str(e), 160)}"))
+        try:
+            ado.builds(proj, top=1)
+            rows.append(C(f"{proj}: pipelines", "ok", "builds can be read"))
+        except (L.Refused, RuntimeError) as e:
+            rows.append(C(f"{proj}: pipelines", "warn", f"cannot read builds: the Pipelines tab stays empty ({short(str(e), 120)})",
+                          "Ask for View builds on the project's pipelines."))
+    return rows
+
+
+def cmd_doctor(a):
+    root, cfg = ctx(a)
+    rows = doctor_checks(root, cfg)
+    data = {"generated": int(time.time()), "root": str(root), "rows": rows}
+    L.write_json(L.state_dir(root, "doctor.json"), data)
+    if a.json:
+        print(json.dumps(data, ensure_ascii=False))
+    else:
+        for r in rows:
+            out(f"{r['state'].upper():4} {r['name']}: {r['detail']}" + (f"\n     fix: {r['fix']}" if r["fix"] and r["state"] != "ok" else ""))
+        bad = [r for r in rows if r["state"] == "fail"]
+        out(f"{len(bad)} problem{'s' if len(bad) != 1 else ''}, {sum(1 for r in rows if r['state'] == 'warn')} warnings.")
+    return 1 if any(r["state"] == "fail" for r in rows) else 0
 
 
 # ================================================================ PR reviews (the /devops pane's Reviews tab)
@@ -1523,15 +1842,37 @@ def main(argv=None):
     s.set_defaults(fn=cmd_notes_detect)
     s = no.add_parser("render")
     s.add_argument("--run", required=True)
-    s.add_argument("--scope", required=True, choices=sorted(N.SCOPES))
-    s.add_argument("--priority", required=True, choices=sorted(N.PRIORITY_MODES))
-    s.add_argument("--env", required=True, choices=sorted(N.ENVS))
+    s.add_argument("--scope", choices=sorted(N.SCOPES))
+    s.add_argument("--priority", choices=sorted(N.PRIORITY_MODES))
+    s.add_argument("--env", choices=sorted(N.ENVS))
     s.add_argument("--texts")
     s.set_defaults(fn=cmd_notes_render)
     s = no.add_parser("publish")
     s.add_argument("--run", required=True)
     s.set_defaults(fn=cmd_notes_publish)
+    s = no.add_parser("release")
+    s.add_argument("--version", required=True)
+    s.add_argument("--env", required=True, choices=sorted(N.ENVS))
+    s.add_argument("--scope", default="all", choices=sorted(N.SCOPES))
+    s.add_argument("--priority", default="none", choices=sorted(N.PRIORITY_MODES))
+    s.add_argument("--migrations", action="store_true")
+    s.add_argument("--skills", action="store_true")
+    s.set_defaults(fn=cmd_notes_release)
+    s = no.add_parser("text")
+    s.add_argument("--run", required=True)
+    s.add_argument("--id", type=int, required=True)
+    s.set_defaults(fn=cmd_notes_text)
 
+    s = sub.add_parser("pipelines")
+    s.add_argument("--version")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(fn=cmd_pipelines)
+    s = sub.add_parser("deployments")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(fn=cmd_deployments)
+    s = sub.add_parser("doctor")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(fn=cmd_doctor)
 
     rv = sub.add_parser("reviews").add_subparsers(dest="sub", required=True)
     s = rv.add_parser("list")

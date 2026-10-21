@@ -13,6 +13,11 @@ endpoints the scripts use are served; any other call is an error, so a new call 
       "items": {"101": {"rev": 1, "fields": {"System.Title": "...", ...}, "relations": []}},
       "wikis": {"Proj": [{"id": "w1", "name": "Proj.wiki", "type": "projectWiki"}]},
       "pages": {"Proj/Proj.wiki//Release Notes": {"content": "...", "etag": "\\"1\\""}},
+      "builds": {"Proj": [{"id": 9, "definition": {...}, "sourceBranch": "refs/heads/team/1.1.0", ...}]},
+      "timelines": {"9": [{"type": "Task", "name": "Test", "result": "failed", "issues": [...]}]},
+      "environments": {"Proj": [{"id": 1, "name": "Production"}]}, "envRecords": {"1": [{...}]},
+      "releaseDeployments": {"Proj": [{...}]},       # classic releases (vsrm host)
+      "denied": {"repoV2/p1/r1": [16384]},            # permission bits the user lacks on a token
       "writes": []
     }
 """
@@ -73,6 +78,8 @@ def request(method, url, body, headers):
         return data, hdrs or {}
 
     # -- repositories and pull requests
+    if rest == "git/repositories" and method == "GET":
+        return done({"value": [r for k, r in world.get("repositories", {}).items() if k.split("/", 1)[0].lower() == proj.lower()]})
     mm = re.match(r"^git/repositories/([^/]+)$", rest)
     if mm and method == "GET":
         return done(_repo(world, proj, mm.group(1)))
@@ -183,6 +190,34 @@ def request(method, url, body, headers):
         if text is None:
             return None, {}
         return done({"path": q.get("path"), "content": text})
+
+    # -- pipelines, deployments, permissions
+    if rest == "build/builds" and method == "GET":
+        out = list(world.get("builds", {}).get(proj, []))
+        if "branchName" in q:
+            out = [b for b in out if b.get("sourceBranch") == q["branchName"]]  # ADO matches the ref as given
+        if "buildIds" in q:
+            ids = {int(i) for i in q["buildIds"].split(",")}
+            out = [b for b in out if int(b["id"]) in ids]
+        out.sort(key=lambda b: b.get("queueTime", ""), reverse=True)
+        return done({"value": out[:int(q.get("$top", 1000))]})
+    mm = re.match(r"^build/builds/(\d+)/timeline$", rest)
+    if mm and method == "GET":
+        return done({"records": world.get("timelines", {}).get(mm.group(1), [])})
+    if rest == "distributedtask/environments" and method == "GET":
+        return done({"value": world.get("environments", {}).get(proj, [])})
+    mm = re.match(r"^distributedtask/environments/(\d+)/environmentdeploymentrecords$", rest)
+    if mm and method == "GET":
+        return done({"value": world.get("envRecords", {}).get(mm.group(1), [])[:int(q.get("top", 1000))]})
+    if rest == "release/deployments" and method == "GET":
+        if "vsrm." not in parts.netloc:
+            raise RuntimeError("fake ADO: classic release deployments live on the vsrm host")
+        return done({"value": world.get("releaseDeployments", {}).get(proj, [])})
+    mm = re.match(r"^permissions/([0-9a-f-]+)/(\d+)$", rest)
+    if mm and method == "GET":
+        bits, denied = int(mm.group(2)), world.get("denied", {})
+        toks = [t for t in q.get("tokens", "").split(q.get("delimiter", ",")) if t]
+        return done({"count": len(toks), "value": [not (bits in denied.get(t, [])) for t in toks]})
 
     # -- work items
     if rest == "wit/workitemsbatch" and method == "POST":

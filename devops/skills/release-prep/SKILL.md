@@ -52,7 +52,8 @@ for each open release PR that changed. Say whether the PR grew (commit and file 
 that doubled needs review again. Then steps 3 to 4. Update the release notes too if they exist.
 
 **No ADO access** (the scan says "ADO not read", or `az` is missing): read
-`${CLAUDE_PLUGIN_ROOT}/references/mcp-fallback.md`, section *release-prep*.
+`${CLAUDE_PLUGIN_ROOT}/references/mcp-fallback.md`, section *release-prep*. `devops.py doctor` names what is
+missing (tools, sign-in, rights on a repo) and the fix: relay its FAIL lines.
 
 ## Traps
 

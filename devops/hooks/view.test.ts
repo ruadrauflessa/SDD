@@ -1,7 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 
-import type { DvPlan, DvRelease, DvReleaseRepo, DvReviewRow, DvStatus } from '../types'
+import type { DvBuild, DvNotesRun, DvPlan, DvRelease, DvReleaseRepo, DvReviewRow, DvStatus } from '../types'
 import { activeWord, ago, askText, needs, page, parseArgs, releaseCounts, releaseRows, releaseTone, releaseWord, runArgs, statusText, syncTone, syncWord, versionsNewest, waitingPlans } from './view/model'
+import { buildRows, buildWord, deployGroups, deployLine, NOTES_DEFAULTS, notesArgs, releaseRuns, releaseSteps } from './view/pipelines'
 import { addDraft, draftsFrom, editDraft, findingsFrom, keptDrafts, postPayload, reviewCounts, reviewRows, reviewWord } from './view/reviews'
 
 const repo = (r: Partial<DvReleaseRepo>): DvReleaseRepo => ({
@@ -23,7 +24,7 @@ const STATUS = (extra: Partial<DvStatus> = {}): DvStatus => ({
   config: { reposDir: 'projects', sourcePattern: 'team/{0}', targetPattern: 'release/{0}', branchPrefix: 'team/',
     guard: { enabled: true, protectedBranches: ['main', 'team/*'], forcePush: false, protectWorkingTree: true, requireApproval: true, approvalHours: 24 } },
   release: [], sync: { chain: null, scans: [], active: {}, snapshot: null, techStories: {}, reports: [] },
-  notes: { files: [], runs: [] }, plans: [], guard: { recent: [] }, reviews: null, ...extra,
+  notes: { files: [], runs: [] }, plans: [], guard: { recent: [] }, reviews: null, pipelines: null, deployments: null, doctor: null, ...extra,
 })
 
 test('versions sort as numbers, newest first', () => {
@@ -84,6 +85,7 @@ test('an approved plan runs with the command its kind and ref name', () => {
 test('typed arguments, prompts, times and paging', () => {
   expect(parseArgs('release 1.2.0')).toEqual({ view: 'release', version: '1.2.0', refresh: false })
   expect(parseArgs('SYNC')).toEqual({ view: 'sync', version: null, refresh: false })
+  expect(parseArgs('pipelines')).toEqual({ view: 'pipelines', version: null, refresh: false })
   expect(parseArgs('refresh')).toEqual({ view: null, version: null, refresh: true })
   expect(parseArgs('')).toEqual({ view: null, version: null, refresh: false })
   expect(askText('release', '1.1.0')).toBe('/devops:release-prep prepare release 1.1.0')
@@ -130,4 +132,60 @@ test('drafts: kept ones are posted, dropped and empty ones are not, and the pers
   expect(JSON.parse(postPayload(ds, 2))).toEqual({ iteration: 2, drafts: [
     { file: 'a.cs', line: 4, text: 'This dereferences null when the token is empty.', suggestion: 'x?.y' },
     { file: null, line: null, text: 'Looks right otherwise.', suggestion: null }] })
+})
+
+// ---------------------------------------------------------------- pipelines, deployments, setup, the release's steps
+
+const build = (b: Partial<DvBuild>): DvBuild => ({ org: 'O', project: 'P', repo: 'Gateway', branch: 'team/1.1.0', pipeline: 'CI', id: 1, number: 'n1',
+  status: 'completed', result: 'succeeded', queued: '', finished: '', url: 'u', failing: null, ...b })
+
+test('builds: failed first, then running; the status line and Overview name the failures', () => {
+  const p = { generated: 1, version: '1.1.0', branches: ['release/1.1.0', 'team/1.1.0'], errors: [],
+    rows: [build({ id: 1, repo: 'A' }), build({ id: 2, repo: 'B', status: 'inProgress', result: '' }), build({ id: 3, repo: 'C', result: 'failed' }),
+      build({ id: 4, repo: 'D', result: 'partiallySucceeded' })] }
+  expect(buildRows(p).map(b => b.id)).toEqual([3, 4, 2, 1])
+  expect([1, 2, 3, 4].map(i => buildWord(p.rows[i - 1] as DvBuild))).toEqual(['passed', 'running', 'failed', 'partly failed'])
+  expect(statusText(STATUS({ pipelines: p }))).toBe('devops · 2 builds failed')
+  expect(needs(STATUS({ pipelines: p })).map(n => n.text)).toEqual(['2 builds failed on release/1.1.0, team/1.1.0'])
+  const doctor = { generated: 1, root: '/ws', rows: [{ name: 'x', state: 'fail' as const, detail: 'd', fix: 'f' }, { name: 'y', state: 'warn' as const, detail: 'd', fix: '' }] }
+  expect(needs(STATUS({ doctor })).map(n => [n.text, n.view])).toEqual([['Setup: 1 problem (see Setup below)', 'overview']])
+  const notes = { files: [], runs: [{ run: 'r1', stage: 'rendered' as const, release: '1.1.0', token: 'nnnnnnnnnn', needText: [{ id: 1, title: 't' }] }] }
+  expect(needs(STATUS({ notes, plans: [plan({ token: 'nnnnnnnnnn', kind: 'notes', summary: 'Publish the notes' })] })).map(n => [n.text, n.view]))
+    .toEqual([['Write 1 bug line, then approve: Publish the notes', 'release']])
+})
+
+test('what each environment runs now: QA to PROD, then the unnamed ones, the newest per environment', () => {
+  const row = (env: 'QA' | 'PROD' | null, envName: string, version: string | null, at: string) => ({ org: 'O', project: 'P', env, envName, pipeline: 'CD',
+    repo: 'Gateway', branch: `release/${version}`, version, build: 'b', commit: '', at, kind: 'yaml' as const, url: '' })
+  const d = { generated: 1, errors: [], rows: [row('PROD', 'Production', '1.0.2', '2026-10-01'), row(null, 'Sandbox', '1.2.0', '2026-10-02'),
+    row('QA', 'qa', '1.1.0', '2026-10-03'), row('PROD', 'Production', '1.0.1', '2026-09-01')] }
+  expect(deployGroups(d).map(g => [g.env, g.rows.length])).toEqual([['QA', 1], ['PROD', 2], ['Sandbox', 1]])
+  expect(deployLine(d)).toBe('QA 1.1.0 · PROD 1.0.2')
+  expect(deployLine(null)).toBe('')
+})
+
+test("a release's steps: the first one not done is the one to do now", () => {
+  const rel = release([repo({ status: 'Ready' })])
+  const run = (r: Partial<DvNotesRun>): DvNotesRun => ({ run: 'r1', stage: 'rendered', release: '1.1.0', project: 'P', token: 'n', approved: false, needText: [], ...r })
+  const state = (st: ReturnType<typeof releaseSteps>) => st.map(x => `${x.key}:${x.state}`).join(' ')
+  expect(state(releaseSteps(undefined, [], []))).toBe('scan:now approve-prs:todo open-prs:todo notes:todo bug-lines:todo approve-notes:todo publish:todo')
+  expect(state(releaseSteps(rel, [plan({})], []))).toContain('scan:done approve-prs:now')
+  const opened = { ...rel, results: [{ repo: 'Gateway', prId: 101, url: 'u', action: 'opened' }] }
+  const done = [plan({ approved: true, done: true })]
+  expect(state(releaseSteps(opened, done, []))).toContain('open-prs:done notes:now')
+  expect(state(releaseSteps(opened, done, [run({ needText: [{ id: 1, title: 't' }] })]))).toContain('notes:done bug-lines:now')
+  expect(state(releaseSteps(opened, done, [run({})]))).toContain('bug-lines:done approve-notes:now')
+  expect(state(releaseSteps(opened, done, [run({ stage: 'published', approved: true })]))).toContain('publish:done')
+  // nothing to open, and the PR is already there: those steps are done
+  const quiet = { ...release([repo({ status: 'Ready', pr: { id: 7, url: 'u' } })]), token: null }
+  expect(state(releaseSteps(quiet, [], []))).toContain('open-prs:done notes:now')
+  // the newest run of each project counts; another version's runs do not
+  expect(releaseRuns([run({ run: 'r2' }), run({ run: 'r1' }), run({ run: 'r0', release: '1.0.0' })], '1.1.0').map(r => r.run)).toEqual(['r2'])
+})
+
+test('the notes press needs an environment, and passes the choices as they are', () => {
+  expect(notesArgs('1.1.0', NOTES_DEFAULTS)).toBe(null)
+  expect(notesArgs('1.1.0', { ...NOTES_DEFAULTS, env: 'UAT', skills: true })).toEqual(['notes', 'release', '--version', '1.1.0', '--env', 'UAT',
+    '--scope', 'all', '--priority', 'none', '--migrations', '--skills'])
+  expect(askText('bugs', 'r1')).toContain('notes run r1')
 })

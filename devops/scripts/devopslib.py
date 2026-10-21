@@ -12,6 +12,10 @@ State lives in `<root>/.claude/devops/`:
     release/<v>.json     the release-prep plan for version v
     sync/...             the sync chain, scans, PR results, the sync in progress, the tech story cache
     notes/<id>/...       one release-notes run: data.json, wiki.md, meta.json
+    reviews/...          the Reviews tab's PR list and the quick reviews saved per push
+    pipelines.json       the newest build per pipeline on a version's branches (`devops.py pipelines`)
+    deployments.json     what each environment runs now (`devops.py deployments`)
+    doctor.json          the last setup check (`devops.py doctor`)
 """
 import base64
 import hashlib
@@ -45,6 +49,11 @@ DEFAULTS = {
         "maxTokens": 4000,
         "maxDiffChars": 60000,      # the diff bundle sent to the model; larger PRs are cut, and say so
         "maxFindings": 12,
+    },
+    "deployments": {
+        # which ADO environment or release stage is which: the whole name, or one of its words, matches
+        "environments": {"QA": ["qa", "test", "sit"], "UAT": ["uat", "acceptance"],
+                         "STAGE": ["stage", "staging", "preprod", "stg"], "PROD": ["prod", "production", "live", "prd"]},
     },
     "guard": {
         "enabled": True,
@@ -295,10 +304,11 @@ class Ado:
         return self._auth
 
     def url(self, api, project=None, host=None, version="7.1", **query):
-        """host: None for dev.azure.com, "vssps" for identities. version: a preview API names its own."""
+        """host: None for dev.azure.com, "vssps" for identities, "vsrm" for classic releases. version: a preview
+        API names its own."""
         q = {"api-version": version, **{k: v for k, v in query.items() if v is not None}}
         proj = f"/{urllib.parse.quote(project)}" if project else ""
-        base = f"https://vssps.dev.azure.com/{urllib.parse.quote(self.org)}" if host == "vssps" else self.base
+        base = f"https://{host}.dev.azure.com/{urllib.parse.quote(self.org)}" if host else self.base
         return f"{base}{proj}/_apis/{api}?{urllib.parse.urlencode(q, safe='$/')}"
 
     def call(self, method, url, body=None, content_type="application/json", headers=None, want_headers=False):
@@ -316,7 +326,11 @@ class Ado:
         try:
             with urllib.request.urlopen(req, timeout=120) as resp:
                 text = resp.read()
-                data = json.loads(text) if text else None
+                try:
+                    data = json.loads(text) if text else None
+                except ValueError:  # a sign-in page, not an answer
+                    raise RuntimeError(f"ADO {method} {url.split('?')[0]} answered with a page, not data: sign in (az login) "
+                                       "or check access") from None
                 return (data, dict(resp.headers)) if want_headers else data
         except urllib.error.HTTPError as e:
             if e.code == 404 and want_headers:
@@ -327,6 +341,9 @@ class Ado:
     # -- git
     def repository(self, project, repo):
         return self.call("GET", self.url(f"git/repositories/{urllib.parse.quote(repo)}", project))
+
+    def repositories(self, project):
+        return (self.call("GET", self.url("git/repositories", project)) or {}).get("value", [])
 
     def pull_requests(self, project, target=None, source=None, status="active", repo=None, top=100):
         path = f"git/repositories/{urllib.parse.quote(repo)}/pullrequests" if repo else "git/pullrequests"
@@ -452,6 +469,38 @@ class Ado:
                                                                       "versionDescriptor.versionType": "commit"}),
                             want_headers=True)
         return (data or {}).get("content") if data else None
+
+    # -- pipelines, deployments, permissions (read only)
+    def builds(self, project, branch=None, ids=None, top=100):
+        q = {"queryOrder": "queueTimeDescending", "$top": top}
+        if branch:
+            q["branchName"] = "refs/heads/" + branch
+        if ids:
+            q["buildIds"] = ",".join(str(int(i)) for i in ids)
+        return (self.call("GET", self.url("build/builds", project, **q)) or {}).get("value", [])
+
+    def build_timeline(self, project, build_id):
+        return (self.call("GET", self.url(f"build/builds/{int(build_id)}/timeline", project)) or {}).get("records", [])
+
+    def environments(self, project):
+        return (self.call("GET", self.url("distributedtask/environments", project, **{"$top": 100})) or {}).get("value", [])
+
+    def environment_records(self, project, env_id, top=50):
+        r = self.call("GET", self.url(f"distributedtask/environments/{int(env_id)}/environmentdeploymentrecords", project, top=top))
+        return (r or {}).get("value", []) if isinstance(r, dict) else (r or [])
+
+    def release_deployments(self, project, top=100):
+        """Classic release pipelines: the newest successful deployment attempts (vsrm host)."""
+        r = self.call("GET", self.url("release/deployments", project, host="vsrm", deploymentStatus="succeeded",
+                                      latestAttemptsOnly="true", queryOrder="descending", **{"$top": top}))
+        return (r or {}).get("value", [])
+
+    def has_permission(self, namespace, bits, tokens):
+        """[bool per token]: whether the signed-in user holds these permission bits."""
+        if not tokens:
+            return []
+        r = self.call("GET", self.url(f"permissions/{namespace}/{int(bits)}", tokens=",".join(tokens), alwaysAllowAdministrators="false"))
+        return list((r or {}).get("value", []))
 
     # -- wiki
     def wikis(self, project):

@@ -35,7 +35,8 @@ newest group (a gap of 2 hours starts a new one), and reads the linked work item
 commit the user named: `--pr <id>` (repeat it) or `--commit <sha> --repo <name>`. `--project`/`--org`
 when the workspace repos do not tell. It prints a run id. No PR found: say so and stop.
 
-No `az` login: read `${CLAUDE_PLUGIN_ROOT}/references/mcp-fallback.md`, section *release-notes*.
+No `az` login: read `${CLAUDE_PLUGIN_ROOT}/references/mcp-fallback.md`, section *release-notes*. Setup in doubt:
+`devops.py doctor` names what is missing and the fix.
 
 ## 3. Detect (only what the user opted into)
 
@@ -49,7 +50,7 @@ matter holding `name:` and `description:`. A repo with no local clone is a gap, 
 page, and prints the bugs that lack a one-line fix summary. Write those lines to a JSON file
 (`{"80459": "Closing the disclaimer no longer collapses the panel."}`): the resolved behaviour, one
 sentence, plain English (`${CLAUDE_PLUGIN_ROOT}/references/writing-style.md`). Render again with
-`--texts <file>`; it rewrites the same file. A BLOCKED line (a secret, a placeholder, a local path)
+`--run <id> --texts <file>` (it keeps the run's scope, priority and environment); it rewrites the same file. A BLOCKED line (a secret, a placeholder, a local path)
 means fix the data, not the check.
 
 ## 5. Approve and publish

@@ -2,10 +2,10 @@
 
     python devops/scripts/check_ado_routes.py [--org dnceng-public]     (needs network; no sign-in)
 
-Runs test_devops.py with the offline ADO logging each call (DEVOPS_FAKE_LOG), reads the route table ADO
-serves to anyone (`OPTIONS https://dev.azure.com/<org>/_apis/`), and says for each distinct call whether
-it is a route ADO serves at the api-version devops sends. Not part of the offline checks: it needs the
-network. Exit 1 when a call has no route.
+Runs test_devops.py with the offline ADO logging each call (DEVOPS_FAKE_LOG), reads the route tables ADO
+serves to anyone (`OPTIONS https://dev.azure.com/<org>/_apis/`, and the same on the vssps and vsrm hosts),
+and says for each distinct call whether it is a route ADO serves at the api-version devops sends. Not part
+of the offline checks: it needs the network. Exit 1 when a call has no route.
 """
 import argparse
 import json
@@ -42,7 +42,7 @@ def main():
     ap.add_argument("--org", default="dnceng-public", help="any organization; the route table is the same service")
     a = ap.parse_args()
     routes = {}
-    for host in ("dev.azure.com", "vssps.dev.azure.com"):  # identities live on the vssps host
+    for host in ("dev.azure.com", "vssps.dev.azure.com", "vsrm.dev.azure.com"):  # identities on vssps, classic releases on vsrm
         req = urllib.request.Request(f"https://{host}/{a.org}/_apis/", method="OPTIONS")
         with urllib.request.urlopen(req, timeout=60) as r:
             routes[host] = json.loads(r.read())["value"]
@@ -70,7 +70,8 @@ def main():
         good = [r for r, x in compiled[host] if x.match(tail) and num(r["maxVersion"]) >= num(ver) and r["area"] != "Fallback"]
         bad += not good
         name = f"{good[0]['area']}/{good[0]['resourceName']}" if good else ""
-        print(f"{'OK     ' if good else 'MISSING'} {method:5} {('vssps ' if host.startswith('vssps') else '') + shape:66} {name}")
+        tag = host.split(".")[0] + " " if host != "dev.azure.com" else ""
+        print(f"{'OK     ' if good else 'MISSING'} {method:5} {tag + shape:66} {name}")
     print(f"{len(seen)} distinct calls, {sum(len(r) for r in routes.values())} ADO routes: "
           + ("every call is a route ADO serves" if not bad else f"{bad} with no route"))
     return 1 if bad else 0

@@ -89,6 +89,10 @@ export type DvPlan = {
 export type DvNotesRun = {
   run: string
   stage: 'collected' | 'rendered' | 'published'
+  /** The version whose release PRs it was made from (`notes release`). */
+  release?: string
+  /** Bugs that still lack their one-line fix summary. */
+  needText?: Array<{ id: number; title: string }>
   project?: string
   title?: string
   file?: string
@@ -96,8 +100,59 @@ export type DvNotesRun = {
   approved?: boolean
   url?: string | null
   indexUrl?: string | null
-  facts?: { version: string; env: string; day: string; wikiPath: string; items: number; needText?: number[] }
+  facts?: { version: string; env: string; day: string; wikiPath: string; items: number; needText?: number[]; scope?: string; mode?: string
+    since?: { version: string | null; build: string; at: string } | null }
 }
+
+/** The newest run of one pipeline on one branch, from `devops.py pipelines`. */
+export type DvBuild = {
+  org: string
+  project: string
+  repo: string
+  branch: string
+  pipeline: string
+  id: number
+  number: string
+  status: string
+  result: string
+  queued: string
+  finished: string
+  url: string
+  /** The first task that failed, and its first error. */
+  failing: { step: string; message: string } | null
+}
+
+export type DvPipelines = { generated: number; version: string; branches: string[]; rows: DvBuild[]; errors: string[] }
+
+export type DvEnv = 'QA' | 'UAT' | 'STAGE' | 'PROD'
+
+/** What one pipeline last deployed into one environment, from `devops.py deployments`. */
+export type DvDeploy = {
+  org: string
+  project: string
+  /** QA, UAT, STAGE or PROD by its name (`deployments.environments`), or null. */
+  env: DvEnv | null
+  envName: string
+  pipeline: string
+  repo: string
+  branch: string
+  version: string | null
+  build: string
+  commit: string
+  at: string
+  kind: 'yaml' | 'classic'
+  url: string
+}
+
+export type DvDeployments = { generated: number; rows: DvDeploy[]; errors: string[] }
+
+export type DvCheck = { name: string; state: 'ok' | 'warn' | 'fail'; detail: string; fix: string }
+
+/** What `devops.py doctor` found. */
+export type DvDoctor = { generated: number; root: string; rows: DvCheck[] }
+
+/** The Release tab's release-notes choices. The environment is never guessed. */
+export type DvNotesOpts = { env: DvEnv | null; scope: string; priority: string; migrations: boolean; skills: boolean }
 
 export type DvStatus = {
   root: string
@@ -118,6 +173,10 @@ export type DvStatus = {
   guard: { recent: Array<{ at: number; rule: string; detail: string }> }
   /** From the last reviews list: PRs waiting on the user. */
   reviews: { generated: number; waiting: number; active: number } | null
+  /** The last `devops.py pipelines`, `deployments` and `doctor` (each reads ADO on a press). */
+  pipelines: DvPipelines | null
+  deployments: DvDeployments | null
+  doctor: DvDoctor | null
 }
 
 /** One active PR in the workspace's projects, from `devops.py reviews list`. */
@@ -189,7 +248,7 @@ export type DvDraft = {
   keep: boolean
 }
 
-export type DvView = 'overview' | 'release' | 'sync' | 'notes' | 'reviews' | 'guard'
+export type DvView = 'overview' | 'release' | 'sync' | 'notes' | 'reviews' | 'pipelines' | 'guard'
 
 declare module 'claude-code' {
   interface PluginState {
@@ -221,6 +280,8 @@ declare module 'claude-code' {
       drafts: DvDraft[]
       /** What the Reviews tab asks to confirm: 'post', or a vote (approve, suggest, wait, reject, reset); null = nothing. */
       reviewAsk: string | null
+      /** The Release tab's release-notes choices. */
+      notesOpts: DvNotesOpts
     }
   }
 }

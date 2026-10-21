@@ -195,8 +195,19 @@ def wiki_card(item, text):
     return out
 
 
-def build(data, scope, mode, env, texts=None, now=None, pr_ids=None):
-    """(file markdown, wiki markdown, facts) for one release build."""
+def since_text(since):
+    """`1.0.1 (build 20261001.4, 2026-10-01)`: what the environment ran before this release, or ''."""
+    if not since:
+        return ""
+    what = since.get("version") or since.get("branch") or since.get("build") or "?"
+    bits = [f"build {since['build']}" if since.get("build") and since.get("version") else "", (since.get("at") or "")[:10]]
+    bits = [b for b in bits if b]
+    return what + (f" ({', '.join(bits)})" if bits else "")
+
+
+def build(data, scope, mode, env, texts=None, now=None, pr_ids=None, since=None):
+    """(file markdown, wiki markdown, facts) for one release build. since: the environment's last deployment
+    (pipelines.last_deploy), named in both so readers know what these notes come after."""
     texts = {str(k): v for k, v in (texts or {}).items()}
     now = now or datetime.now(timezone.utc).astimezone()
     day = now.strftime("%Y-%m-%d")
@@ -215,7 +226,10 @@ def build(data, scope, mode, env, texts=None, now=None, pr_ids=None):
     pr_link = lambda p: f"[{p['id']}]({p.get('url', '')})"
 
     f = [f"# Release {version} — {env}", "", f"- Environment: {env}", f"- Generated: {day}",
-         f"- Release branch: `{branch}`", f"- Scope: {scope_label}", f"- Priority presentation: {PRIORITY_MODES[mode]}", ""]
+         f"- Release branch: `{branch}`", f"- Scope: {scope_label}", f"- Priority presentation: {PRIORITY_MODES[mode]}"]
+    if since:
+        f.append(f"- Last deployed to {env}: {since_text(since)}")
+    f.append("")
     f += ["## Repositories", ""] + [f"- {r}" for r in repos] + [""]
     f += ["## Included Pull Requests", ""] + [f"- {pr_link(p)} - {p['repo']} - {p['title']}" for p in prs] + [""]
     if mig:
@@ -238,6 +252,8 @@ def build(data, scope, mode, env, texts=None, now=None, pr_ids=None):
          " ".join([badge("Release", "Release", version, "2B6CB0"), badge("Environment", "Environment", env, color),
                    badge("Generated", "Generated", day, "6B7280"), badge("Scope", "Scope", scope_label, "2B6CB0"),
                    badge("Branch", "branch", branch, "475467")]), ""]
+    if since:
+        w.append(f"> **Last deployed to {env}:** {since_text(since)}  ")
     for p in prs:
         w.append(f"> **Pull request:** {pr_link(p)} — {p['repo']} — {p['title']}  ")
     w += ["", "---", ""]
@@ -277,7 +293,8 @@ def build(data, scope, mode, env, texts=None, now=None, pr_ids=None):
              "unassigned": [i["id"] for i in items if not i.get("assignee")],
              "needText": [i["id"] for i in items if kind_of(i.get("type")) == "Bug" and str(i["id"]) not in texts],
              "migrations": sum(len(v) for v in mig.values()), "skills": sum(len(v) for v in skl.values()),
-             "wikiPath": f"/Release Notes/Release {version} [{env}] - {day}"}
+             "wikiPath": f"/Release Notes/Release {version} [{env}] - {day}",
+             "since": {"version": since.get("version"), "build": since.get("build"), "at": since.get("at")} if since else None}
     return "\n".join(f).rstrip() + "\n", "\n".join(w).rstrip() + "\n", facts
 
 

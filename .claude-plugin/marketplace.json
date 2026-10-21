@@ -20,7 +20,7 @@
     {
       "name": "devops",
       "source": "./devops",
-      "description": "Release and branch work for Azure DevOps repos: release-prep, sync-team-branches, release-notes and a PR review tab, with scripts for the mechanics, guards for branches, uncommitted work and what goes out, and the /devops pane."
+      "description": "Release and branch work for Azure DevOps repos: release-prep, sync-team-branches, release-notes, a PR review tab, builds and deployments, and a setup check, with scripts for the mechanics, guards for branches, uncommitted work and what goes out, and the /devops pane."
     }
   ]
 }

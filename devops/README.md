@@ -12,6 +12,20 @@ Needs Python 3.9+, git, PowerShell 7 (`pwsh`) for the scans, and `az login` (or 
 MCP tools (`references/mcp-fallback.md`), and the guards still hold. For a public project,
 `DEVOPS_ADO_ANONYMOUS=1` reads without signing in (writes always need a sign-in).
 
+**First run**: `python scripts/devops.py doctor` (or **Check setup** in the pane's Overview) checks each of these:
+- Python, git and `pwsh`.
+- The config file.
+- The repos and their ADO origins, and the team branches.
+- The guard.
+- `az` and its `azure-devops` extension.
+- Your ADO sign-in, for each organization.
+- For each project:
+  - your rights on each repo: push, create branches, contribute to pull requests;
+  - the project wiki, and whether you can write it;
+  - whether you can read builds.
+
+It prints what is missing and how to fix it.
+
 ## The skills
 
 | Skill | Say | What happens |
@@ -61,7 +75,7 @@ Each refusal is logged to `.claude/devops/guard.jsonl` and shown in the pane.
 
 ## The pane
 
-`/devops` (or `/devops release 1.1.0`, `sync`, `notes`, `reviews`, `guard`) opens it beside the chat, on the terminal and
+`/devops` (or `/devops release 1.1.0`, `sync`, `notes`, `reviews`, `pipelines`, `guard`) opens it beside the chat, on the terminal and
 in the Desktop app. The status line says what needs you (`devops · 1 to approve · release 1.1.0: 2 ready`).
 
 - **Overview**: what needs you, most urgent first (a sync conflict to resolve, a plan to approve, a release
@@ -71,6 +85,21 @@ in the Desktop app. The status line says what needs you (`devops · 1 to approve
   **Review & approve…**, and once approved, **Open the PRs now**. The PR links after.
 - **Sync**: syncs waiting for you (with "I resolved it: ask Claude to verify"), the snapshot with
   **Restore…**, the chain's waves, each scan's repos, the sync plan, the team-sync work items, the reports.
+- **Release**, continued: once the PRs are open, the same tab takes the release to published notes.
+  - A step line shows how far the release has come: ✓ Scan · ✓ Approve the PRs · ✓ Open the PRs · ▶ Write the
+    notes · ○ Bug lines · ○ Approve the notes · ○ Publish.
+  - **Release notes**: choose these, then press **Write the notes**:
+    - the environment (QA, UAT, STAGE or PROD; it is never guessed);
+    - the scope;
+    - the priority layout;
+    - whether to look for migrations and skill files.
+
+    It runs `notes release`, which collects from the version's release PRs, detects, and renders the file and
+    the wiki page.
+  - Each bug still lacking its one-line fix summary gets a box: type the line and press Enter to save it and
+    render again. Or press **Ask Claude to write these lines**: writing them is the one judgement step.
+  - Then **Review & approve…** and **Publish now**.
+  - Claude is needed only for the bug lines (if you want it) and for conflicts.
 - **Notes**: each run (rendered, approved, published), **Review & approve…**, **Publish now**, the wiki link.
 - **Reviews**: the active PRs of the workspace's ADO projects, **Waiting on me** by default (you are a reviewer,
   directly or through a group, with no vote yet, and it is not yours or a draft), **All active** on a press. Press a
@@ -83,10 +112,26 @@ in the Desktop app. The status line says what needs you (`devops · 1 to approve
     refused if the PR got a new push since the review read it.
   - **Approve**, **Approve with suggestions**, **Wait for author**, **Reject**, **Reset vote**, each with a confirm,
     under your name. On your own PR, when its reviewer policy does not count the author's vote, only Reset shows.
+- **Pipelines**: the version's builds, and what each environment runs now.
+  - **Builds**: the newest run of each pipeline on the version's team and release branches, failed first, with the
+    step that failed and its first error. Press a row for the build number, its times and its link. Reading
+    them: `devops.py pipelines [--version V]`.
+  - **Deployed now**: what each environment runs, from YAML environments and classic release stages alike
+    (`devops.py deployments`). An environment name maps to QA, UAT, STAGE or PROD by `deployments.environments`.
+  - Release notes name the last deployment to their environment ("Last deployed to PROD: 1.0.2 (build
+    20261001.4, 2026-10-01)"). `notes collect` reads it, so nobody has to guess what the notes come after.
 - **Guard**: what it protects and what it refused lately.
 
+The status line and Overview also show failed builds, setup problems (from the last **Check setup**), and what
+each environment runs now.
+
 It reads `devops.py status --json` (files only: no git, no ADO) when it opens, once a minute while open, and
-after each press. The Reviews tab reads ADO when it opens and on **Refresh list**. Approve runs nothing; a write runs only on its own press or by the agent.
+after each press. Three tabs read ADO when they first open and on their own buttons:
+- Reviews: **Refresh list**.
+- Pipelines: **Read builds** and **Read deployments**.
+- Overview: **Check setup**.
+
+Approve runs nothing; a write runs only on its own press or by the agent.
 
 ## Config: `.claude/devops.json`
 
@@ -98,6 +143,8 @@ after each press. The Reviews tab reads ADO when it opens and on **Refresh list*
   "clusterGapHours": 2,
   "syncFeatureTitle": "Branch Synchronizations", "syncWorkItemType": "Tech Story",
   "reviews": { "model": "sonnet", "maxTokens": 4000, "maxDiffChars": 60000, "maxFindings": 12 },
+  "deployments": { "environments": { "QA": ["qa", "test", "sit"], "UAT": ["uat", "acceptance"],
+                                     "STAGE": ["stage", "staging", "preprod", "stg"], "PROD": ["prod", "production", "live", "prd"] } },
   "guard": {
     "enabled": true,
     "protectedBranches": ["main", "master", "develop", "release/*", "team/*"],
@@ -106,4 +153,5 @@ after each press. The Reviews tab reads ADO when it opens and on **Refresh list*
 }
 ```
 
-Every key is optional. By hand: `python scripts/devops.py --help`.
+Every key is optional. In `deployments.environments`, an ADO environment or release stage matches when its whole
+name (`Pre-Prod` is `preprod`), or one of its words, is in a list. By hand: `python scripts/devops.py --help`.

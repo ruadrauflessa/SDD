@@ -1,4 +1,4 @@
-// devops: a pane (/devops) and a status line for the release, sync and release-notes work. It reads
+// devops: a pane (/devops) and a status line for the release, sync, release-notes, review and pipeline work. It reads
 // `devops.py status --json`, which reads files only (no git, no ADO), at session start, when the pane opens,
 // once a minute while it is open, and after every press. Presses that write anything outward (open PRs,
 // publish a wiki page) run only an approved plan; Approve itself is the person's press, shown with every
@@ -6,12 +6,16 @@
 // fill the prompt for the person to send.
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { DvDraft, DvPlan, DvReviewDetail, DvReviewList, DvReviewPack, DvReviewRow, DvStatus, DvView } from '../types'
+import type { DvDraft, DvNotesOpts, DvPlan, DvReviewDetail, DvReviewList, DvReviewPack, DvReviewRow, DvStatus, DvView } from '../types'
 import {
   activeWord, ago, askText, asList, needs, page, parseArgs, readyPlans, releaseCounts, releaseRows, releaseTone,
   releaseWord, repoFacts, runArgs, statusText, syncTone, syncWord, versionsNewest, waitingPlans,
 } from './view/model'
 import type { Tone } from './view/model'
+import {
+  buildRows, buildTone, buildWord, deployGroups, deployLine, doctorCounts, ENVS, epoch, NOTES_DEFAULTS, notesArgs, PRIORITIES,
+  releaseRuns, releaseSteps, SCOPES,
+} from './view/pipelines'
 import {
   addDraft, draftsFrom, draftWhere, editDraft, findingsFrom, keptDrafts, postPayload, reviewCounts, reviewKey, reviewRows,
   reviewTone, reviewWord, rowFacts, VOTES, voteWord,
@@ -32,10 +36,11 @@ const reviewsAll = { plugin: 'devops', key: 'reviewsAll' } as const
 const review = { plugin: 'devops', key: 'review' } as const
 const drafts = { plugin: 'devops', key: 'drafts' } as const
 const reviewAsk = { plugin: 'devops', key: 'reviewAsk' } as const
+const notesOpts = { plugin: 'devops', key: 'notesOpts' } as const
 
 const TICK_MS = 60_000
 const COLORS: Record<Tone, string> = { urgent: '#c0503f', warn: '#c98a12', ok: '#3f9a63', dim: '#7b8794' }
-const TABS: Array<[DvView, string]> = [['overview', 'Overview'], ['release', 'Release'], ['sync', 'Sync'], ['notes', 'Notes'], ['reviews', 'Reviews'], ['guard', 'Guard']]
+const TABS: Array<[DvView, string]> = [['overview', 'Overview'], ['release', 'Release'], ['sync', 'Sync'], ['notes', 'Notes'], ['reviews', 'Reviews'], ['pipelines', 'Pipelines'], ['guard', 'Guard']]
 
 let python = 'python'  // module state: lost on reload, which is fine
 let timer: ReturnType<EngineInterface['clock']['every']> | null = null
@@ -73,12 +78,12 @@ async function refresh($: EngineInterface): Promise<void> {
 }
 
 /** A press: runs the command, says what it said (its last lines), and reads the status again. */
-async function act($: EngineInterface, label: string, args: string[], timeoutMs = 120_000): Promise<Ran | null> {
+async function act($: EngineInterface, label: string, args: string[], timeoutMs = 120_000, stdin?: string): Promise<Ran | null> {
   if ((await $.state.get(busy)).value) return null
   await $.state.set(busy, label)
   let r: Ran | null = null
   try {
-    r = await run($, args, timeoutMs)
+    r = await run($, args, timeoutMs, stdin)
     const tail = r.out.split('\n').filter(Boolean).slice(-3).join(' · ').slice(0, 400)
     await $.state.set(note, r.code === 0 ? null : tail)
     $.ui.toast(r.code === 0 ? `${label}: done` : `${label}: ${tail.slice(0, 160)}`)
@@ -217,6 +222,12 @@ async function castVote($: EngineInterface, d: DvReviewDetail, vote: string): Pr
   if (ok) await loadReviews($)
 }
 
+/** The builds on a version's branches, then what each environment runs now. Both read ADO, on a press. */
+async function loadPipelines($: EngineInterface, version: string | null): Promise<void> {
+  await act($, `Reading the builds${version ? ` of ${version}` : ''}`, ['pipelines', ...(version ? ['--version', version] : [])], 300_000)
+  await act($, 'Reading the deployments', ['deployments'], 300_000)
+}
+
 function follow($: EngineInterface): void {
   if (!timer) timer = $.clock.every(TICK_MS, () => void refresh($))
 }
@@ -225,8 +236,8 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'devops',
-      description: 'Release prep, team-branch sync, release notes and PR reviews in a pane: what needs you, plans to approve, PRs to review and vote on, conflicts, the guard log',
-      argumentHint: '[overview|release [<version>]|sync|notes|reviews|guard|refresh]',
+      description: 'Release prep, team-branch sync, release notes, PR reviews and pipelines in a pane: what needs you, plans to approve, PRs to review and vote on, builds and deployments, conflicts, the guard log',
+      argumentHint: '[overview|release [<version>]|sync|notes|reviews|pipelines|guard|refresh]',
     })
     void refresh($).catch(() => undefined)  // one read for the status line; files only
     return next(e)
@@ -242,6 +253,7 @@ export const register: Register = on => {
     await refresh($)
     if (a.view === 'release' && !(await $.state.get(versions)).value) await loadVersions($)
     if (a.view === 'reviews' && !(await $.state.get(reviews)).value) await loadReviews($)
+    if (a.view === 'pipelines' && !(await $.state.get(status)).value?.pipelines) await loadPipelines($, (await $.state.get(version)).value ?? null)
     return { text: 'devops opened.' }
   })
 
@@ -263,6 +275,7 @@ export const register: Register = on => {
     const rv = (await $.state.get(review)).value ?? null
     const ds = (await $.state.get(drafts)).value ?? []
     const rvAsk = (await $.state.get(reviewAsk)).value ?? null
+    const nOpts = (await $.state.get(notesOpts)).value ?? NOTES_DEFAULTS
     const now = Math.floor(Date.now() / 1000)
     const color = (t: Tone) => COLORS[t]
 
@@ -271,6 +284,7 @@ export const register: Register = on => {
       await $.state.set(open, null)
       if (v === 'release' && !vs) await loadVersions($)
       if (v === 'reviews' && !rvList) await loadReviews($)
+      if (v === 'pipelines' && !s?.pipelines) await loadPipelines($, chosen)
     }
     const toggle = (key: string) => () => $.state.set(open, opened === key ? null : key)
     const fill = (text: string) => () => $.prompt.fill({ text })
@@ -337,6 +351,8 @@ export const register: Register = on => {
     if (mode === 'overview') {
       const ns = needs(s)
       const rel = s.release[0]
+      const doc = s.doctor
+      const dc = doctorCounts(doc)
       return (
         <Box flexDirection="column">
           {header}
@@ -351,11 +367,26 @@ export const register: Register = on => {
           <Box flexDirection="column" marginTop={1}>
             {rel && <Text dimColor>Release {rel.version}: {(() => { const c = releaseCounts(rel); return `${c.ready} ready · ${c.conflicts} conflicts · ${c.missing} without a release branch · scanned ${ago(rel.generated, now)}` })()}</Text>}
             <Text dimColor>{s.sync.scans.length} sync scans · {Object.keys(s.sync.active ?? {}).length} syncs in progress · {s.notes.runs.length} release-notes runs · {s.guard.recent.length} recent guard refusals</Text>
+            {deployLine(s.deployments) && <Text dimColor>Deployed now: {deployLine(s.deployments)} · read {ago(s.deployments?.generated, now)}</Text>}
           </Box>
           <Box gap={1} flexWrap="wrap" marginTop={1}>
             <Button key="ask-release" label="Prepare a release…" onPress={fill(askText('release'))} />
             <Button key="ask-sync" label="Sync team branches…" onPress={fill(askText('sync'))} />
             <Button key="ask-notes" label="Release notes…" onPress={fill(askText('notes'))} />
+          </Box>
+          <Box flexDirection="column" marginTop={1}>
+            <Box gap={1}>
+              <Text bold>Setup</Text>
+              {doc ? <Text color={dc.fail ? COLORS.urgent : dc.warn ? COLORS.warn : COLORS.ok}>{dc.fail ? `${dc.fail} problem${dc.fail === 1 ? '' : 's'}` : dc.warn ? `${dc.warn} warning${dc.warn === 1 ? '' : 's'}` : 'all good'} · checked {ago(doc.generated, now)}</Text>
+                : <Text dimColor>not checked yet</Text>}
+              <Button key="doctor" label="Check setup" onPress={() => act($, 'Checking the setup (tools, sign-in, access, wiki)', ['doctor'], 300_000)} />
+            </Box>
+            {(doc?.rows ?? []).filter(r => r.state !== 'ok').map((r, i) => (
+              <Box key={`doc-${i}`} flexDirection="column" marginLeft={1}>
+                <Text color={r.state === 'fail' ? COLORS.urgent : COLORS.warn} wrap="wrap">● {r.name}: {r.detail}</Text>
+                {r.fix && <Text dimColor wrap="wrap">    {r.fix}</Text>}
+              </Box>
+            ))}
           </Box>
         </Box>
       )
@@ -367,6 +398,18 @@ export const register: Register = on => {
       const rows = releaseRows(rel)
       const c = releaseCounts(rel)
       const p = page(rows, 0, 40)
+      const steps = releaseSteps(rel, s.plans, s.notes.runs)
+      const runsOf = releaseRuns(s.notes.runs, rel?.version)
+      const hasPrs = !!rel && (rel.results.some(x => x.prId) || rel.repos.some(x => x.pr))
+      const setOpts = (patch: Partial<DvNotesOpts>) => () => $.state.set(notesOpts, { ...nOpts, ...patch })
+      const writeNotes = async () => {
+        const args = rel ? notesArgs(rel.version, nOpts) : null
+        if (!args) {
+          await $.state.set(note, 'Pick the environment the notes are for first (QA, UAT, STAGE or PROD): it is never guessed.')
+          return
+        }
+        await act($, `Writing the release notes for ${rel?.version} (${nOpts.env})`, args, 600_000)
+      }
       return (
         <Box flexDirection="column">
           {header}
@@ -379,6 +422,15 @@ export const register: Register = on => {
             <Box gap={1} flexWrap="wrap">
               <Button key="scan" label={`Scan ${chosen}`} onPress={() => act($, `Scanning ${chosen} (fetching every repo)`, ['release', 'scan', '--version', chosen], 600_000)} />
               <Button key="ask-prep" label={`Ask Claude to prepare ${chosen}`} onPress={fill(askText('release', chosen))} />
+            </Box>
+          )}
+          {rel && (
+            <Box gap={1} flexWrap="wrap">
+              {steps.map(st => (
+                <Text key={`step-${st.key}`} color={st.state === 'done' ? COLORS.ok : st.state === 'now' ? COLORS.warn : COLORS.dim}>
+                  {st.state === 'done' ? '✓' : st.state === 'now' ? '▶' : '○'} {st.label}
+                </Text>
+              ))}
             </Box>
           )}
           {!rel && <Text dimColor>{chosen ? `No scan of ${chosen} yet. Press Scan, or ask Claude.` : 'Pick a version.'}</Text>}
@@ -427,6 +479,53 @@ export const register: Register = on => {
               {rel.results.map((x, i) => (x.url
                 ? <Link key={`res-${i}`} href={x.url} label={`${x.action ?? 'PR'} ${x.prId} ${x.repo}${x.missing?.length ? ` (could not link ${x.missing.join(', ')})` : ''}`} />
                 : <Text key={`res-${i}`} color={COLORS.urgent} wrap="wrap">{x.repo}: {x.error}</Text>))}
+              <Box flexDirection="column" marginTop={1}>
+                <Text bold>Release notes</Text>
+                {!hasPrs && <Text dimColor>Open the release PRs first: the notes are made from them.</Text>}
+                {hasPrs && (
+                  <Box flexDirection="column">
+                    <Box gap={1} flexWrap="wrap">
+                      <Text dimColor>Environment:</Text>
+                      {ENVS.map(e => <Button key={`env-${e}`} label={nOpts.env === e ? `[${e}]` : e} onPress={setOpts({ env: e })} />)}
+                    </Box>
+                    <Box gap={1} flexWrap="wrap">
+                      <Text dimColor>Scope:</Text>
+                      {SCOPES.map(([k, label]) => <Button key={`scope-${k}`} label={nOpts.scope === k ? `[${label}]` : label} onPress={setOpts({ scope: k })} />)}
+                    </Box>
+                    <Box gap={1} flexWrap="wrap">
+                      <Text dimColor>Priority:</Text>
+                      {PRIORITIES.map(([k, label]) => <Button key={`prio-${k}`} label={nOpts.priority === k ? `[${label}]` : label} onPress={setOpts({ priority: k })} />)}
+                    </Box>
+                    <Box gap={1} flexWrap="wrap">
+                      <Text dimColor>Look for:</Text>
+                      <Button key="opt-mig" label={`Migrations: ${nOpts.migrations ? 'yes' : 'no'}`} onPress={setOpts({ migrations: !nOpts.migrations })} />
+                      <Button key="opt-skills" label={`Skill files: ${nOpts.skills ? 'yes' : 'no'}`} onPress={setOpts({ skills: !nOpts.skills })} />
+                    </Box>
+                    <Box marginTop={1}><Button key="write-notes" label={runsOf.length ? `Write the notes for ${rel.version} again` : `Write the notes for ${rel.version}`} onPress={writeNotes} /></Box>
+                  </Box>
+                )}
+                {runsOf.map(r => (
+                  <Box key={`rn-${r.run}`} flexDirection="column" marginTop={1}>
+                    <Text color={r.stage === 'published' ? COLORS.ok : COLORS.warn}>{r.title ?? `run ${r.run}`} · {r.stage}{r.facts?.since ? ` · after ${r.facts.env} ${r.facts.since.version ?? r.facts.since.build}` : ''}</Text>
+                    {r.file && <Text dimColor wrap="wrap">  {r.file}</Text>}
+                    {(r.needText ?? []).length > 0 && (
+                      <Box flexDirection="column">
+                        <Text color={COLORS.warn} wrap="wrap">Each bug needs one line on what its fix changed for the user:</Text>
+                        {(r.needText ?? []).map(b => (
+                          <Box key={`bug-${r.run}-${b.id}`} flexDirection="column" marginLeft={1}>
+                            <Text wrap="wrap">ADO {b.id} {b.title}</Text>
+                            {Input && <Input key={`bugline-${r.run}-${b.id}`} placeholder="One sentence, plain English (Enter saves and renders again)" submitLabel="Save"
+                              onSubmit={v => { if (v.trim()) void act($, `Saving the line for ADO ${b.id}`, ['notes', 'text', '--run', r.run, '--id', String(b.id)], 120_000, v.trim()) }} />}
+                          </Box>
+                        ))}
+                        <Box marginLeft={1}><Button key={`ask-bugs-${r.run}`} label="Ask Claude to write these lines" onPress={fill(askText('bugs', r.run))} /></Box>
+                      </Box>
+                    )}
+                    {r.url && <Link href={r.url} label="Open the wiki page" />}
+                    {r.stage === 'rendered' && !(r.needText ?? []).length && planBox(planOf(r.token))}
+                  </Box>
+                ))}
+              </Box>
             </Box>
           )}
         </Box>
@@ -627,6 +726,71 @@ export const register: Register = on => {
               </Box>
             )
           })}
+        </Box>
+      )
+    }
+
+    // ---- pipelines: the newest build of each pipeline on the version's branches, and what each environment runs now
+    if (mode === 'pipelines') {
+      const pl = s.pipelines
+      const dep = s.deployments
+      const builds = buildRows(pl)
+      return (
+        <Box flexDirection="column">
+          {header}
+          <Box gap={1} flexWrap="wrap">
+            <Text dimColor>Version:</Text>
+            {(vs ?? []).slice(0, 6).map(v => <Button key={`pv-${v}`} label={v === chosen ? `[${v}]` : v} onPress={() => $.state.set(version, v)} />)}
+            {!vs && <Button key="p-load-versions" label="Read versions" onPress={() => loadVersions($)} />}
+            <Button key="read-builds" label={`Read builds${chosen ? ` of ${chosen}` : ''}`} onPress={() => act($, `Reading the builds${chosen ? ` of ${chosen}` : ''}`, ['pipelines', ...(chosen ? ['--version', chosen] : [])], 300_000)} />
+            <Button key="read-deploys" label="Read deployments" onPress={() => act($, 'Reading the deployments', ['deployments'], 300_000)} />
+          </Box>
+          <Text bold>Builds{pl ? ` on ${pl.branches.join(', ')}` : ''}</Text>
+          {!pl && <Text dimColor>Not read yet: press Read builds.</Text>}
+          {pl && <Text dimColor>read {ago(pl.generated, now)}{pl.version !== chosen && chosen ? ` (version ${pl.version}; press Read builds for ${chosen})` : ''}</Text>}
+          {pl && builds.length === 0 && pl.errors.length === 0 && <Text dimColor>No builds on these branches.</Text>}
+          {builds.map(b => {
+            const key = `b-${b.id}`
+            const tone = color(buildTone(b))
+            return (
+              <Box key={`row-${key}`} flexDirection="column">
+                <Box gap={1}>
+                  <Text color={tone}>●</Text>
+                  <Box flexGrow={1} flexShrink={1} minWidth={0}><Button key={key} label={`${b.repo} · ${b.pipeline} · ${b.branch}`} onPress={toggle(key)} /></Box>
+                  <Text color={tone}>{buildWord(b)}</Text>
+                </Box>
+                {b.failing && <Text color={COLORS.urgent} wrap="wrap">    {b.failing.step}{b.failing.message ? `: ${b.failing.message}` : ''}</Text>}
+                {opened === key && (
+                  <Box flexDirection="column" marginLeft={2}>
+                    <Text dimColor>{b.number} · queued {ago(epoch(b.queued), now)}{b.finished ? ` · finished ${ago(epoch(b.finished), now)}` : ''}</Text>
+                    <Link href={b.url} label="Open the build in Azure DevOps" />
+                  </Box>
+                )}
+              </Box>
+            )
+          })}
+          {(pl?.errors ?? []).map((e, i) => <Text key={`pe-${i}`} color={COLORS.urgent} wrap="wrap">could not read {e}</Text>)}
+          <Box flexDirection="column" marginTop={1}>
+            <Text bold>Deployed now</Text>
+            {!dep && <Text dimColor>Not read yet: press Read deployments.</Text>}
+            {dep && <Text dimColor>read {ago(dep.generated, now)}</Text>}
+            {dep && dep.rows.length === 0 && dep.errors.length === 0 && <Text dimColor>No deployments found (YAML environments or classic release stages).</Text>}
+            {deployGroups(dep).map(g => (
+              <Box key={`env-${g.env}`} flexDirection="column">
+                <Text>{g.env}</Text>
+                {g.rows.map((d, i) => (
+                  <Box key={`dep-${g.env}-${i}`} gap={1} marginLeft={2}>
+                    <Box flexGrow={1} flexShrink={1} minWidth={0}>
+                      {d.url ? <Link href={d.url} label={`${d.pipeline} → ${d.repo || d.project} ${d.version ?? d.branch}${d.build ? ` (${d.build})` : ''}`} />
+                        : <Text>{d.pipeline} → {d.repo || d.project} {d.version ?? d.branch}</Text>}
+                    </Box>
+                    <Text dimColor>{ago(epoch(d.at), now)}</Text>
+                  </Box>
+                ))}
+              </Box>
+            ))}
+            {(dep?.errors ?? []).map((e, i) => <Text key={`de-${i}`} color={COLORS.warn} wrap="wrap">could not read {e}</Text>)}
+          </Box>
         </Box>
       )
     }

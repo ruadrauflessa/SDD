@@ -3,6 +3,8 @@
 // `$` into another file).
 import type { DvActiveSync, DvPlan, DvRelease, DvReleaseRepo, DvStatus, DvSyncRow, DvView } from '../../types'
 
+import { doctorCounts, failedBuilds } from './pipelines'
+
 export type Tone = 'urgent' | 'warn' | 'ok' | 'dim'
 
 export const asList = <T>(x: T[] | T | null | undefined): T[] => (x == null ? [] : Array.isArray(x) ? x : [x])
@@ -135,7 +137,12 @@ export function needs(s: DvStatus | null | undefined): Need[] {
   for (const a of Object.values(s.sync.active ?? {})) {
     if (a.state === 'conflict') out.push({ key: `conf-${a.repo}`, tone: 'urgent', view: 'sync', text: `Resolve the conflicts in ${a.repo} (${a.branch}), then tell Claude it is done` })
   }
-  for (const p of waitingPlans(s)) out.push({ key: `plan-${p.token}`, tone: 'warn', view: viewOf(p), text: `Approve or turn down: ${p.summary}` })
+  for (const p of waitingPlans(s)) {
+    const run = p.kind === 'notes' ? s.notes.runs.find(r => r.token === p.token) : undefined
+    const lines = run?.needText?.length ?? 0
+    if (lines) out.push({ key: `plan-${p.token}`, tone: 'warn', view: run?.release ? 'release' : 'notes', text: `Write ${lines} bug line${lines === 1 ? '' : 's'}, then approve: ${p.summary}` })
+    else out.push({ key: `plan-${p.token}`, tone: 'warn', view: viewOf(p), text: `Approve or turn down: ${p.summary}` })
+  }
   for (const p of readyPlans(s)) out.push({ key: `run-${p.token}`, tone: 'ok', view: viewOf(p), text: `Approved, not run yet: ${p.summary}` })
   const rel = s.release[0]
   if (rel) {
@@ -145,6 +152,10 @@ export function needs(s: DvStatus | null | undefined): Need[] {
       }
     }
   }
+  const red = failedBuilds(s.pipelines)
+  if (red) out.push({ key: 'builds', tone: 'urgent', view: 'pipelines', text: `${red} build${red === 1 ? '' : 's'} failed on ${(s.pipelines?.branches ?? []).join(', ')}` })
+  const setup = doctorCounts(s.doctor).fail
+  if (setup) out.push({ key: 'setup', tone: 'urgent', view: 'overview', text: `Setup: ${setup} problem${setup === 1 ? '' : 's'} (see Setup below)` })
   const rv = s.reviews?.waiting ?? 0
   if (rv) out.push({ key: 'reviews', tone: 'warn', view: 'reviews', text: `${rv} PR${rv === 1 ? ' waits' : 's wait'} for your review` })
   const snap = asList(s.sync.snapshot?.entries)
@@ -166,6 +177,8 @@ export function statusText(s: DvStatus | null | undefined): string | undefined {
   if (w) bits.push(`${w} to approve`)
   const rv = s.reviews?.waiting ?? 0
   if (rv) bits.push(`${rv} to review`)
+  const red = failedBuilds(s.pipelines)
+  if (red) bits.push(`${red} build${red === 1 ? '' : 's'} failed`)
   const rel = s.release[0]
   if (rel) {
     const c = releaseCounts(rel)
@@ -179,7 +192,7 @@ export function statusText(s: DvStatus | null | undefined): string | undefined {
 export function parseArgs(raw: string): { view: DvView | null; version: string | null; refresh: boolean } {
   const words = raw.trim().split(/\s+/).filter(Boolean)
   const first = (words[0] ?? '').toLowerCase()
-  const views: DvView[] = ['overview', 'release', 'sync', 'notes', 'reviews', 'guard']
+  const views: DvView[] = ['overview', 'release', 'sync', 'notes', 'reviews', 'pipelines', 'guard']
   if (first === 'refresh') return { view: null, version: null, refresh: true }
   if ((views as string[]).includes(first)) {
     const v = first === 'release' && words[1] && /^[\w.-]+$/.test(words[1]) ? words[1] : null
@@ -189,12 +202,13 @@ export function parseArgs(raw: string): { view: DvView | null; version: string |
 }
 
 /** The prompt a button fills for the person to send: the skill does the judgement, devops.py the mechanics. */
-export function askText(what: 'release' | 'sync' | 'notes' | 'verify', arg?: string): string {
+export function askText(what: 'release' | 'sync' | 'notes' | 'verify' | 'bugs', arg?: string): string {
   switch (what) {
     case 'release': return `/devops:release-prep ${arg ? `prepare release ${arg}` : ''}`.trim()
     case 'sync': return '/devops:sync-team-branches sync the team branches'
     case 'notes': return '/devops:release-notes generate the release notes'
     case 'verify': return `I resolved the conflicts in ${arg}. Run devops.py sync verify --repo ${arg}, and if it passes, finish the sync.`
+    case 'bugs': return `/devops:release-notes write the one-line fix summaries for the bugs of notes run ${arg} (render lists them), then render it again with --texts. Do not publish.`
   }
 }
 
