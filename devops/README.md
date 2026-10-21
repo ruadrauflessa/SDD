@@ -9,7 +9,8 @@ start the stack for manual testing. Standalone (same marketplace as sdd and repo
 
 Needs Python 3.9+, git, PowerShell 7 (`pwsh`) for the scans, and `az login` (or a PAT in
 `AZURE_DEVOPS_EXT_PAT`) for the ADO reads and writes. Without `az`, the skills fall back to the Azure DevOps
-MCP tools (`references/mcp-fallback.md`), and the guards still hold.
+MCP tools (`references/mcp-fallback.md`), and the guards still hold. For a public project,
+`DEVOPS_ADO_ANONYMOUS=1` reads without signing in (writes always need a sign-in).
 
 ## The skills
 

@@ -404,6 +404,16 @@ def check_notes_flow(t):
              "2": item(2, "Feature", "Login", parent=1), "1": item(1, "Epic", "Platform")}
     wp = world(t, {"pullRequests": prs_, "items": items,
                    "pages": {"Proj/w1//Release Notes": {"content": "# Release Notes\n\nIntro.\n\n## Releases\n\n- [Release 1.0.1 [QA] - 2026-07-10](/Release-Notes/old) — **QA** — Only bugs\n", "etag": "\"4\""}}})
+    w = json.loads(wp.read_text())
+    w["pullRequests"][0]["lastMergeCommit"] = {"commitId": "f00d"}
+    w["pullRequests"][1]["commits"] = ["beef"]
+    wp.write_text(json.dumps(w))
+    code, text = run(ws, "notes", "collect", "--commit", "f00d", "--repo", "Gateway")   # the PR's merge commit
+    assert code == 0 and "PR 70" in text and "of commit f00d" in text, text
+    code, text = run(ws, "notes", "collect", "--commit", "beef", "--repo", "Gateway")   # a commit it introduced
+    assert code == 0 and "PR 60" in text, text
+    code, text = run(ws, "notes", "collect", "--commit", "0000", "--repo", "Gateway")
+    assert code == 2 and "no PR in ADO holds commit" in text
     code, text = run(ws, "notes", "collect")
     assert code == 0 and "newest group of 1" in text and "PR 70" in text and "PR 80" not in text, text
     run_id = text.split("Run ")[1].split(":")[0]

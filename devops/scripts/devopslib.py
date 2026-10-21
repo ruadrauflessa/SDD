@@ -271,6 +271,8 @@ class Ado:
     def auth(self):
         if self._auth:
             return self._auth
+        if os.environ.get("DEVOPS_ADO_ANONYMOUS"):  # a public project: reads need no sign-in
+            return None
         pat = os.environ.get("AZURE_DEVOPS_EXT_PAT") or os.environ.get("DEVOPS_ADO_PAT")
         if pat:
             self._auth = "Basic " + base64.b64encode(f":{pat}".encode()).decode()
@@ -297,7 +299,10 @@ class Ado:
             data, hdrs = fakeado.request(method, url, body, headers or {})
             return (data, hdrs) if want_headers else data
         raw = None if body is None else json.dumps(body).encode("utf-8")
-        h = {"Authorization": self.auth(), "Content-Type": content_type, "Accept": "application/json"}
+        h = {"Content-Type": content_type, "Accept": "application/json"}
+        auth = self.auth()
+        if auth:
+            h["Authorization"] = auth
         h.update(headers or {})
         req = urllib.request.Request(url, data=raw, method=method, headers=h)
         try:
@@ -347,10 +352,18 @@ class Ado:
         return sorted(int(x["id"]) for x in (r or {}).get("value", []))
 
     def prs_by_commit(self, project, repo, sha):
-        body = {"queries": [{"type": "commit", "items": [sha]}]}
-        r = self.call("POST", self.url(f"git/repositories/{urllib.parse.quote(repo)}/pullrequestquery", project), body)
-        res = ((r or {}).get("results") or [{}])[0]
-        return [pr for prs in res.values() for pr in prs]
+        """The PRs a commit belongs to: one it introduced, or the PR's own merge commit (ADO answers the two
+        query types apart; a branch commit alone can match neither, a merge commit only the second)."""
+        out, seen = [], set()
+        for typ in ("commit", "lastMergeCommit"):
+            body = {"queries": [{"type": typ, "items": [sha]}]}
+            r = self.call("POST", self.url(f"git/repositories/{urllib.parse.quote(repo)}/pullrequestquery", project), body)
+            for prs in (((r or {}).get("results") or [{}])[0]).values():
+                for pr in prs:
+                    if pr["pullRequestId"] not in seen:
+                        seen.add(pr["pullRequestId"])
+                        out.append(pr)
+        return out
 
     # -- work items
     def work_items(self, ids, fields=None, relations=False):

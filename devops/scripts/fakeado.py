@@ -128,8 +128,10 @@ def request(method, url, body, headers):
         return done({"value": [{"id": str(i)} for i in pr.get("workItems", [])]})
     mm = re.match(r"^git/repositories/([^/]+)/pullrequestquery$", rest)
     if mm and method == "POST":
-        sha = body["queries"][0]["items"][0]
-        hits = [_pr_view(x) for x in prs if (x.get("lastMergeSourceCommit") or {}).get("commitId") == sha]
+        typ, sha = body["queries"][0]["type"], body["queries"][0]["items"][0]
+        field = {"commit": "commits", "lastMergeCommit": "lastMergeCommit"}[typ]  # as ADO: two separate questions
+        hits = [_pr_view(x) for x in prs if sha in (x.get(field) or [])
+                or (field == "lastMergeCommit" and (x.get(field) or {}).get("commitId") == sha)]
         return done({"results": [{sha: hits}]})
 
     # -- work items
