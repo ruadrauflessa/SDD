@@ -64,6 +64,12 @@
   .tip { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
   .tip > b:first-child { display: block; margin-bottom: 2px; }
   .tip span { color: var(--dim); font-size: 15px; }
+  .picture { display: block; width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); margin: 12px 0; }
+  .prompt-head { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+  .prompt-head button { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 6px;
+    padding: 2px 10px; cursor: pointer; font-size: 13px; }
+  pre.prompt { white-space: pre-wrap; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px; margin: 6px 0 0; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   footer { color: var(--dim); font-size: 14px; margin-top: 24px; }
 </style>
 </head>
@@ -80,7 +86,7 @@
     <a href="#bug">4 First bug</a><a href="#spec">5 First spec item</a><a href="#after">While you work</a>
     <a href="#flows">The two flows</a><a href="#ado">What sdd writes to ADO</a><a href="#next">Pick the next item</a><a href="#request">Ai Agent Request</a>
     <a href="#panels">Panels (Desktop app)</a><a href="#bugmgr">Bug manager</a><a href="#repos">Repos and worktrees</a>
-    <a href="#visuals">Visual pages</a><a href="#guards">Safety nets</a><a href="#config">Configure</a>
+    <a href="#visuals">Visual pages</a><a href="#guards">Safety nets</a><a href="#hooks">The hooks in a picture</a><a href="#config">Configure</a>
     <a href="#commands">Every command</a><a href="#places">Where things live</a><a href="#rules">Rules</a><a href="#fix">If something goes wrong</a><a href="#update">Update sdd</a>
   </nav>
 
@@ -96,8 +102,8 @@
     </ul>
     <h3>What sdd needs</h3>
     <ul>
-      <li><b>Required:</b> Python 3.9 or newer (with SQLite FTS5), Node 18 or newer, git, and the Azure CLI signed in (<code>az login</code>). The scripts use the <code>az</code> login, never a token you paste.</li>
-      <li><b>Optional:</b> <b>graphify</b> (the code graph of a work item), <b>pandoc</b> (turns ADO's HTML into Markdown), <b>Ollama</b> with the <code>nomic-embed-text</code> model (meaning search; without it, word search still works).</li>
+      <li><b>Required:</b> Python 3.9 or newer (with SQLite FTS5), Node 18 or newer, git, the Azure CLI signed in (<code>az login</code>), and <b>graphify</b> (<code>pip install graphifyy</code>: the code graph every work item folder gets, and that Claude explores the code from). The scripts use the <code>az</code> login, never a token you paste.</li>
+      <li><b>Optional:</b> <b>pandoc</b> (turns ADO's HTML into Markdown), <b>Ollama</b> with the <code>nomic-embed-text</code> model (meaning search; without it, word search still works).</li>
       <li><b>For the bug manager:</b> PowerShell (Windows PowerShell 5.1 or PowerShell 7) and <code>az login</code>. A personal access token in <code>AZURE_DEVOPS_EXT_PAT</code> works too.</li>
       <li><b>For the panels:</b> the Claude Desktop app. In a terminal, in the VS Code extension or on a phone the panels do nothing; the commands and flows still work.</li>
     </ul>
@@ -124,7 +130,7 @@
       <li>A removed item is kept and marked <code>[REMOVED]</code>. An item ADO no longer returns is marked <code>MISSING</code>: deleted, moved to a project not in your list, or no access.</li>
       <li>A folder keeps its name when the title changes, is renamed when the type changes, and moves (with your own files) when the item gets a new parent.</li>
       <li>Every sync also writes <code>.index/metrics.json</code>: each item with what a decision needs (state, board column, assignee, versions, epic chain, what blocks it and what it blocks) and <b>what this sync changed</b>, with the fields before and after. A <b>MATERIAL</b> change is one to the requirement itself (title, description, acceptance criteria, repro steps, type or links); an <i>incidental</i> one is a tracked field such as the state. For a new or material item it lists the items it likely affects. No tokens used.</li>
-      <li>Search the synced spec in chat: ask for a word search or an items-like-this search (meaning search needs Ollama).</li>
+      <li>Search the synced spec in chat: ask for a search or for items like one you know. With Ollama on, every search ranks the items by their words <b>and</b> by their meaning, in one list, so an item that says the same thing in other words is found too. Without Ollama it is a word search.</li>
     </ul>
   </section>
 
@@ -169,7 +175,7 @@
       <li><b>Specify</b><span>Claims the item, mirrors it, runs impact.</span><span class="you">You: pick the path.</span></li>
       <li><b>Open Questions</b><span>Asks the questions in <code>questions.md</code>, one by one.</span><span class="you">You: answer, or say "Continue with this open".</span></li>
       <li class="stop"><b>Requirements</b><span>Shows the requirements as understood.</span><span class="you">You: approve.</span></li>
-      <li class="stop"><b>Design</b><span>Writes <code>design.md</code> after reading the real code. Skipped on the short path.</span><span class="you">You: approve.</span></li>
+      <li class="stop"><b>Design</b><span>Writes <code>design.md</code> after reading the real code. Each component it names is checked against the code graph (<code>env.py anchors</code>) before you can approve. Skipped on the short path.</span><span class="you">You: approve.</span></li>
       <li class="stop"><b>Decompose</b><span>Writes <code>tasks.md</code>. May propose tech stories.</span><span class="you">You: approve.</span></li>
       <li><b>Implement</b><span>One task at a time, each with its tests.</span></li>
       <li class="stop"><b>Verify</b><span>Checks drift from the spec and overlap with other work.</span><span class="you">You: approve.</span></li>
@@ -378,7 +384,9 @@
     <p>sdd enforces its rules with scripts and hooks, not by asking nicely.</p>
     <table>
       <tr><td>State guards</td><td><code>env.py can</code> answers whether a stage, PR, <code>done</code>, <code>abandon</code> or <code>reopen</code> is allowed in the item's state. A refusal says why and what gets it there; sdd never works around it. <code>env.py pr</code> and <code>env.py remove</code> enforce the same checks themselves.</td></tr>
-      <tr><td>Proof runs</td><td>The failing test, the revert check, the repeat run, the full suite and the task Verify commands are <b>recorded runs</b> (exit code, output, a fingerprint of the code). A gate passes only on a record that matches the current code. A later edit voids it.</td></tr>
+      <tr><td>Proof runs</td><td>The failing test, the revert check, the repeat run, the full suite and the task Verify commands are <b>recorded runs</b> (exit code, output, a fingerprint of the code). A gate passes only on a record that matches the current code. A later edit voids it. <b>Design agreed</b> passes only on an <code>env.py anchors</code> check of <code>design.md</code> against the code graph, and an edit of <code>design.md</code> voids it.</td></tr>
+      <tr><td>Graph guard (hook)</td><td>Claude finds code from the work item's <b>code graph</b>, not by grepping: a search of the code is refused until it has asked the graph in that stage, and while a flow runs a search of the main checkout is refused. The graph is rebuilt before every read once the code changed, and a stage that reads code starts only on a current graph. <code>env.py status</code> counts graph queries against searches.</td></tr>
+      <tr><td>Spec search guard (hook)</td><td>While meaning search is on (Ollama answers with the model, and the specs are embedded), Claude searches the synced specs by meaning first: a grep of the spec folder, or of a folder of items in it, is refused until it ran <code>spec.py query search</code> or <code>query similar</code> in that turn. After that, grep is open for exact text: an id, a field name, a quoted phrase. Reading one spec and finding a folder by its id stay open. Silent without Ollama.</td></tr>
       <tr><td>Question guard (hook)</td><td>Blocks a question to you unless its Links block ran first, blocks a question that has a link inside it, and sends a plain-text question back to be asked as a pick-list. Silent unless an sdd flow is running.</td></tr>
       <tr><td>Edit guard (hook)</td><td>While a flow runs, blocks edits to a repo file in the <b>main checkout</b>. Your spec folder, <code>.claude/</code> and <code>CLAUDE.md</code> stay open.</td></tr>
       <tr><td>Agent guard (hook)</td><td>Keeps the sub-agents read-only: no git writes (an allowlist of read commands) and no <code>env.py</code> or <code>spec.py</code> runs.</td></tr>
@@ -387,6 +395,45 @@
       <tr><td>ADO writes</td><td>Rev-tested, re-read and decided again on a conflict; a work item is written <code>ADO 4471</code>, never <code>#4471</code>.</td></tr>
       <tr><td>Session start</td><td>A hook adds the defaults of new settings to <code>.claude/sdd.json</code> after a plugin update. It never changes a value you set and never writes a file that is not valid JSON.</td></tr>
     </table>
+  </section>
+
+  <section id="hooks">
+    <h2>The hooks in a picture</h2>
+    <p>Every hook sdd installs, on one page: the guards in <code>hooks/hooks.json</code>, the Desktop view in <code>hooks/register.tsx</code>, and repowatch.</p>
+    <img class="picture" src="hooks-picasso.jpg" alt="The hooks of sdd as a cubist collage: the guards with their events and rules, the Desktop view's hooks in five groups, and repowatch's three hooks.">
+    <h3>Change the picture</h3>
+    <p>The picture is made by Google's Gemini image model (Nano Banana) from the prompt below. When a hook is added, removed or changed:</p>
+    <ol>
+      <li>Edit the lists in the prompt below, in <code>skills/sdd/help/help.html</code>, to match <code>hooks/hooks.json</code>, <code>hooks/register.tsx</code> and <code>repowatch/hooks/register.tsx</code>. The page then keeps the prompt that made the picture.</li>
+      <li>Copy the prompt and paste it into a new Gemini chat.</li>
+      <li>Check every word against the prompt. If one is wrong, reply in the same chat: <i>Fix only this text and keep everything else identical: it should read "…"</i>.</li>
+      <li>Save the result as <code>skills/sdd/help/hooks-picasso.jpg</code> in the plugin repo.</li>
+    </ol>
+    <div class="prompt-head"><b>Prompt</b><button data-copy-from="hooks-prompt">Copy</button></div>
+<pre class="prompt" id="hooks-prompt">Create a tall portrait poster (2:3) titled "THE HOOKS of sdd", as a Synthetic Cubism painting and collage in the spirit of Picasso's 1920s work. Flat fragmented planes in ochre, umber, muted blue, rose and green, thick black outlines, dotted and striped patterns, scraps of newspaper and faux wood-grain paper. The title is cut-out newspaper lettering pasted at angles, with a fractured cubist guitar beside it.
+
+Three sections, stacked top to bottom. All text is sharp, horizontal and readable, and spelled exactly as written below. No card or scrap may cover any text on another card. No signatures.
+
+SECTION I: "THE GUARDIANS" (subtitle "(hooks/hooks.json · exit 2 blocks)")
+Seven cubist portraits in a row, each face seen front-on and in profile at once. Below each portrait is a pasted card with three lines: the event, the script name and the rule.
+1. "PreToolUse · AskUserQuestion" / "question_guard.py pre" / "Every question bears its Links"
+2. "Stop" / "question_guard.py stop" / "Ask with the tool, not in prose"
+3. "PreToolUse · Bash | PowerShell" / "agent_guard.py pre" / "Sub-agents only read"
+4. "PreToolUse · Edit | Write" / "edit_guard.py pre" / "Work in the worktree"
+5. "PreToolUse · Bash | PowerShell | Grep | Glob | Read" / "graph_use.py pre + post" / "Explore the code from the graph"
+6. "PreToolUse · Bash | PowerShell | Grep" / "spec_use.py pre + post" / "Search the specs by meaning first"
+7. "SessionStart" / "env.py upgrade-config" / "The Herald: adds new config keys"
+
+SECTION II: "THE VIEW" (subtitle "(hooks/register.tsx · Claude Desktop only)")
+Exactly five tilted collage cards side by side. Each card has a heading and its hooks, one per line:
+"Setting up": session.start, session.attach
+"Commands": command.run sdd, sdd-view, sdd-worktrees, sdd-bugs, prompt.autocomplete
+"Tool calls": tool.call Bash | PowerShell, tool.call AskUserQuestion
+"Cost &amp; status": turn.start, turn.complete, session.measure, session.end
+"Drawing": ui.render Spinner, ui.render AbovePrompt, ui.render Pane, ui.close
+
+SECTION III: "THE WATCHER" (subtitle "repowatch")
+A strip of faux wood-grain paper holding three pasted labels: "session.start", "command.run repowatch", "ui.render Pane".</pre>
   </section>
 
   <section id="config">
@@ -477,9 +524,9 @@
     <h3>Work item folder: <code>.claude/worktrees/&lt;id&gt;-&lt;slug&gt;/</code></h3>
     <ul>
       <li><code>src/&lt;Repo&gt;/</code>: your code. Every edit, build, test and commit happens here.</li>
-      <li><code>graph/</code>: code graph of <code>src/</code>. Start with <code>GRAPH_REPORT.md</code>.</li>
+      <li><code>graph/</code>: code graph of <code>src/</code>. Start with <code>GRAPH_REPORT.md</code>. Claude finds code by asking the graph first (a search is refused until it has), and the graph is rebuilt as the code changes.</li>
       <li><code>workitem.json</code>: which repo is on which branch, its PR, and where the flow stopped (the last 50 checkpoints, and the cost).</li>
-      <li><code>CLAUDE.md</code>: generated; says "work only here" and lists the paths. <code>cost.jsonl</code>: one line per turn.</li>
+      <li><code>CLAUDE.md</code>: generated; says "work only here" and lists the paths. <code>cost.jsonl</code>: one line per turn. <code>graph-use.jsonl</code>: one line per graph query or code search.</li>
     </ul>
     <p>After <code>/sdd done</code> the folder is removed and a record stays in <code>.claude/worktrees/.done/&lt;id&gt;.json</code>, so <code>/sdd status</code> still says completed.</p>
     <h3>Spec folder: <code>specRoot</code> in <code>.claude/sdd.json</code>, then <code>**/&lt;id&gt;-&lt;TYPE&gt;-&lt;slug&gt;/</code></h3>
@@ -548,6 +595,12 @@
   document.querySelectorAll('[data-copy]').forEach(function (b) {
     b.addEventListener('click', function () {
       try { navigator.clipboard.writeText(b.dataset.copy); b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1200); } catch (e) {}
+    });
+  });
+  // a long text to copy lives in the element it names, not in the button
+  document.querySelectorAll('[data-copy-from]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      try { navigator.clipboard.writeText(document.getElementById(b.dataset.copyFrom).textContent); b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1200); } catch (e) {}
     });
   });
 </script>

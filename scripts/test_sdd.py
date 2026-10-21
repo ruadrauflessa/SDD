@@ -26,9 +26,73 @@ def wi(i, title, parent=None, rels=(), desc="", typ="User Story", rev=1, state="
 def check_help_copy():
     with tempfile.TemporaryDirectory() as t:
         out = env.help_copy(Path(t) / ".claude" / "sdd" / "help")
-        assert [p.name for p in out] == ["help.html"]
+        assert [p.name for p in out] == ["help.html", "hooks-picasso.jpg"]
         text = out[0].read_text(encoding="utf-8")
         assert "<html" in text and 'id="commands"' in text and 'id="init"' in text   # the guide and the reference, in one page
+        assert 'src="hooks-picasso.jpg"' in text and out[1].stat().st_size > 0   # the picture the page shows sits beside it
+
+
+def check_search(ctx):
+    """query search: words alone without Ollama; words and meaning in one ranked list with it."""
+    import argparse
+    import array
+    import contextlib
+    import io
+
+    # rank fusion: found by both beats found by one; each list keeps its own facts
+    got = spec.fuse([(3, 9.1), (4, 2.0)], [(0.91, 1), (0.80, 3)])
+    assert [d["id"] for d in got] == [3, 1, 4], got
+    assert got[0]["found_by"] == ["words", "meaning"] and got[0]["words_rank"] == 1 and got[0]["cosine"] == 0.80
+    assert got[1]["found_by"] == ["meaning"] and "bm25" not in got[1] and spec.found_by(got[1]) == "meaning 0.91"
+    assert spec.found_by(got[0]) == "words #1 + meaning 0.8"
+
+    # impact --all's similarity without numpy gives the same neighbours
+    vecs = {1: [1.0, 0.0], 2: [0.9, 0.1], 3: [0.0, 1.0]}
+    real = sys.modules.get("numpy")
+    sys.modules["numpy"] = None  # import numpy -> ImportError
+    try:
+        plain = spec.top_similar(vecs, [1, 3])
+    finally:
+        if real is None:
+            del sys.modules["numpy"]
+        else:
+            sys.modules["numpy"] = real
+    assert [j for _, j in plain[1]] == [2, 3] and plain[1][0][0] == 0.994, plain
+    try:
+        import numpy  # noqa: F401
+        assert {i: [j for _, j in v] for i, v in spec.top_similar(vecs, [1, 3]).items()} == \
+            {i: [j for _, j in v] for i, v in plain.items()}
+    except ImportError:
+        pass
+
+    def search(text):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            spec.cmd_query(argparse.Namespace(what="search", text=text, id=None, hops=2, json=False))
+        return out.getvalue().splitlines()
+
+    real = spec.Ctx, spec.meaning_status, spec.embed_texts
+    spec.Ctx = lambda: ctx
+    try:
+        spec.meaning_status = lambda c: (None, "Ollama is not running")
+        lines = search("ChatSession")
+        assert lines[0] == "meaning search: off (Ollama is not running): ranked by words only", lines
+        assert {int(x.split()[0]) for x in lines[1:]} == {3, 4} and all("words #" in x for x in lines[1:]), lines
+
+        # with Ollama: the epic says nothing of ChatSession, but means the same as the query
+        ctx.db.executemany("INSERT OR REPLACE INTO emb VALUES(?,?,?,?)", [
+            (i, "h", "m", array.array("f", v).tobytes()) for i, v in [(1, [1, 0]), (2, [0, 1]), (3, [0.6, 0.8]), (4, [0, 1])]])
+        spec.meaning_status = lambda c: ("m", "")
+        spec.embed_texts = lambda c, model, texts: [[1.0, 0.0]]
+        lines = search("ChatSession")
+        assert lines[0] == "meaning search: on (m): ranked by words and by meaning", lines
+        by = {int(x.split()[0]): x for x in lines[1:]}
+        assert by[1].endswith("meaning 1.0") and "words #" not in by[1], by
+        assert "words #" in by[3] and "meaning 0.6" in by[3], by
+        assert int(lines[1].split()[0]) == 3, lines        # found by words and by meaning: first
+    finally:
+        spec.Ctx, spec.meaning_status, spec.embed_texts = real
+        ctx.db.execute("DELETE FROM emb")
 
 
 def main():
@@ -171,6 +235,7 @@ def main():
         spec.impact_all(ctx, _ap.Namespace(scope=2, hops=2))
         sub = json.loads(next((root / "docs/spec").rglob("2-FEAT-*/impact-all.json")).read_text(encoding="utf-8"))
         assert all({p["a"], p["b"]} <= {2, 4} for p in sub["pair_list"])  # 3 moved under the epic
+        check_search(ctx)
         ctx.db.close()
 
         # decision links: requirements.md always included, a missing ref is an error, never skipped
@@ -203,7 +268,8 @@ def main():
         assert not ok and any("Phase 7 was never worked" in w for w in why), why  # no jumping past a stage
         rec["stages"]["Phase 7"] = {"at": "t", "status": "done"}
         (wdir / "workitem.json").write_text(json.dumps(rec))
-        assert env.check_op(root, cfg, 5, "phase", None, "Phase 8")[0]
+        ok, why = env.check_op(root, cfg, 5, "phase", None, "Phase 8")[:2]
+        assert not ok and why == ["Phase 8 needs 'Graph' first — not true on disk yet: env.py graph --id 5"], why  # code stages need the graph
         assert not env.check_op(root, cfg, 5, "phase", None, "Phase 4")[0]         # derived Worktree missing
 
         # progress: a stage is never skipped silently, only with the user's recorded yes
@@ -279,12 +345,14 @@ def main():
         # a real remove: folder gone, record kept, verdict now "completed"
         (ddir / "workitem.json").write_text(json.dumps({**drec, "repos": {}}))
         (ddir / "cost.jsonl").write_text(json.dumps({"stage": "Verify", "usd": 0.5}) + "\n", encoding="utf-8")
+        (ddir / "graph-use.jsonl").write_text(json.dumps({"stage": "Phase 4", "kind": "graph"}) + "\n", encoding="utf-8")
         with contextlib.redirect_stdout(io.StringIO()):
             env.cmd_remove(_ap.Namespace(id=6, abandon=False, yes=True))
         kept = json.loads((env.done_dir(root, cfg) / "6.json").read_text(encoding="utf-8"))
         assert not ddir.exists() and v(None, kept, []).startswith("completed")
         assert kept["spend"] == {"Verify": {"usd": 0.5, "turns": 1, "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}}                       # the cost file goes with the folder: its totals stay
         assert env.view_item(root, cfg, kept, None, False)["spend"] == kept["spend"]       # and the view still reports them
+        assert kept["graphUse"]["graph"] == 1 and env.view_item(root, cfg, kept, None, False)["graphUse"] == kept["graphUse"]
         # Open Questions: conditional stage, driven by the unticked boxes in questions.md
         sdir = root / cfg["specRoot"] / "9-US-asks"
         sdir.mkdir(parents=True)
@@ -386,6 +454,22 @@ def main():
         got = json.loads((qdir / "workitem.json").read_text(encoding="utf-8"))
         assert "spend" not in got and got["progress"]["phase"] == "Design"                 # workitem.json is never rewritten by a cost
         assert env.view_item(root, cfg, got, qdir, False)["spend"]["Design"]["cacheRead"] == 50000
+        # graph-use.jsonl (hooks/graph_use.py): graph queries vs hand searches, and whether each stage began with the graph
+        assert env.read_graph_use(qdir) == {"graph": 0, "search": 0, "stages": {}}
+        assert env.graph_use_line(env.read_graph_use(qdir)) == "no graph queries or searches recorded"
+        with open(qdir / "graph-use.jsonl", "w", encoding="utf-8") as f:
+            for stage, kind in (("Design", "graph"), ("Design", "search"), ("Design", "graph"),
+                                ("Implement (task 2)", "search"), ("Implement", "graph"), ("", "search")):
+                f.write(json.dumps({"stage": stage, "kind": kind}) + "\n")
+            f.write("not json\n" + json.dumps({"stage": "Design", "kind": "read"}) + "\n[1]\n")
+        use = env.read_graph_use(qdir)
+        assert use == {"graph": 3, "search": 3, "stages": {
+            "Design": {"graph": 2, "search": 1, "graphFirst": True},
+            "Implement": {"graph": 1, "search": 1, "graphFirst": False},
+            "no stage": {"graph": 0, "search": 1, "graphFirst": False}}}, use
+        assert env.graph_use_line(use) == ("3 graph queries, 3 searches; searched before asking the graph in "
+                                           "Implement, no stage")
+        assert env.view_item(root, cfg, got, qdir, False)["graphUse"] == use
         os.chdir(Path(__file__).parent)
     stage_docs()
     graph_focus()

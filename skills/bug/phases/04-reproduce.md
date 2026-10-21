@@ -8,6 +8,8 @@
   service; expect to cross a repo boundary and note every repo involved.
 - **Start from the code graph.** Read `<folder>\graph\GRAPH_REPORT.md` for the overview, then
   `graphify query "<question>" --graph <folder>\graph\graph.json` to find where the symptom lives.
+  A search of the code is refused until you have asked the graph in this stage (see "Exploring
+  code" in the flow rules).
   The graph is a map, not the truth — confirm every lead by reading the file it points at. For a
   symptom that could live in several places, hand the search to **`sdd:investigator`** ("where does
   <symptom> originate? return file:line anchors") and keep only its findings here.

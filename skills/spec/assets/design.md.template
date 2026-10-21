@@ -13,9 +13,13 @@ code it touches, describing what the codebase actually looks like today.}
 
 ## Affected components
 
-| Component | Change | Notes |
-| --- | --- | --- |
-| `{path or project}` | {new / modified / removed} | {what and why} |
+| Component | Change | Graph node | Notes |
+| --- | --- | --- | --- |
+| `{path or project}` | {new / modified / removed} | `{node id}` or new | {what and why} |
+
+<!-- Graph node: the ID line of `graphify explain "<name>" --graph <folder>/graph/graph.json`;
+     several ids are separated by commas. A new component has none yet: write new.
+     `env.py anchors --id <id>` checks every row against the graph; "Design agreed" passes only on it. -->
 
 ## Contracts and data
 

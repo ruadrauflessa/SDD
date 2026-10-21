@@ -175,13 +175,40 @@ table of its gates, and when to **revoke** one (`--revoke` on the next checkpoin
 approved has changed.
 
 Gates the script reads from disk, so you never pass them: `Worktree` (every repo's worktree
-exists), `PR raised` (a PR is recorded), `Tasks written` / `Tasks done` (checkboxes in `tasks.md`).
+exists), `Graph` (the code graph is built; a stage that needs it starts only while it is current),
+`PR raised` (a PR is recorded), `Tasks written` / `Tasks done` (checkboxes in `tasks.md`).
 
 Some gates pass **only on recorded runs** (flows.json `proofs`): `env.py run`, `env.py
 revert-check` and `env.py verify` run the command in the worktree and save the exit code, the last
 lines of output and a fingerprint of the code. A gate marked current needs runs on the code as it is
 now: an edit after the run voids it, a commit of the same files does not. `progress --passed` and
 `env.py pr` say exactly which run is missing.
+
+## Exploring code — the graph first (enforced)
+
+Every work item folder has a code graph of its `src\`: `graph\graph.json`, with
+`graph\GRAPH_REPORT.md` as its overview. You find code by asking the graph, not by grepping:
+
+```
+graphify query "<what you are looking for>" --graph <folder>\graph\graph.json
+graphify explain "<name>"   --graph <folder>\graph\graph.json   # one node, its ID and its links
+graphify affected "<name>"  --graph <folder>\graph\graph.json   # what depends on it
+```
+
+Then read the files it points at: the graph is a map, not the truth.
+
+The plugin enforces this (`hooks/graph_use.py`):
+
+- **A search of the work item's code is refused until you have asked its graph** in the current
+  stage of this session. Searches are Grep, Glob, grep, rg, findstr, Select-String, git grep and find.
+  Each sub-agent asks the graph itself. After that first graph query, searches are open for what a
+  graph does not hold: string literals, config keys, SQL, one pattern across many files.
+- **The graph is always current.** Before any read of it, the hook rebuilds it when the code
+  changed since it was built (seconds, incremental). If it cannot, because graphify is missing or
+  failed, the read is refused: fix graphify (`env.py doctor`), never work around the graph.
+- **While a flow runs, a search of a repo in the main checkout is refused.** Search the worktree.
+- `env.py new` fails without a graph. A stage that reads code needs the `Graph` gate, and it starts
+  only while the graph is current.
 
 ## Resuming
 
