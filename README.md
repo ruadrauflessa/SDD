@@ -110,9 +110,19 @@ no ADO, no tokens). Sync an epic first with `/sdd sync <epic id>`.
     are withdrawn, and a story with none counts as 1. A story is done when its state says so.
 - **Open an epic** to see its features, each with its own bar. Open a feature to see its stories: state,
   points, criteria, who has it and its sdd stage. Open bugs are listed too, with links to ADO.
-- **Rules…** sets one project's rules: what each state it uses counts as (done, in progress, not started, left
-  out) and the measure it shows first. **Save** writes them to `.claude/sdd.json` under
-  `"progress": {"projects": {"<project>": ...}}`, through `spec.py progress-rules`.
+- **Rules…** sets one project's rules and the measure it shows first.
+  - **Field rules** test any field of the item, for example a custom board column:
+    "Board Column Title is Dev Completed or QA Deployed → done". You pick the field from the ones the
+    project's items have, then pick from the values they hold. A rule can also test two fields together.
+  - Field rules are checked top to bottom (▲ ▼ reorder them), and the first that matches decides.
+  - An item no rule matches goes by its state: press each state to set what it counts as (done, in progress,
+    not started, left out).
+  - **Save** writes the rules to `.claude/sdd.json` under `"progress": {"projects": {"<project>": ...}}`, through
+    `spec.py progress-rules`. In the file a rule reads
+    `{"field": "Custom.BoardColumnTitle", "values": ["Dev Completed"], "as": "done"}`. `"and"` adds
+    `{"<field>": [values]}` that must match too, and `as` is `done`, `active`, `todo` or `ignored`.
+  - The sync keeps every short field value of each item for this. Rules on a field other than the state or the
+    board column work after the next sync.
 - **Sync from ADO** refreshes every synced scope. **Auto sync** repeats it every 15, 30 or 60 minutes while
   the page is open. The numbers are re-read every minute anyway, so a sync from a chat shows up by itself.
 - **An epic that came in only as a feature's parent** says its numbers are short. **Sync all of it** pulls the whole epic.
@@ -124,6 +134,7 @@ The workspace rules are in `.claude/sdd.json` `"progress"`:
 - `defects`: the types kept apart.
 - `done`: empty means `doneStates`.
 - `todo`: the not-started states.
+- `rules`: field rules for every project.
 - `ignore`: the states left out.
 - `doneBoards`: board columns that count as done.
 - `syncMinutes`: the default for Auto sync.

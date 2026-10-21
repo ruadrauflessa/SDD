@@ -6,12 +6,16 @@ reads it. Deterministic, from the index only: no ADO call, no model, no tokens. 
 What counts. Features and stories (`work` types) are the work; bugs and issues (`defects`) are their own
 metric and never part of an epic's completion. A work item counts once, as a leaf: a feature with stories
 counts through its stories, a feature with none counts as itself. Each leaf is done, active (in progress),
-todo (not started) or ignored, by the project's rules:
+todo (not started) or ignored (left out of every count), by the project's rules, in this order:
 
-    ignore  its state is ignored, or it was removed            -> left out of every count
-    done    its state is a done state, or its board column a done board
-    todo    its state is a not-started one
-    active  anything else
+    removed in ADO                                   -> ignored
+    "rules": the first that matches, top to bottom   -> its "as"
+        {"field": "Custom.BoardColumnTitle", "values": ["Dev Completed", "QA Deployed"], "as": "done"}
+        {"field": "System.State", "values": ["Active"], "and": {"Custom.BoardColumnTitle": ["New"]}, "as": "todo"}
+      A field is any field of the item, by its reference name (the sync keeps every short field's value);
+      values match whole, case aside; "and" adds fields that must match too.
+    its state in "ignore" / "done" (or its board column in "doneBoards") / "todo"
+    anything else                                    -> active
 
 Three measures, all computed so the page switches at once; `measure` says which a project shows first:
 
@@ -36,7 +40,17 @@ from datetime import datetime, timedelta, timezone
 MEASURES = ("count", "points", "criteria")
 STATUSES = ("done", "active", "todo")
 HISTORY_DAYS = 120
-RULE_KEYS = ("measure", "work", "defects", "done", "todo", "ignore", "doneBoards")
+RULE_KEYS = ("measure", "work", "defects", "done", "todo", "ignore", "doneBoards", "rules")
+AS = ("done", "active", "todo", "ignored")
+# The index columns a field falls back to, for an item synced before the index kept every field's value
+COLUMNS = {"System.State": "state", "System.WorkItemType": "type", "System.AreaPath": "area", "System.IterationPath": "iteration",
+           "System.Tags": "tags", "System.AssignedTo": "assigned", "Custom.BoardColumnTitle": "board",
+           "Microsoft.VSTS.Common.Priority": "priority", "Microsoft.VSTS.Common.Severity": "severity"}
+# Fields no rule is about: ids, counters, people stamps, text. The Rules panel does not offer them.
+NOT_RULES = {"system.id", "system.rev", "system.title", "system.teamproject", "system.parent", "system.commentcount",
+             "system.watermark", "system.createdby", "system.changedby", "system.authorizedas", "system.personid",
+             "system.nodename", "system.areaid", "system.iterationid", "system.arealevel1", "system.iterationlevel1",
+             "system.history", "system.description", "system.tags"}
 
 
 def now():
@@ -53,6 +67,7 @@ def rules_for(cfg, project):
         r["done"] = list(cfg["doneStates"])
     if r.get("measure") not in MEASURES:
         r["measure"] = "count"
+    r["rules"] = [x for x in (norm_rule(y) for y in (r.get("rules") or [])) if x]
     return r
 
 
@@ -60,10 +75,72 @@ def _low(xs):
     return {str(x).lower() for x in xs or []}
 
 
+def norm_rule(r):
+    """{"when": {field: [values]}, "as"} from {"field", "values", "and", "as"} (or {"when", "as"}); None when it is
+    not a usable rule."""
+    if not isinstance(r, dict) or r.get("as") not in AS:
+        return None
+    when = {}
+    if isinstance(r.get("when"), dict):
+        when.update(r["when"])
+    if r.get("field"):
+        when[r["field"]] = r.get("values")
+    if isinstance(r.get("and"), dict):
+        when.update(r["and"])
+    out = {}
+    for k, vs in when.items():
+        vs = vs if isinstance(vs, list) else [vs] if vs is not None else []
+        if str(k).strip() and vs:
+            out[str(k).strip()] = [str(v) for v in vs]
+    return {"when": out, "as": r["as"]} if out and len(out) == len(when) else None
+
+
+def saved_rule(n):
+    """A normalised rule as sdd.json keeps it: the first field as field/values, the rest under "and"."""
+    (first, values), *rest = list(n["when"].items())
+    out = {"field": first, "values": values}
+    if rest:
+        out["and"] = dict(rest)
+    out["as"] = n["as"]
+    return out
+
+
+def fields_of(row):
+    """{field, lowercase: value}: the values the index kept (fieldvals), and the index's own columns for the rest."""
+    if "_f" not in row:
+        try:
+            kept = json.loads(row.get("fieldvals") or "{}")
+        except ValueError:
+            kept = {}
+        out, names = {}, {}
+        for k, v in (kept if isinstance(kept, dict) else {}).items():
+            out[k.lower()], names[k.lower()] = v, k
+        for name, col in COLUMNS.items():
+            if name.lower() not in out and row.get(col) not in (None, ""):
+                out[name.lower()], names[name.lower()] = row[col], name
+        row["_f"], row["_names"] = out, names
+    return row["_f"]
+
+
+def matches(row, when):
+    f = fields_of(row)
+    for name, values in when.items():
+        v = f.get(name.lower())
+        have = "" if v is None else str(v).strip().lower()
+        if have not in {str(x).strip().lower() for x in values}:
+            return False
+    return True
+
+
 def status_of(row, rules):
     """done, active, todo or ignored, by the rules above."""
+    if row.get("removed"):
+        return "ignored"
+    for r in rules.get("rules") or []:
+        if matches(row, r["when"]):
+            return r["as"]
     state = (row.get("state") or "").lower()
-    if row.get("removed") or state in _low(rules["ignore"]):
+    if state in _low(rules["ignore"]):
         return "ignored"
     if state in _low(rules["done"]) or (row.get("board") or "").lower() in _low(rules.get("doneBoards")):
         return "done"
@@ -229,14 +306,37 @@ def build(rows, cfg, scopes=(), org="", previous=None):
             p = row.get("project") or ""
             s = states.setdefault(p, {})
             s[row["state"]] = s.get(row["state"], 0) + 1
-    projects = {p: {"rules": rules_for(cfg, p),
-                    "states": [{"state": st, "count": c, "rule": status_of({"state": st}, rules_for(cfg, p))}
-                               for st, c in sorted(states.get(p, {}).items(), key=lambda kv: (-kv[1], kv[0]))]}
+    plain = lambda p: dict(rules_for(cfg, p), rules=[])  # a state alone, as the rules' fallback reads it
+    projects = {p: {"rules": dict(rules_for(cfg, p), rules=[saved_rule(x) for x in rules_for(cfg, p)["rules"]]),
+                    "states": [{"state": st, "count": c, "rule": status_of({"state": st}, plain(p))}
+                               for st, c in sorted(states.get(p, {}).items(), key=lambda kv: (-kv[1], kv[0]))],
+                    "fields": field_catalog([r for r in rows.values() if (r.get("project") or "") == p and (is_work(r) or is_defect(r))])}
                 for p in sorted(set(states) | set(rules))}
     placed = {d["id"] for t in tops for d in walk_defects(t)}
     orphans = sum(1 for row in rows.values() if is_defect(row) and row["id"] not in placed)
     return {"generated_at": now(), "measures": list(MEASURES), "projects": projects, "tops": tops,
             "orphans": {"defects": orphans}}
+
+
+def field_catalog(rows, most=40):
+    """[{field, values: [{value, count}]}]: the fields a rule can test in these items, with the values they hold.
+    Only fields with a short list of values (a pick list, a board column, a state), never ids, dates or text."""
+    seen, names = {}, {}
+    for row in rows:
+        f = fields_of(row)
+        for k, v in f.items():
+            if k in NOT_RULES or v in (None, "") or isinstance(v, bool):
+                continue
+            text = str(v)
+            if len(text) > 80 or re.match(r"\d{4}-\d{2}-\d{2}T", text):
+                continue
+            names[k] = row["_names"].get(k, k)
+            seen.setdefault(k, {})
+            seen[k][text] = seen[k].get(text, 0) + 1
+    first = {"system.state": 0, "custom.boardcolumntitle": 1, "system.boardcolumn": 2}
+    out = [{"field": names[k], "values": [{"value": v, "count": c} for v, c in sorted(vals.items(), key=lambda kv: (-kv[1], kv[0]))]}
+           for k, vals in seen.items() if 1 <= len(vals) <= most]
+    return sorted(out, key=lambda x: (first.get(x["field"].lower(), 9), x["field"].lower()))
 
 
 def walk_defects(n):
@@ -294,13 +394,20 @@ def trend(lines, data, days=7, today=None):
 
 # ---------------------------------------------------------------- the Rules panel: a project's rules, checked
 
-def rules_problems(done, todo, ignore, measure):
-    """What makes a rule set unusable: a state in two lists, an empty done list, an unknown measure."""
+def rules_problems(done, todo, ignore, measure, rules=()):
+    """What makes a rule set unusable: a rule with no field, values or outcome; nothing that counts as done; a
+    state in two lists; an unknown measure."""
     out = []
     if measure not in MEASURES:
         out.append(f"measure must be one of {', '.join(MEASURES)}")
-    if not [s for s in done if s.strip()]:
-        out.append("at least one state must count as done")
+    normed = []
+    for i, r in enumerate(rules, 1):
+        n = norm_rule(r)
+        if not n:
+            out.append(f"rule {i} needs a field, at least one of its values, and what it counts as ({', '.join(AS)})")
+        normed.append(n)
+    if not [s for s in done if s.strip()] and not any(n and n["as"] == "done" for n in normed):
+        out.append("at least one state or rule must count as done")
     seen = {}
     for name, xs in (("done", done), ("todo", todo), ("ignore", ignore)):
         for s in xs:

@@ -19,8 +19,9 @@ import { CATEGORY_TEXT_FIELDS, SECTIONS, addAlternative, addCategory, addToField
   filesToWrite, freeKeys, getAt, isDirty, moveCategory, needsSync, removeAlternative, removeCategory, removeConditionKey, removeFromField, resetSection, revertDraft, sectionDirty,
   seedFor, setCategoryText, setConditionKey, setField, settingsProblems, startDraft, updateCategory, valueText, withCondition } from './view/settings'
 import type { CategoryTextField, Field } from './view/settings'
-import { AUTO_STEPS, MEASURE_KEYS, MEASURE_LABEL, RULE_WORD, autoNext, barLabel, defectBar, defectText, hiddenFinished, leafLine, measureFor, nextRule, pct,
-  projectsOf, rulesArgs, rulesDraft, syncedText, textBar, trendText, visibleTops, workBar } from './view/progress'
+import { AUTO_STEPS, MEASURE_KEYS, MEASURE_LABEL, RULE_WORD, addRule, autoNext, barLabel, defectBar, defectText, dropRule, fieldLabel, fieldValues, hiddenFinished,
+  leafLine, measureFor, moveRule, nextRule, pct, pickField, projectsOf, ruleText, rulesArgs, rulesDraft, syncedText, textBar, toggleValue, trendText, visibleTops,
+  workBar } from './view/progress'
 import type { Rule } from './view/progress'
 
 const PANE = 'sdd-view'
@@ -2045,7 +2046,47 @@ export const register: Register = (on, options) => {
           {header}
           <Box flexDirection="column" gap={1} borderStyle="round" borderColor={C.line} paddingX={1}>
             <Text bold>{`Rules for ${draft.project}`}</Text>
-            <Text dimColor wrap="wrap">Press a state to change what it counts as: done, in progress, not started or left out. These rules apply to this project only.</Text>
+            <Text dimColor wrap="wrap">These rules apply to this project only. Field rules are checked first, top to bottom: the first that matches decides. An item no rule matches goes by its state.</Text>
+            <Text bold>Field rules</Text>
+            {draft.rules.length === 0 && <Text dimColor>None yet: every item goes by its state.</Text>}
+            {draft.rules.map((r, i) => (
+              <Box key={`frule-${i}`} flexDirection="row" gap={1} alignItems="center">
+                <Box flexGrow={1} flexShrink={1} minWidth={0}><Text wrap="wrap">{`${i + 1}. ${ruleText(r)} → ${RULE_WORD[r.as as Rule]}`}</Text></Box>
+                <Button key={`rule-up-${i}`} label="▲" onPress={() => setDraft(moveRule(draft, i, -1))} />
+                <Button key={`rule-down-${i}`} label="▼" onPress={() => setDraft(moveRule(draft, i, 1))} />
+                <Button key={`rule-drop-${i}`} label="✕" onPress={() => setDraft(dropRule(draft, i))} />
+              </Box>
+            ))}
+            {(() => {
+              const fields = data?.projects[draft.project]?.fields ?? []
+              const values = fieldValues(data, draft.project, draft.adding.field)
+              if (!fields.length) return <Text dimColor wrap="wrap">No field values in the mirror yet: press Sync from ADO, then open Rules again.</Text>
+              return (
+                <Box flexDirection="column" gap={1} borderStyle="round" borderColor={C.line} paddingX={1}>
+                  <Text>Add a rule: when this field holds one of the values picked</Text>
+                  {Select
+                    ? <Select key="rule-field" label="Field" options={fields.map(f => ({ value: f.field, label: `${fieldLabel(f.field)} (${f.field})` }))}
+                        value={draft.adding.field ?? undefined} onSelect={v => void setDraft(pickField(draft, v))} />
+                    : (
+                      <Box flexDirection="row" gap={1} flexWrap="wrap">
+                        {fields.map(f => <Button key={`rule-field-${f.field}`} label={draft.adding.field === f.field ? `[${fieldLabel(f.field)}]` : fieldLabel(f.field)} onPress={() => setDraft(pickField(draft, f.field))} />)}
+                      </Box>
+                    )}
+                  <Box flexDirection="row" gap={1} flexWrap="wrap">
+                    {values.map(v => (
+                      <Button key={`rule-value-${v.value}`} label={`${draft.adding.values.includes(v.value) ? '☑' : '☐'} ${v.value} (${v.count})`} onPress={() => setDraft(toggleValue(draft, v.value))} />
+                    ))}
+                  </Box>
+                  <Box flexDirection="row" gap={1} alignItems="center">
+                    <Button key="rule-as" label={`Counts as: ${RULE_WORD[draft.adding.as as Rule]}`} onPress={() => setDraft({ ...draft, adding: { ...draft.adding, as: nextRule(draft.adding.as as Rule) } })} />
+                    <Button key="rule-add" label="Add rule" onPress={() => setDraft(addRule(draft))} />
+                    {!draft.adding.values.length && <Text dimColor>Pick at least one value.</Text>}
+                  </Box>
+                </Box>
+              )
+            })()}
+            <Text bold>By state, when no field rule matches</Text>
+            <Text dimColor wrap="wrap">Press a state to change what it counts as: done, in progress, not started or left out.</Text>
             <Box flexDirection="row" gap={1} flexWrap="wrap">
               {Object.entries(draft.states).map(([st, rule]) => (
                 <Button key={`rule-${st}`} label={`${st}: ${RULE_WORD[rule as Rule]}`} onPress={() => setDraft({ ...draft, states: { ...draft.states, [st]: nextRule(rule as Rule) } })} />

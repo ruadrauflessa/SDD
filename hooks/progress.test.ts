@@ -3,7 +3,8 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { ProgressData, ProgressNode } from '../types'
-import { barLabel, barSvg, defectText, leafLine, measureFor, nextRule, pct, rulesArgs, rulesDraft, textBar, trendText, visibleTops, workBar } from './view/progress'
+import { addRule, barLabel, barSvg, defectText, dropRule, fieldLabel, leafLine, measureFor, moveRule, nextRule, pct, pickField, ruleText, rulesArgs, rulesDraft, textBar,
+  toggleValue, trendText, visibleTops, workBar } from './view/progress'
 
 const C = { done: '#3f9a63', now: '#c98a12', work: '#4a7fc4', revoked: '#c0503f', gate: '#8a73c9', dim: '#7b8794', line: '#5c6670', hoverText: '#ffffff' }
 const M = (total: number, done: number, active: number, missing = 0) => ({ total, done, active, todo: total - done - active, missing })
@@ -18,8 +19,11 @@ const story = (id: number, title: string, status: 'done' | 'active' | 'todo', ex
 
 const DATA: ProgressData = {
   generated_at: '2026-10-21T10:00:00Z', syncedAt: '2026-10-21T09:00:00Z', syncMinutes: 0, measures: ['count', 'points', 'criteria'],
-  projects: { Proj: { rules: { measure: 'points', work: ['Feature', 'User Story'], defects: ['Bug', 'Issue'], done: ['Closed'], todo: ['New'], ignore: ['Removed'], doneBoards: [] },
-    states: [{ state: 'Active', count: 3, rule: 'active' }, { state: 'Closed', count: 2, rule: 'done' }, { state: 'New', count: 1, rule: 'todo' }] } },
+  projects: { Proj: { rules: { measure: 'points', work: ['Feature', 'User Story'], defects: ['Bug', 'Issue'], done: ['Closed'], todo: ['New'], ignore: ['Removed'], doneBoards: [],
+      rules: [{ field: 'Custom.Stage', values: ['Ready'], as: 'active' }] },
+    states: [{ state: 'Active', count: 3, rule: 'active' }, { state: 'Closed', count: 2, rule: 'done' }, { state: 'New', count: 1, rule: 'todo' }],
+    fields: [{ field: 'System.State', values: [{ value: 'Active', count: 3 }, { value: 'Closed', count: 2 }] },
+      { field: 'Custom.BoardColumnTitle', values: [{ value: 'Dev Completed', count: 2 }, { value: 'QA Deployed', count: 1 }] }] } },
   tops: [
     { id: 800, type: 'Epic', title: 'Invoice platform', state: 'Active', status: 'active', project: 'Proj', assigned: '', board: '',
       url: 'https://dev.azure.com/Org/Proj/_workitems/edit/800', partial: true,
@@ -73,11 +77,31 @@ test('which epics show, in which measure, and the trend', () => {
 
 test('the Rules panel cycles a state and saves only done, not started and left out', () => {
   const d = rulesDraft(DATA, 'Proj')
-  expect(d).toEqual({ project: 'Proj', measure: 'points', states: { Active: 'active', Closed: 'done', New: 'todo' } })
+  expect(d).toEqual({ project: 'Proj', measure: 'points', states: { Active: 'active', Closed: 'done', New: 'todo' },
+    rules: [{ field: 'Custom.Stage', values: ['Ready'], as: 'active' }], adding: { field: 'Custom.BoardColumnTitle', values: [], as: 'done' } })
   expect(['done', 'active', 'todo', 'ignored'].map(r => nextRule(r as never))).toEqual(['active', 'todo', 'ignored', 'done'])
   expect(rulesArgs({ ...d, states: { ...d.states, Active: 'todo' } }).args).toEqual(['progress-rules', '--project', 'Proj', '--measure', 'points',
-    '--done', 'Closed', '--todo', 'Active,New', '--ignore', ''])
-  expect(rulesArgs({ ...d, states: { Active: 'active' } })).toEqual({ args: null, problem: 'Mark at least one state as done.' })
+    '--done', 'Closed', '--todo', 'Active,New', '--ignore', '', '--rules-json', '[{"field":"Custom.Stage","values":["Ready"],"as":"active"}]'])
+  expect(rulesArgs({ ...d, states: { Active: 'active' } })).toEqual({ args: null, problem: 'Mark at least one state, or add a rule, as done.' })
+})
+
+test('field rules: put one together from a field and its values, order them, take one out', () => {
+  expect(fieldLabel('Custom.BoardColumnTitle')).toBe('Board Column Title')
+  expect(fieldLabel('Microsoft.VSTS.Common.Priority')).toBe('Priority')
+  expect(ruleText({ field: 'Custom.BoardColumnTitle', values: ['Dev Completed', 'QA Deployed'], and: { 'Custom.Team': ['Blue'] }, as: 'done' }))
+    .toBe('Board Column Title is Dev Completed or QA Deployed and Team is Blue')
+  let d = rulesDraft(DATA, 'Proj')
+  expect(addRule(d)).toBe(d)                                          // no value picked: nothing added
+  d = toggleValue(toggleValue(toggleValue(d, 'Dev Completed'), 'QA Deployed'), 'QA Deployed')
+  d = addRule(d)
+  expect(d.rules[1]).toEqual({ field: 'Custom.BoardColumnTitle', values: ['Dev Completed'], as: 'done' })
+  expect(d.adding.values).toEqual([])
+  d = moveRule(d, 1, -1)
+  expect(d.rules.map(r => r.field)).toEqual(['Custom.BoardColumnTitle', 'Custom.Stage'])
+  expect(moveRule(d, 0, -1)).toBe(d)
+  expect(dropRule(d, 1).rules.length).toBe(1)
+  expect(pickField(toggleValue(d, 'x'), 'System.State').adding).toEqual({ field: 'System.State', values: [], as: 'done' })
+  expect(rulesArgs({ ...d, states: {} }).problem).toBe(null)          // a done rule is enough
 })
 
 // ---------------------------------------------------------------- the page, mounted
@@ -150,10 +174,16 @@ test('desktop: a sync runs on a press, a partly synced epic syncs whole, and the
   expect(world.runs).toContainEqual(['sync', '--id', '800', '--no-embed'])
   await ui.press({ key: 'rules-Proj' })
   expect(await texts(ui)).toContain('Rules for Proj')
+  expect(await texts(ui)).toContain('1. Stage is Ready → in progress')
   await ui.press({ key: 'rule-Active' })                                 // in progress -> not started
   await ui.press({ key: 'rule-measure-criteria' })
+  await ui.press({ key: 'rule-value-Dev Completed' })                   // the board column is picked to start with
+  await ui.press({ key: 'rule-add' })
+  expect(await texts(ui)).toContain('2. Board Column Title is Dev Completed → done')
+  await ui.press({ key: 'rule-up-1' })
   await ui.press({ key: 'rules-save' })
-  expect(world.runs).toContainEqual(['progress-rules', '--project', 'Proj', '--measure', 'criteria', '--done', 'Closed', '--todo', 'Active,New', '--ignore', ''])
+  expect(world.runs).toContainEqual(['progress-rules', '--project', 'Proj', '--measure', 'criteria', '--done', 'Closed', '--todo', 'Active,New', '--ignore', '',
+    '--rules-json', '[{"field":"Custom.BoardColumnTitle","values":["Dev Completed"],"as":"done"},{"field":"Custom.Stage","values":["Ready"],"as":"active"}]'])
   expect(await texts(ui)).not.toContain('Rules for Proj')               // saved: the panel closes
   await ui.press({ key: 'prog-auto' })
   expect((await ui.find({ key: 'prog-auto' }))?.props.label).toBe('Auto sync: 15 min')

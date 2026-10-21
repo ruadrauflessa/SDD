@@ -1,7 +1,7 @@
 // Pure helpers of the progress page (/sdd-progress): the bars, what a row says, which epics show, the trend, and the
 // Rules panel's edit. The numbers come from `spec.py progress` (scripts/progress.py); nothing here counts work.
 // No `$` here: the Desktop app's older engine refuses a mod that passes `$` into another file.
-import type { ProgressData, ProgressDefects, ProgressMeasure, ProgressMeasureKey, ProgressNode, ProgressRulesDraft, SddColors, SddItem } from '../../types'
+import type { ProgressData, ProgressDefects, ProgressMeasure, ProgressMeasureKey, ProgressNode, ProgressRule, ProgressRulesDraft, SddColors, SddItem } from '../../types'
 
 export const MEASURE_KEYS: ProgressMeasureKey[] = ['count', 'points', 'criteria']
 export const MEASURE_LABEL: Record<ProgressMeasureKey, string> = { count: 'Work items', points: 'Story points', criteria: 'Acceptance criteria' }
@@ -139,10 +139,58 @@ export function autoNext(m: number): number {
   return AUTO_STEPS[(i + 1) % AUTO_STEPS.length] ?? 0
 }
 
-/** The Rules panel, started from what the project's rules make of each state it uses. */
+/** `Board Column Title` for `Custom.BoardColumnTitle`: the last part of the reference name, its words apart. */
+export function fieldLabel(name: string): string {
+  const last = name.split('.').pop() ?? name
+  return last.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+}
+
+/** `Board Column Title is Dev Completed or QA Deployed and Team is Blue`. */
+export function ruleText(r: ProgressRule): string {
+  const one = (f: string, vs: string[]) => `${fieldLabel(f)} is ${vs.map(v => v || '(empty)').join(' or ')}`
+  return [one(r.field, r.values), ...Object.entries(r.and ?? {}).map(([f, vs]) => one(f, vs))].join(' and ')
+}
+
+/** The Rules panel, started from the project's field rules and what its rules make of each state it uses. A new rule
+ *  starts on the board column when the items have one, else on the first field. */
 export function rulesDraft(data: ProgressData | null, project: string): ProgressRulesDraft {
   const p = data?.projects[project]
-  return { project, measure: p?.rules.measure ?? 'count', states: Object.fromEntries((p?.states ?? []).map(s => [s.state, s.rule])) }
+  const fields = (p?.fields ?? []).map(f => f.field)
+  const start = fields.find(f => /boardcolumn/i.test(f)) ?? fields[0] ?? null
+  return { project, measure: p?.rules.measure ?? 'count', states: Object.fromEntries((p?.states ?? []).map(s => [s.state, s.rule])),
+    rules: [...(p?.rules.rules ?? [])], adding: { field: start, values: [], as: 'done' } }
+}
+
+/** The values a field holds in the project's items, most used first. */
+export function fieldValues(data: ProgressData | null, project: string, field: string | null): Array<{ value: string; count: number }> {
+  return data?.projects[project]?.fields.find(f => f.field === field)?.values ?? []
+}
+
+export function pickField(d: ProgressRulesDraft, field: string): ProgressRulesDraft {
+  return { ...d, adding: { ...d.adding, field, values: [] } }
+}
+
+export function toggleValue(d: ProgressRulesDraft, value: string): ProgressRulesDraft {
+  const vs = d.adding.values.includes(value) ? d.adding.values.filter(v => v !== value) : [...d.adding.values, value]
+  return { ...d, adding: { ...d.adding, values: vs } }
+}
+
+/** The rule being put together, added last; nothing happens until it has a field and a value. */
+export function addRule(d: ProgressRulesDraft): ProgressRulesDraft {
+  if (!d.adding.field || !d.adding.values.length) return d
+  return { ...d, rules: [...d.rules, { field: d.adding.field, values: d.adding.values, as: d.adding.as }], adding: { ...d.adding, values: [] } }
+}
+
+export function moveRule(d: ProgressRulesDraft, i: number, by: -1 | 1): ProgressRulesDraft {
+  const j = i + by
+  if (j < 0 || j >= d.rules.length) return d
+  const rules = [...d.rules]
+  ;[rules[i], rules[j]] = [rules[j]!, rules[i]!]
+  return { ...d, rules }
+}
+
+export function dropRule(d: ProgressRulesDraft, i: number): ProgressRulesDraft {
+  return { ...d, rules: d.rules.filter((_, k) => k !== i) }
 }
 
 export function nextRule(r: Rule): Rule {
@@ -150,11 +198,11 @@ export function nextRule(r: Rule): Rule {
 }
 
 /** The `spec.py progress-rules` arguments for the draft, or why it cannot be saved. In progress is "anything else":
- *  only done, not started and left out are written. */
+ *  only done, not started and left out states are written; the field rules go as JSON, in their order. */
 export function rulesArgs(d: ProgressRulesDraft): { args: string[] | null; problem: string | null } {
   const of = (r: Rule) => Object.entries(d.states).filter(([, v]) => v === r).map(([k]) => k)
   const done = of('done')
-  if (!done.length) return { args: null, problem: 'Mark at least one state as done.' }
+  if (!done.length && !d.rules.some(r => r.as === 'done')) return { args: null, problem: 'Mark at least one state, or add a rule, as done.' }
   return { args: ['progress-rules', '--project', d.project, '--measure', d.measure, '--done', done.join(','),
-    '--todo', of('todo').join(','), '--ignore', of('ignored').join(',')], problem: null }
+    '--todo', of('todo').join(','), '--ignore', of('ignored').join(','), '--rules-json', JSON.stringify(d.rules)], problem: null }
 }

@@ -46,8 +46,9 @@ How far each epic is (progress.py; read-only, from the index; the /sdd-progress 
     progress [--json]                    every epic's (and each feature's with no epic) done, in progress and to
                                          do, by work item count, story points and acceptance criteria; bugs and
                                          issues apart. Writes .index/progress.json and today's line of the trend
-    progress-rules --project P (--measure M --done CSV --todo CSV --ignore CSV | --reset)
-                                         a project's rules in .claude/sdd.json "progress.projects" (the page's Rules panel)
+    progress-rules --project P (--measure M --done CSV --todo CSV --ignore CSV [--rules-json JSON] | --reset)
+                                         a project's rules in .claude/sdd.json "progress.projects" (the page's Rules
+                                         panel). --rules-json: [{"field", "values", "as"[, "and"]}], first match wins
 
 Every sync also writes {specRoot}/.index/metrics.json (metrics.py): every work item with its state,
 board, planning fields, versions, epic/feature chain, child counts, blockers and what it blocks, plus
@@ -117,6 +118,20 @@ def now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def short_fields(f):
+    """Every field's value short enough to be a state, a column, a pick list or a number: what a progress rule can
+    test (progress.py). A person is their display name; HTML, long text and lists are left out."""
+    out = {}
+    for k, v in sorted(f.items()):
+        if isinstance(v, dict):
+            v = v.get("displayName") or v.get("uniqueName")
+        if isinstance(v, (bool, int, float)):
+            out[k] = v
+        elif isinstance(v, str) and v and len(v) <= 200 and "<" not in v and "\n" not in v:
+            out[k] = v
+    return out
+
+
 def norm(v):
     t = str(v or "").replace("\r\n", "\n").replace("\r", "\n")
     return "\n".join(x.rstrip() for x in t.split("\n")).strip()
@@ -153,7 +168,7 @@ class Ctx:
         """)
         # columns added after an index was first built: add them in place; the next sync fills them
         have = {r["name"] for r in self.db.execute("PRAGMA table_info(items)")}
-        for col in ["assigned_email", *PLANNING]:
+        for col in ["assigned_email", *PLANNING, "fieldvals"]:
             if col not in have:
                 self.db.execute(f"ALTER TABLE items ADD COLUMN {col}")
         self.db.commit()
@@ -466,10 +481,19 @@ def cmd_progress_rules(a):
     else:
         csv = lambda v: [x.strip() for x in (v or "").split(",") if x.strip()]
         done, todo, ignore = csv(a.done), csv(a.todo), csv(a.ignore)
-        problems = prog.rules_problems(done, todo, ignore, a.measure)
+        try:
+            rules = json.loads(a.rules_json) if a.rules_json else []
+        except ValueError as e:
+            die(f"--rules-json is not JSON ({e}). Nothing was written.")
+        if not isinstance(rules, list):
+            die("--rules-json must be a list of rules. Nothing was written.")
+        problems = prog.rules_problems(done, todo, ignore, a.measure, rules)
         if problems:
             die("; ".join(problems) + ". Nothing was written.")
-        new = prog.set_project_rules(raw, a.project, {"measure": a.measure, "done": done, "todo": todo, "ignore": ignore})
+        own = {"measure": a.measure, "done": done, "todo": todo, "ignore": ignore}
+        if rules:
+            own["rules"] = [prog.saved_rule(prog.norm_rule(r)) for r in rules]
+        new = prog.set_project_rules(raw, a.project, own)
     path.write_text(json.dumps(new, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"{'Reset' if a.reset else 'Saved'} the progress rules of {a.project} in {path}")
     write_progress(Ctx())
@@ -520,7 +544,8 @@ def write_items(ctx, items, other=None):
                    fhash=json.dumps(fh, sort_keys=True), path=old["path"] if old else None,
                    removed=int(f["System.State"] == "Removed"), missing=0,
                    changed=f.get("System.ChangedDate", ""), synced_at=now(), body=body,
-                   other=json.dumps(extra, sort_keys=True), assigned_email=email, **planning(f))
+                   other=json.dumps(extra, sort_keys=True), assigned_email=email,
+                   fieldvals=json.dumps(short_fields(f), sort_keys=True, ensure_ascii=False), **planning(f))
         if old:
             report["diffs"][w["id"]] = metrics.diff(old, row)
         ctx.db.execute(f"INSERT OR REPLACE INTO items({','.join(row)}) VALUES({','.join('?' * len(row))})",
@@ -1382,6 +1407,7 @@ def main():
     s.add_argument("--done", help="states that are done, comma-separated")
     s.add_argument("--todo", help="states not started, comma-separated")
     s.add_argument("--ignore", help="states left out, comma-separated")
+    s.add_argument("--rules-json", help='field rules, first match wins: [{"field": "Custom.BoardColumnTitle", "values": ["Dev Completed"], "as": "done"}]')
     s.add_argument("--reset", action="store_true", help="take the project's own rules out: the workspace's apply")
     s = sp.add_parser("next", help="which item under an epic or feature to take next")
     s.add_argument("--scope", type=int, required=True, help="the epic or feature the dev is assigned")

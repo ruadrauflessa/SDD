@@ -330,8 +330,9 @@ def progress_flow():
         under(810, 800, "Feature", "Export", "Active"),
         under(811, 810, "User Story", "CSV", "Closed", **{SP: 3, AC: "<div><b>Acceptance Criteria 1 - Totals</b><br>Given a total</div>"
               "<div><b>Acceptance Criteria 2 - Cents</b></div><div><strike><b>Acceptance Criteria 3 - Old</b></strike></div>"}),
-        under(812, 810, "User Story", "PDF", "Active", **{SP: 5, AC: "<ul><li>Given a, when b, then c</li><li>Given d</li><li>Given e</li></ul>"}),
-        under(813, 810, "User Story", "XLSX"),
+        under(812, 810, "User Story", "PDF", "Active", **{SP: 5, AC: "<ul><li>Given a, when b, then c</li><li>Given d</li><li>Given e</li></ul>",
+              "Custom.BoardColumnTitle": "Dev Completed"}),
+        under(813, 810, "User Story", "XLSX", **{"Custom.Stage": "Ready", "Custom.BoardColumnTitle": "New"}),
         under(820, 800, "Feature", "Import"),
         under(830, 800, "User Story", "Audit column", "Closed", **{SP: 2}),
         under(840, 811, "Bug", "CSV drops cents", "Active", **{S: "2 - High"}),
@@ -386,6 +387,23 @@ def progress_flow():
         data = json.loads((idx / "progress.json").read_text())                          # written again at once
         assert data["projects"]["Proj"]["rules"]["measure"] == "points"
         assert data["tops"][0]["measures"]["count"]["todo"] == 3
+        # rules on any field: the board column, and a custom field together with the state; the first match wins
+        fields = {f["field"]: [v["value"] for v in f["values"]] for f in data["projects"]["Proj"]["fields"]}
+        assert list(fields)[:2] == ["System.State", "Custom.BoardColumnTitle"], list(fields)
+        assert fields["Custom.BoardColumnTitle"] == ["Dev Completed", "New"], fields     # as often, then by name
+        assert fields["Custom.Stage"] == ["Ready"] and "System.Title" not in fields and "System.CreatedDate" not in fields
+        rules = [{"field": "Custom.BoardColumnTitle", "values": ["dev completed"], "as": "done"},
+                 {"field": "System.State", "values": ["New"], "and": {"Custom.Stage": ["Ready"]}, "as": "active"}]
+        r = run(root, "spec.py", "progress-rules", "--project", "Proj", "--done", "", "--todo", "New",
+                "--rules-json", json.dumps([{"field": "Custom.Stage", "values": [], "as": "done"}]), check=False)
+        assert r.returncode != 0 and "rule 1 needs a field" in r.stderr and "state or rule must count as done" in r.stderr, r.stderr
+        run(root, "spec.py", "progress-rules", "--project", "Proj", "--done", "Closed", "--todo", "New", "--ignore", "Removed",
+            "--rules-json", json.dumps(rules))
+        assert json.loads(cfgp.read_text())["progress"]["projects"]["Proj"]["rules"] == rules
+        data = json.loads((idx / "progress.json").read_text())
+        assert data["tops"][0]["measures"]["count"] == {"total": 5, "done": 3, "active": 1, "todo": 1, "missing": 0}, data["tops"][0]["measures"]["count"]
+        kids = {k["id"]: k["status"] for k in data["tops"][0]["kids"][0]["kids"]}
+        assert kids == {811: "done", 812: "done", 813: "active"}, kids
         run(root, "spec.py", "progress-rules", "--project", "Proj", "--reset")
         assert json.loads(cfgp.read_text())["progress"]["projects"] == {}
         cfgp.write_text("{broken")

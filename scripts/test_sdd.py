@@ -532,8 +532,25 @@ def progress_rules():
         ["done", "todo", "active", "ignored", "ignored"]
     assert pg.status_of({"state": "Active", "board": "UAT Deployed"}, {**other, "doneBoards": ["UAT deployed"]}) == "done"
     assert pg.rules_problems(["Closed"], ["New"], ["Removed"], "points") == []
+    # field rules: first match wins, values match whole with case aside, "and" needs every field; an item synced
+    # before the index kept field values still answers for the fields it has columns for (state, board column)
+    board = {"field": "Custom.BoardColumnTitle", "values": ["Dev Completed", "QA Deployed"], "as": "done"}
+    combo = {"field": "System.State", "values": ["Active"], "and": {"Custom.Team": ["Blue"]}, "as": "todo"}
+    ruled = {**other, "rules": [pg.norm_rule(board), pg.norm_rule(combo)]}
+    st = lambda **r: pg.status_of(r, ruled)
+    assert st(state="Active", board="dev completed") == "done"                                  # from the column
+    assert st(state="Active", fieldvals='{"Custom.BoardColumnTitle": "QA Deployed"}') == "done"
+    assert st(state="Active", fieldvals='{"Custom.Team": "Blue"}') == "todo"
+    assert st(state="Active", fieldvals='{"Custom.Team": "Red"}') == "active"                   # no rule: the state
+    assert st(state="Active", board="Dev Completed", removed=1) == "ignored"
+    assert pg.norm_rule({"field": "X", "values": [], "as": "done"}) is None and pg.norm_rule({"field": "X", "values": ["a"], "as": "finished"}) is None
+    assert pg.saved_rule(pg.norm_rule(combo)) == combo and pg.saved_rule(pg.norm_rule({"when": {"A": "1"}, "as": "done"})) == {"field": "A", "values": ["1"], "as": "done"}
+    assert pg.rules_problems([], [], [], "count", [board]) == []                                # a done rule is enough
+    cat = pg.field_catalog([{"state": "New", "fieldvals": '{"System.State": "New", "Custom.Team": "Blue", "System.Id": 4, "System.CreatedDate": "2026-01-01T00:00:00Z"}'},
+                            {"state": "Active", "board": "Doing"}])
+    assert [(c["field"], [v["value"] for v in c["values"]]) for c in cat] == [("System.State", ["Active", "New"]), ("Custom.BoardColumnTitle", ["Doing"]), ("Custom.Team", ["Blue"])], cat
     assert pg.rules_problems([], ["New", "new"], [], "x") == ["measure must be one of count, points, criteria",
-                                                              "at least one state must count as done"]
+                                                              "at least one state or rule must count as done"]
     assert pg.set_project_rules({"a": 1}, "P", {"measure": "count"}) == {"a": 1, "progress": {"projects": {"P": {"measure": "count"}}}}
     assert pg.set_project_rules({"progress": {"measure": "points", "projects": {"P": {}}}}, "P") == {"progress": {"measure": "points", "projects": {}}}
     data = {"tops": [{"id": 1, "measures": {m: {"total": 4, "done": 1} for m in pg.MEASURES}}]}

@@ -341,7 +341,12 @@ export type ProgressNode = {
   partial?: boolean
 }
 
-export type ProgressRules = { measure: ProgressMeasureKey; work: string[]; defects: string[]; done: string[]; todo: string[]; ignore: string[]; doneBoards: string[] }
+/** A field rule: the item's `field` (a reference name) holds one of `values` (and each `and` field one of its values). */
+export type ProgressRule = { field: string; values: string[]; and?: Record<string, string[]>; as: 'done' | 'active' | 'todo' | 'ignored' }
+
+export type ProgressRules = { measure: ProgressMeasureKey; work: string[]; defects: string[]; done: string[]; todo: string[]; ignore: string[]; doneBoards: string[]
+  /** Checked first, top to bottom: the first that matches decides. */
+  rules: ProgressRule[] }
 
 /** `spec.py progress --json`: {specRoot}/.index/progress.json. */
 export type ProgressData = {
@@ -349,7 +354,9 @@ export type ProgressData = {
   syncedAt: string | null
   syncMinutes: number
   measures: ProgressMeasureKey[]
-  projects: Record<string, { rules: ProgressRules; states: Array<{ state: string; count: number; rule: 'done' | 'active' | 'todo' | 'ignored' }> }>
+  projects: Record<string, { rules: ProgressRules; states: Array<{ state: string; count: number; rule: 'done' | 'active' | 'todo' | 'ignored' }>
+    /** The fields a rule can test in the project's items, with the values they hold, most used first. */
+    fields: Array<{ field: string; values: Array<{ value: string; count: number }> }> }>
   tops: ProgressNode[]
   orphans: { defects: number }
   /** The change of each top since about a week ago, per measure. */
@@ -357,7 +364,11 @@ export type ProgressData = {
 }
 
 /** The Rules panel's edit of one project: each state's rule, and the measure shown first. */
-export type ProgressRulesDraft = { project: string; measure: ProgressMeasureKey; states: Record<string, 'done' | 'active' | 'todo' | 'ignored'> }
+export type ProgressRulesDraft = { project: string; measure: ProgressMeasureKey; states: Record<string, 'done' | 'active' | 'todo' | 'ignored'>
+  /** The field rules, in order. */
+  rules: ProgressRule[]
+  /** The rule being put together: its field, the values picked, what it counts as. */
+  adding: { field: string | null; values: string[]; as: 'done' | 'active' | 'todo' | 'ignored' } }
 
 declare module 'claude-code' {
   interface PluginState {
