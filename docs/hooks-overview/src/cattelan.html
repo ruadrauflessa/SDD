@@ -1,0 +1,221 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  :root{--wall:#f4f3ef;--ink:#1b1b1b;--grey:#77756f;--floor:#b9b6ae;--red:#d6262b}
+  *{box-sizing:border-box}
+  body{margin:0;background:#888}
+  .page{width:1600px;color:var(--ink);font:400 16px/1.38 "Inter","Helvetica Neue",Arial,sans-serif;background:var(--wall)}
+
+  /* ---------- a room: lit wall, skirting, concrete floor ---------- */
+  .room{position:relative;padding:60px 80px 0;background:
+      radial-gradient(ellipse 260px 420px at var(--l1,18%) -60px, rgba(255,250,235,.95), transparent 70%),
+      radial-gradient(ellipse 260px 420px at var(--l2,50%) -60px, rgba(255,250,235,.95), transparent 70%),
+      radial-gradient(ellipse 260px 420px at var(--l3,82%) -60px, rgba(255,250,235,.95), transparent 70%),
+      linear-gradient(180deg,#ecebe6,#f6f5f1 30%,#efeee9 100%)}
+  .floor{height:74px;margin:0 -80px;position:relative;
+    background:linear-gradient(180deg,#9f9c94 0,#c4c1b9 10%,#b3b0a8 100%);border-top:7px solid #fbfaf7;
+    box-shadow:inset 0 10px 18px rgba(0,0,0,.18)}
+  .floor::after{content:"";position:absolute;inset:0;opacity:.35;mix-blend-mode:multiply;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='300' height='300'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.7' numOctaves='3'/><feColorMatrix values='0 0 0 0 .4  0 0 0 0 .4  0 0 0 0 .38  0 0 0 .6 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>")}
+
+  /* wall vinyl */
+  .vinyl{color:#2a2a2a}
+  .vinyl .room-no{font:500 15px/1 "Inter";letter-spacing:.3em;text-transform:uppercase;color:var(--grey)}
+  .vinyl h2{margin:10px 0 6px;font:600 46px/1 "Inter";letter-spacing:-.02em}
+  .vinyl p{margin:0;max-width:640px;font-size:19px;color:#444}
+
+  /* ---------- the poster ---------- */
+  .intro{display:grid;grid-template-columns:1fr 360px;gap:40px;align-items:end;padding-bottom:50px}
+  .intro h1{margin:0;font:700 150px/.86 "Inter Display","Inter",sans-serif;letter-spacing:-.05em}
+  .intro h1 span{color:var(--grey);font-weight:300}
+  .intro .lede{margin-top:22px;font-size:22px;max-width:760px;color:#333}
+  .rules{border-top:2px solid var(--ink);padding-top:12px;font-size:16px;color:#333}
+  .rules b{display:block;font:600 13px "Inter";letter-spacing:.24em;text-transform:uppercase;margin-bottom:6px;color:var(--ink)}
+  .rules div{padding:5px 0;border-bottom:1px solid #d8d6cf}
+
+  /* ---------- Room I: five works and their labels ---------- */
+  .works{display:grid;grid-template-columns:repeat(5,1fr);gap:28px;margin-top:40px;padding-bottom:56px}
+  .work svg{display:block;width:100%;height:240px;overflow:visible}
+  .label{position:relative;margin:26px 0 0 12px;max-width:260px;background:#fff;padding:12px 14px 14px;font-size:14.5px;line-height:1.36;
+    box-shadow:0 1px 2px rgba(0,0,0,.12), 2px 4px 10px rgba(0,0,0,.06)}
+  .label .who{font-weight:600;font-size:15.5px}
+  .label .title{font-style:italic;margin-bottom:6px}
+  .label .med{color:var(--grey);margin-bottom:6px}
+  .label .exit{margin-top:8px;font-size:13px;color:var(--grey);letter-spacing:.04em}
+  .dot{position:absolute;right:12px;bottom:12px;width:13px;height:13px;border-radius:50%;background:var(--red)}
+  .wallnotes{display:grid;grid-template-columns:1fr 1fr;gap:60px;padding-bottom:50px;color:#555;font-size:16.5px}
+  .wallnotes b{color:var(--ink);font-weight:600}
+
+  /* ---------- Room II: the list as the work ---------- */
+  .text-work{display:grid;grid-template-columns:repeat(5,1fr);gap:34px;margin:40px 0 0;padding-bottom:40px}
+  .text-work h3{margin:0 0 14px;font:600 25px/1.05 "Inter";letter-spacing:-.01em}
+  .text-work .e{margin-bottom:14px}
+  .text-work .k{display:block;font:600 15.5px/1.25 "Inter";letter-spacing:-.005em}
+  .text-work .d{display:block;font-size:15.5px;color:#4a4a4a}
+  .r2foot{display:flex;justify-content:flex-end;padding-bottom:50px}
+
+  /* ---------- Room III: the camera ---------- */
+  .r3{display:grid;grid-template-columns:1fr 420px;gap:40px;align-items:center;padding:30px 0 60px}
+  .r3 svg{width:100%;height:280px;display:block;overflow:visible}
+  .colophon{display:flex;justify-content:space-between;padding:16px 80px 18px;font-size:13.5px;color:#4a4842;background:#b3b0a8}
+</style></head><body>
+<div class="page">
+
+<!-- the poster -->
+<section class="room" style="--l1:20%;--l2:55%;--l3:88%;padding-top:70px">
+  <div class="intro">
+    <div>
+      <div class="vinyl"><span class="room-no">sdd · a plugin in three rooms</span></div>
+      <h1>The Hooks<span>.</span></h1>
+      <div class="lede">The Guardians keep the rules of the flow. The view shows the work in Claude Desktop. The Watcher keeps an eye on the repositories.</div>
+    </div>
+    <div class="rules"><b>Visitor information</b>
+      <div>Free entry.</div>
+      <div>Please do not eat the work.</div>
+      <div>Questions must come with their Links.</div>
+      <div>Exit 2 is not an exit.</div></div>
+  </div>
+  <div class="floor"></div>
+</section>
+
+<!-- I -->
+<section class="room">
+  <div class="vinyl"><span class="room-no">Room I</span><h2>The Guardians</h2>
+    <p>The Python command hooks, in hooks/hooks.json. Each one stops a broken rule before it happens: exit 2 blocks, and stderr tells the agent why.</p></div>
+  <div class="works">
+    <div class="work"><svg data-w="banana"></svg>
+      <div class="label"><div class="who">question_guard.py pre</div><div class="title">Every Question Bears Its Links, 2026</div>
+        <div class="med">Banana, duct tape. PreToolUse, on AskUserQuestion</div>
+        A question is blocked unless the env.py refs Links block sits right above it.<div class="exit">EXIT 2</div><span class="dot"></span></div></div>
+    <div class="work"><svg data-w="eaten"></svg>
+      <div class="label"><div class="who">question_guard.py stop</div><div class="title">Ask With the Tool, Not in Prose, 2026</div>
+        <div class="med">Duct tape. The banana was eaten. Stop, at the end of every turn</div>
+        A turn that ends on a plain-text question is sent back to the agent.<div class="exit">EXIT 2</div></div></div>
+    <div class="work"><svg data-w="vitrine"></svg>
+      <div class="label"><div class="who">agent_guard.py pre</div><div class="title">Look, Don't Touch, 2026</div>
+        <div class="med">Banana, duct tape, glass. PreToolUse, on Bash or PowerShell</div>
+        investigator and skeptic may run only allowlisted git reads, and never env.py or spec.py. An unknown git command counts as a write.<div class="exit">EXIT 2</div></div></div>
+    <div class="work"><svg data-w="tree"></svg>
+      <div class="label"><div class="who">edit_guard.py pre</div><div class="title">Work in the Worktree, 2026</div>
+        <div class="med">Banana, duct tape, potted tree. PreToolUse, on Edit, Write, MultiEdit, NotebookEdit</div>
+        Edits to a repo in the main checkout are blocked, and the message points to the same file in the item's worktree.<div class="exit">EXIT 2</div></div></div>
+    <div class="work"><svg data-w="green"></svg>
+      <div class="label"><div class="who">env.py upgrade-config</div><div class="title">The Herald (Not Yet Ripe), 2026</div>
+        <div class="med">Green banana, duct tape. SessionStart</div>
+        Not a guard. It adds any new keys to .claude/sdd.json.</div></div>
+  </div>
+  <div class="wallnotes">
+    <div><b>When they act.</b> question_guard and edit_guard act only during an sdd flow: this turn ran env.py or spec.py, or an item's progress was written this session.</div>
+    <div><b>Whom they watch.</b> agent_guard acts only inside the plugin's own sub-agents. The main chat passes through.</div>
+  </div>
+  <div class="floor"></div>
+</section>
+
+<!-- II -->
+<section class="room" style="--l1:12%;--l2:50%;--l3:90%">
+  <div class="vinyl"><span class="room-no">Room II</span><h2>The View</h2>
+    <p>The Desktop mod, in hooks/register.tsx. It observes and draws, and its one write is each turn's cost. Claude Desktop only: other surfaces pass through.</p></div>
+  <div class="text-work vinyl">
+    <div><h3>Setting up</h3>
+      <div class="e"><span class="k">session.start</span><span class="d">Runs setupDesktop: commands, first read, cost baseline, timers.</span></div>
+      <div class="e"><span class="k">session.attach</span><span class="d">Does the same when Desktop attaches later.</span></div></div>
+    <div><h3>Commands</h3>
+      <div class="e"><span class="k">command.run · sdd</span><span class="d">Sets this chat's item and opens the pane the first time.</span></div>
+      <div class="e"><span class="k">sdd-view · sdd-worktrees · sdd-bugs</span><span class="d">Open the view, the Worktrees page and the bug manager.</span></div>
+      <div class="e"><span class="k">prompt.autocomplete</span><span class="d">Suggests open items after /sdd.</span></div></div>
+    <div><h3>Tool calls</h3>
+      <div class="e"><span class="k">tool.call · Bash | PowerShell</span><span class="d">After each sdd script run, follows the item it names and refreshes.</span></div>
+      <div class="e"><span class="k">tool.call · AskUserQuestion</span><span class="d">Shows the question in the stage's feedback box, where it can also be answered.</span></div></div>
+    <div><h3>Cost &amp; status</h3>
+      <div class="e"><span class="k">turn.start · turn.complete</span><span class="d">Charges each turn's tokens and dollars to its stage, and notifies once when the item waits on you.</span></div>
+      <div class="e"><span class="k">session.measure · session.end</span><span class="d">Tracks context fill and cost, and resets on /clear or /resume.</span></div></div>
+    <div><h3>Drawing</h3>
+      <div class="e"><span class="k">ui.render · Spinner</span><span class="d">Adds the item, stage and goal after the spinner word.</span></div>
+      <div class="e"><span class="k">ui.render · AbovePrompt</span><span class="d">Draws the status band above the prompt.</span></div>
+      <div class="e"><span class="k">ui.render · Pane</span><span class="d">Draws the sdd view, Worktrees and Bugs panes.</span></div>
+      <div class="e"><span class="k">ui.close</span><span class="d">Notes which pane closed.</span></div></div>
+  </div>
+  <div class="r2foot"><div class="label" style="margin:0"><div class="who">register.tsx</div><div class="title">Untitled (Everything It Does), 2026</div>
+    <div class="med">Vinyl lettering on wall. TypeScript, Claude Desktop</div>The list is the work.</div></div>
+  <div class="floor"></div>
+</section>
+
+<!-- III -->
+<section class="room" style="--l1:30%;--l2:60%;--l3:200%">
+  <div class="vinyl"><span class="room-no">Room III</span><h2>The Watcher</h2>
+    <p>repowatch, the plugin sdd depends on.</p></div>
+  <div class="r3">
+    <svg data-w="camera"></svg>
+    <div class="label" style="max-width:420px;margin:0;font-size:16px"><div class="who" style="font-size:17px">repowatch/hooks/register.tsx</div>
+      <div class="title">It Was Watching the Whole Time, 2026</div>
+      <div class="med">Security camera, git. session.start, command.run · repowatch, ui.render · Pane</div>
+      A mod with no command hooks. It keeps a pane and a status line for many repos and worktrees, read from .claude/repowatch/state.json.</div>
+  </div>
+  <div class="floor"></div>
+</section>
+<div class="colophon"><span>sdd · The Hooks · 2026</span><span>All works on loan from hooks/hooks.json and hooks/register.tsx</span></div>
+</div>
+
+<script>
+  // a banana, from left tip to stem
+  const banana = (ripe = true, dx = 0, dy = 0, rot = -14) => {
+    const a = ripe ? '#f7d84a' : '#a8c94f', b = ripe ? '#e0b420' : '#7fa83a', c = ripe ? '#fff1a0' : '#d4e78f';
+    const id = 'g' + Math.random().toString(36).slice(2, 7);
+    return `<defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${c}"/><stop offset=".35" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs>
+      <g transform="translate(${dx},${dy}) rotate(${rot} 150 70)">
+        <path d="M22,62 C62,124 206,132 268,48 C246,64 160,76 92,66 C62,62 38,60 22,62 Z" fill="#000" opacity=".16" transform="translate(6,9)" filter="url(#soft)"/>
+        <path d="M22,62 C62,124 206,132 268,48 C246,64 160,76 92,66 C62,62 38,60 22,62 Z" fill="url(#${id})" stroke="#8a6a12" stroke-width="1.3"/>
+        <path d="M30,64 C80,100 200,104 262,52" fill="none" stroke="${b}" stroke-width="1.4" opacity=".7"/>
+        <path d="M26,63 C24,58 18,58 16,60 C18,64 22,66 26,63 Z" fill="#3b2a12"/>
+        <path d="M266,50 L272,40 L286,30 L292,36 L280,46 L270,54 Z" fill="${ripe ? '#7a6a2c' : '#6d8a35'}" stroke="#4a3d14" stroke-width="1.2"/>
+        ${ripe ? '<circle cx="120" cy="104" r="1.8" fill="#6b4b12" opacity=".6"/><circle cx="170" cy="104" r="1.4" fill="#6b4b12" opacity=".6"/><circle cx="200" cy="96" r="2" fill="#6b4b12" opacity=".5"/>' : ''}
+      </g>`;
+  };
+  // a strip of grey duct tape, centred on (x, y)
+  const tape = (x, y, rot = 72, w = 132, h = 30) => {
+    let top = '', bot = '';
+    for (let i = 0; i <= 6; i++) { top += ` ${-w / 2 + (i % 2 ? 3 : 0)},${-h / 2 + i * h / 6}`; }
+    for (let i = 6; i >= 0; i--) { bot += ` ${w / 2 - (i % 2 ? 3 : 0)},${-h / 2 + i * h / 6}`; }
+    return `<g transform="translate(${x},${y}) rotate(${rot})">
+      <polygon points="${top}${bot}" fill="#a9aaa6" opacity=".93" stroke="#8d8e8a" stroke-width=".8"/>
+      <rect x="${-w / 2 + 4}" y="${-h / 2 + 4}" width="${w - 8}" height="5" fill="#fff" opacity=".28"/>
+      <g stroke="#8d8e8a" stroke-width=".6" opacity=".7">${Array.from({ length: 9 }, (_, i) => `<line x1="${-w / 2 + 8 + i * (w - 16) / 8}" y1="${-h / 2}" x2="${-w / 2 + 8 + i * (w - 16) / 8}" y2="${h / 2}"/>`).join('')}</g></g>`;
+  };
+  const DEFS = `<defs><filter id="soft"><feGaussianBlur stdDeviation="4"/></filter></defs>`;
+  const W = {
+    banana: () => DEFS + banana() + tape(150, 78),
+    eaten: () => DEFS + tape(150, 78) + `<path d="M118,72 C140,90 170,92 186,80" fill="none" stroke="#c9c7c0" stroke-width="1" opacity=".7"/>`,
+    vitrine: () => DEFS + banana(true, 0, 0) + tape(150, 78) +
+      `<rect x="6" y="-6" width="288" height="190" fill="rgba(205,225,230,.16)" stroke="#9fb3b8" stroke-width="2"/>
+       <path d="M30,-6 L-6,40 M70,-6 L6,70" stroke="#fff" stroke-width="10" opacity=".55"/>
+       <path d="M240,184 L294,120" stroke="#fff" stroke-width="7" opacity=".45"/>
+       <rect x="-4" y="184" width="308" height="12" fill="#e8e6e0" stroke="#b8b5ad"/>`,
+    tree: () => DEFS + `<g>
+        <ellipse cx="150" cy="236" rx="58" ry="7" fill="#000" opacity=".12"/>
+        <path d="M112,180 L188,180 L178,236 L122,236 Z" fill="#c4683f" stroke="#8e4527" stroke-width="1.5"/>
+        <rect x="106" y="172" width="88" height="12" fill="#d07650" stroke="#8e4527" stroke-width="1.5"/>
+        <path d="M150,172 C148,130 152,90 148,40" fill="none" stroke="#6b4a2b" stroke-width="9" stroke-linecap="round"/>
+        <g fill="#5f8a4c" stroke="#3f6234" stroke-width="1.2"><circle cx="122" cy="34" r="30"/><circle cx="178" cy="30" r="32"/><circle cx="150" cy="6" r="30"/><circle cx="104" cy="66" r="20"/><circle cx="196" cy="62" r="22"/></g></g>`
+      + `<g transform="translate(0,58) scale(.82) translate(32,0)">${banana(true, 0, 0, -6)}${tape(150, 78, 80, 120, 28)}</g>`,
+    green: () => DEFS + banana(false) + tape(150, 78),
+    camera: () => `
+      <defs><linearGradient id="cam" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fbfbf9"/><stop offset="1" stop-color="#cfcdc7"/></linearGradient></defs>
+      <rect x="40" y="20" width="26" height="80" rx="4" fill="#d9d7d1" stroke="#9c9a93" stroke-width="1.5"/>
+      <path d="M66,58 L128,58 L128,70 L66,70 Z" fill="#c8c6bf" stroke="#9c9a93" stroke-width="1.5"/>
+      <ellipse cx="300" cy="250" rx="220" ry="10" fill="#000" opacity="0"/>
+      <g transform="rotate(14 130 64)">
+        <rect x="118" y="34" width="250" height="64" rx="10" fill="url(#cam)" stroke="#9c9a93" stroke-width="1.6"/>
+        <rect x="108" y="26" width="276" height="16" rx="6" fill="#e9e8e3" stroke="#9c9a93" stroke-width="1.4"/>
+        <rect x="364" y="40" width="34" height="52" rx="6" fill="#2a2a2a"/>
+        <circle cx="384" cy="66" r="14" fill="#111" stroke="#555" stroke-width="2"/>
+        <circle cx="388" cy="62" r="4" fill="#6a8fb0"/>
+        <circle cx="150" cy="80" r="4" fill="#d6262b"/>
+      </g>
+      <path d="M398,120 L600,260 L560,280 L380,140 Z" fill="#fffbe8" opacity=".0"/>`,
+  };
+  document.querySelectorAll('svg[data-w]').forEach(el => {
+    el.setAttribute('viewBox', el.dataset.w === 'camera' ? '0 0 620 280' : '0 0 300 240');
+    el.innerHTML = W[el.dataset.w]();
+  });
+</script>
+</body></html>
