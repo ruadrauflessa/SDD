@@ -22,7 +22,9 @@ updated, and on `/sdd init`. Restart Claude Code to see it. It sets the style on
 `/config` and the plugin leaves your choice alone (`/sdd init` sets it again). A style file you edit
 is kept; an unedited one is updated with the plugin.
 
-Needs: Python 3.9+, Node 18+, git, the Azure CLI (`az login`), graphify (`pip install graphifyy`). Each
+Needs: Python 3.9+, Node 18+, git, the Azure CLI (`az login`), graphify (`pip install graphifyy`). On Windows,
+`python`, `py` or `python3` will do; if `python` opens the Microsoft Store, install Python from python.org or turn
+off its App execution aliases (Settings > Apps > Advanced app settings). Each
 work item folder gets a code graph, and the agent explores the code from it: a search of the code is refused
 until the graph was asked in that stage, and the graph is rebuilt before every read once the code changed. The
 spec flow's "Design agreed" checks the design against it.
