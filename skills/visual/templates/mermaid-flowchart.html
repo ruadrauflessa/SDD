@@ -4,14 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CI/CD Pipeline — Reference Template</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f172a'/%3E%3Cpath d='M18 40V24l14-8 14 8v16l-14 8-14-8Z' fill='none' stroke='%23fbbf24' stroke-width='4' stroke-linejoin='round'/%3E%3Ccircle cx='32' cy='32' r='5' fill='%2338bdf8'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23497CAB'/%3E%3Cpath d='M18 40V24l14-8 14 8v16l-14 8-14-8Z' fill='none' stroke='%23ffffff' stroke-width='4' stroke-linejoin='round'/%3E%3Ccircle cx='32' cy='32' r='5' fill='%23183e65'/%3E%3C/svg%3E">
 <!--
   Reference template for the visual-explainer skill: Mermaid diagrams.
-  Teal/cyan palette — distinctly different from terracotta (architecture)
-  and rose (data-table) templates so agents absorb variety.
+  SpesNet Design System: Public Sans, primary blue, five status colours, grey for the rest.
+  Reference only: the skill draws diagrams as static SVG (quick/diagram.mjs). This page
+  loads Mermaid from the internet, so use it only when the user asks for Mermaid.
   Key patterns demonstrated:
-  - Teal/cyan palette (NOT indigo/violet)
-  - Dot-grid background atmosphere (different from radial gradient)
+  - SpesNet tokens only (see THEME)
   - Large heading (38px) for typographic contrast
   - ESM import of Mermaid + @mermaid-js/layout-elk
   - Mermaid theme: 'base' + full themeVariables, fontSize: 16px
@@ -19,45 +19,21 @@
   - look: 'classic' for clean lines
   - layout: 'elk' for better node positioning
   - Zoom controls with scroll-to-zoom and drag-to-pan
-  - Both light and dark themes via prefers-color-scheme
+  - Light and dark themes from the tokens (prefers-color-scheme)
   - Staggered fade-in, reduced motion respect
 -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600;700&family=Fragment+Mono:wght@400&display=swap" rel="stylesheet">
 <style>
   /* ============ THEME ============ */
+  /* SpesNet Design System. Do not paste fonts or tokens here. After writing the page, run
+     node <plugin root>/skills/visual/brand/brand.mjs inject <page.html>
+     It fills the two markers with Public Sans (inlined), the three themes, the dark-mode rule and the
+     token names this page uses. */
+  /* @brand:font */
+  /* @brand:tokens */
   :root {
-    --font-body: 'Bricolage Grotesque', system-ui, sans-serif;
-    --font-mono: 'Fragment Mono', 'SF Mono', Consolas, monospace;
-
-    --bg: #f0fdfa;
-    --surface: #ffffff;
-    --border: rgba(0, 0, 0, 0.07);
-    --text: #134e4a;
-    --text-dim: #5f8a85;
-
-    --primary: #0d9488;
-    --primary-dim: rgba(13, 148, 136, 0.08);
-    --secondary: #0369a1;
-    --tertiary: #d97706;
-    --danger: #dc2626;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #042f2e;
-      --surface: #0a3d3a;
-      --border: rgba(255, 255, 255, 0.08);
-      --text: #ccfbf1;
-      --text-dim: #5eead4;
-
-      --primary: #2dd4bf;
-      --primary-dim: rgba(45, 212, 191, 0.14);
-      --secondary: #38bdf8;
-      --tertiary: #fbbf24;
-      --danger: #f87171;
-    }
+    --primary-dim: var(--accent-dim);
+    --series-b: var(--chart-1);
+    --series-c: var(--caution);
   }
 
   /* ============ RESET + BASE ============ */
@@ -65,8 +41,6 @@
 
   body {
     background-color: var(--bg);
-    background-image: radial-gradient(circle, var(--border) 1px, transparent 1px);
-    background-size: 24px 24px;
     color: var(--text);
     font-family: var(--font-body);
     padding: 40px;
@@ -262,10 +236,9 @@
 
   /* ============ CALLOUT ============ */
   .callout {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--primary);
-    border-radius: 0 10px 10px 0;
+    background: var(--primary-dim);
+    border: 1px solid color-mix(in oklab, var(--primary) 30%, var(--border));
+    border-radius: var(--radius-lg);
     padding: 16px 20px;
     font-size: 13px;
     line-height: 1.6;
@@ -346,9 +319,9 @@
 
   <div class="legend animate" style="--i:4">
     <div class="legend-item"><div class="legend-swatch" style="background:var(--primary)"></div> Automated step</div>
-    <div class="legend-item"><div class="legend-swatch" style="background:var(--tertiary)"></div> Decision gate</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--series-c)"></div> Decision gate</div>
     <div class="legend-item"><div class="legend-swatch" style="background:var(--danger)"></div> Failure path</div>
-    <div class="legend-item"><div class="legend-swatch" style="background:var(--secondary)"></div> Success</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--series-b)"></div> Success</div>
   </div>
 
   <div class="callout animate" style="--i:5">
@@ -396,19 +369,19 @@
     themeVariables: {
       fontFamily: "'Bricolage Grotesque', system-ui, sans-serif",
       fontSize: '16px',
-      primaryColor: isDark ? '#115e59' : '#ccfbf1',
-      primaryBorderColor: isDark ? '#2dd4bf' : '#0d9488',
-      primaryTextColor: isDark ? '#ccfbf1' : '#134e4a',
-      secondaryColor: isDark ? '#0c4a6e' : '#e0f2fe',
-      secondaryBorderColor: isDark ? '#38bdf8' : '#0369a1',
-      secondaryTextColor: isDark ? '#ccfbf1' : '#134e4a',
+      primaryColor: isDark ? '#183e65' : '#e8eef5',
+      primaryBorderColor: '#497CAB',
+      primaryTextColor: isDark ? '#f3f4f6' : '#1b2536',
+      secondaryColor: isDark ? '#0d3a33' : '#e5f4f1',
+      secondaryBorderColor: isDark ? '#00bb90' : '#15803d',
+      secondaryTextColor: isDark ? '#f3f4f6' : '#1b2536',
       tertiaryColor: isDark ? '#2e2618' : '#fffbeb',
-      tertiaryBorderColor: isDark ? '#fbbf24' : '#d97706',
-      tertiaryTextColor: isDark ? '#ccfbf1' : '#134e4a',
-      lineColor: isDark ? '#5eead4' : '#5f8a85',
-      noteBkgColor: isDark ? '#115e59' : '#fefce8',
-      noteTextColor: isDark ? '#ccfbf1' : '#134e4a',
-      noteBorderColor: isDark ? '#fbbf24' : '#d97706',
+      tertiaryBorderColor: isDark ? '#facc15' : '#ca8a04',
+      tertiaryTextColor: isDark ? '#f3f4f6' : '#1b2536',
+      lineColor: isDark ? '#9ca3af' : '#6b7280',
+      noteBkgColor: isDark ? '#2e2618' : '#fefce8',
+      noteTextColor: isDark ? '#f3f4f6' : '#1b2536',
+      noteBorderColor: isDark ? '#facc15' : '#ca8a04',
     }
   });
 
@@ -573,7 +546,7 @@
       // Mermaid derives clusterBkg and tertiaryColor from --bg, so the export
       // has to read it live to sit on the same ground as the diagram.
       const bg = getComputedStyle(document.documentElement)
-        .getPropertyValue('--bg').trim() || (isDark ? '#042f2e' : '#f0fdfa');
+        .getPropertyValue('--bg').trim() || (isDark ? '#0f141c' : '#f1f4f8');
 
       const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">

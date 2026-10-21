@@ -1,5 +1,9 @@
 # External Libraries (CDN)
 
+> **Colour, font and decoration advice in this file is superseded by `SKILL.md` → "House style".**
+> Use this file for layout, overflow, connectors and mechanics. Colours and fonts come from the
+> SpesNet tokens (`brand/`); hex values and font names below are examples, not choices to copy.
+
 Optional CDN libraries for cases where pure CSS/HTML isn't enough. Only include what the diagram actually needs — most diagrams need zero external JS.
 
 ## Mermaid.js — Diagramming Engine

@@ -1,5 +1,9 @@
 # Slide Deck Patterns
 
+> **Colour, font and decoration advice in this file is superseded by `SKILL.md` → "House style".**
+> Use this file for layout, overflow, connectors and mechanics. Colours and fonts come from the
+> SpesNet tokens (`brand/`); hex values and font names below are examples, not choices to copy.
+
 CSS patterns, JS engine, slide type layouts, transitions, navigation chrome, and curated presets for self-contained HTML slide presentations. Every slide gets one `100dvh` viewport budget, but that CSS height does not prove that its content fits. Because the default slide clips overflow, run the delivery check below before shipping instead of relying on the browser to reveal a problem.
 
 **When to use slides:** Only when the user explicitly requests them — `/generate-slides`, `--slides` flag on an existing prompt, or natural language like "as a slide deck." Never auto-select slide format.

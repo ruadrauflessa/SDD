@@ -1,8 +1,12 @@
 # Themes
 
+> **Colour, font and decoration advice in this file is superseded by `SKILL.md` → "House style".**
+> Use this file for layout, overflow, connectors and mechanics. Colours and fonts come from the
+> SpesNet tokens (`brand/`); hex values and font names below are examples, not choices to copy.
+
 Eleven prebuilt palettes and an optional runtime theme picker, for pages where the reader should be able to change the palette after the page is generated.
 
-Use this reference when the user asks for switchable themes, names a theme directly (Dracula, Nord, Gruvbox, Catppuccin…), or wants a page that stays readable across very different lighting. For every other page, keep using the palette guidance in `css-patterns.md` — a picker is opt-in, not a default.
+Use this reference only when the user asks for switchable themes or names a theme directly (Dracula, Nord, Gruvbox, Catppuccin…). Every other page uses the SpesNet look (`SKILL.md` → "House style") — a picker or a named palette is opt-in, never a default.
 
 A theme here is one fixed palette, not a light/dark pair. Light and dark coverage comes from the theme list (7 dark, 4 light), and the picker is the reader's light/dark control. Do not wrap theme values in `@media (prefers-color-scheme: …)`; an explicit choice should not be overridden by the OS.
 
@@ -369,4 +373,4 @@ font: bricolage
 
 Claude Code users can keep personal local overrides in `.claude/sdd-visual.local.md`, but shared project defaults should live in `sdd-visual.config.md`. The local Claude file only overrides the harness-neutral file when the agent is running in Claude Code and the user explicitly wants local preferences.
 
-These values seed `DEFAULT_THEME` and `DEFAULT_FONT` only. The reader can still change them, and an unrecognized or absent value falls back to what the page's aesthetic direction would have chosen anyway. This is an agent-readable generation contract, not a native `visual_explainer.render` parameter.
+These values seed `DEFAULT_THEME` and `DEFAULT_FONT` only. The reader can still change them, and an unrecognized or absent value falls back to the SpesNet look. This is an agent-readable generation contract, not a native `visual_explainer.render` parameter.

@@ -4,78 +4,34 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>API Gateway Redesign — Reference Slide Deck</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f172a'/%3E%3Cpath d='M18 40V24l14-8 14 8v16l-14 8-14-8Z' fill='none' stroke='%23fbbf24' stroke-width='4' stroke-linejoin='round'/%3E%3Ccircle cx='32' cy='32' r='5' fill='%2338bdf8'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23497CAB'/%3E%3Cpath d='M18 40V24l14-8 14 8v16l-14 8-14-8Z' fill='none' stroke='%23ffffff' stroke-width='4' stroke-linejoin='round'/%3E%3Ccircle cx='32' cy='32' r='5' fill='%23183e65'/%3E%3C/svg%3E">
 <!--
   Reference template for the visual-explainer skill: slide decks.
-  Midnight Editorial preset — deep navy, serif display, warm gold accents.
-  Distinctly different from the terracotta (architecture), teal (mermaid),
-  and rose (data-table) templates so agents absorb variety.
+  SpesNet Design System: Public Sans, primary blue, five status colours, grey for the rest.
+  The design system ships no slide kit; the deck uses its tokens, flat surfaces and hairlines.
   Key patterns demonstrated:
   - All 10 slide types in a cohesive narrative
   - SlideEngine JS: keyboard/touch/wheel nav, expanding reader rail, outline/help, deep links, resume, progress, counter, hints
   - Cinematic transitions: fade + translateY + scale, staggered child reveals
-  - Per-slide background variation (gradient direction, accent glow position)
   - Decorative SVG accents (corner marks, quote mark, divider)
   - Typography scale: 120px display → 48px heading → 22px body → 14px label
   - Compositional variety: centered, left-heavy, split, full-bleed
   - Mermaid at presentation scale (18px labels, 2px edges, 8 nodes)
-  - Dark-first with light mode via prefers-color-scheme
+  - Light and dark themes from the tokens (prefers-color-scheme)
   - Responsive height breakpoints for projection and small viewports
   - Nav chrome with backdrop blur for mixed-background visibility
   - Event delegation: Mermaid zoom and table scroll don't trigger slide nav
   - prefers-reduced-motion respected
 -->
 <script>document.documentElement.classList.add('js');</script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  /* ============ THEME: Midnight Editorial ============ */
-  :root {
-    --font-body: 'Instrument Serif', Georgia, serif;
-    --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
-    --bg: #0f1729;
-    --surface: #162040;
-    --surface2: #1d2b52;
-    --surface-elevated: #243362;
-    --border: rgba(200, 180, 140, 0.08);
-    --border-bright: rgba(200, 180, 140, 0.16);
-    --text: #e8e4d8;
-    --text-dim: #9a9484;
-    --accent: #d4a73a;
-    --accent-dim: rgba(212, 167, 58, 0.1);
-    --code-bg: #0a0f1e;
-    --code-text: #d4d0c4;
-    --green: #4ade80;
-    --green-dim: rgba(74, 222, 128, 0.1);
-    --red: #f87171;
-    --red-dim: rgba(248, 113, 113, 0.1);
-    --blue: #60a5fa;
-    --blue-dim: rgba(96, 165, 250, 0.1);
-  }
-
-  @media (prefers-color-scheme: light) {
-    :root {
-      --bg: #faf8f2;
-      --surface: #ffffff;
-      --surface2: #f5f0e6;
-      --surface-elevated: #fffdf5;
-      --border: rgba(30, 30, 50, 0.08);
-      --border-bright: rgba(30, 30, 50, 0.16);
-      --text: #1a1814;
-      --text-dim: #7a7468;
-      --accent: #b8860b;
-      --accent-dim: rgba(184, 134, 11, 0.08);
-      --code-bg: #2a2520;
-      --code-text: #e8e4d8;
-      --green: #16a34a;
-      --green-dim: rgba(22, 163, 74, 0.08);
-      --red: #dc2626;
-      --red-dim: rgba(220, 38, 38, 0.08);
-      --blue: #2563eb;
-      --blue-dim: rgba(37, 99, 235, 0.08);
-    }
-  }
+  /* ============ THEME ============ */
+  /* SpesNet Design System. Do not paste fonts or tokens here. After writing the deck, run
+     node <plugin root>/skills/visual/brand/brand.mjs inject <deck.html>
+     It fills the two markers with Public Sans (inlined), the three themes, the dark-mode rule and the
+     token names this deck uses. */
+  /* @brand:font */
+  /* @brand:tokens */
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -334,7 +290,6 @@
     justify-content: center;
     align-items: center;
     text-align: center;
-    background-image: radial-gradient(ellipse at 50% 30%, var(--accent-dim) 0%, transparent 50%);
   }
 
   .slide--title .slide__display { color: var(--accent); }
@@ -606,7 +561,7 @@
     font-size: clamp(80px, 14vw, 180px);
     line-height: 0.5;
     opacity: 0.06;
-    font-family: Georgia, serif;
+    font-family: var(--font-body);
     pointer-events: none;
     margin-bottom: -20px;
     color: var(--accent);
@@ -642,13 +597,13 @@
     z-index: 0;
   }
 
-  .slide__bg--gradient {
-    background: linear-gradient(135deg, #1a0f3c 0%, #0f1729 40%, #162040 100%);
+  .slide__bg--solid {
+    background: var(--primary-dark);
   }
 
   .slide__scrim {
     position: absolute; inset: 0;
-    background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.2) 40%, transparent 100%);
+    background: var(--overlay-scrim);
     z-index: 1;
   }
 
@@ -711,7 +666,7 @@
   </section>
 
   <!-- SLIDE 2: SECTION DIVIDER -->
-  <section class="slide slide--divider" style="background-image:radial-gradient(ellipse at 80% 60%, var(--accent-dim) 0%, transparent 40%);">
+  <section class="slide slide--divider">
     <span class="slide__number">01</span>
     <div>
       <h2 class="slide__heading reveal">The Problem</h2>
@@ -720,7 +675,7 @@
   </section>
 
   <!-- SLIDE 3: CONTENT (left-heavy asymmetric) -->
-  <section class="slide slide--content" style="background-image:radial-gradient(ellipse at 20% 80%, var(--accent-dim) 0%, transparent 45%);">
+  <section class="slide slide--content">
     <div class="slide__inner">
       <div>
         <p class="slide__label reveal">Current State</p>
@@ -770,7 +725,7 @@
   </section>
 
   <!-- SLIDE 5: SECTION DIVIDER -->
-  <section class="slide slide--divider" style="background-image:radial-gradient(ellipse at 30% 40%, var(--accent-dim) 0%, transparent 40%);">
+  <section class="slide slide--divider">
     <span class="slide__number">02</span>
     <div>
       <h2 class="slide__heading reveal">Architecture</h2>
@@ -798,9 +753,9 @@ graph LR
   Router --> Static["Static Assets"]
   API --> DB["Database"]
 
-  classDef primary fill:#d4a73a22,stroke:#d4a73a,stroke-width:2px
-  classDef secondary fill:#60a5fa22,stroke:#60a5fa,stroke-width:2px
-  classDef storage fill:#4ade8022,stroke:#4ade80,stroke-width:2px
+  classDef primary fill:#497CAB22,stroke:#497CAB,stroke-width:2px
+  classDef secondary fill:#00bb9022,stroke:#00bb90,stroke-width:2px
+  classDef storage fill:#facc1522,stroke:#facc15,stroke-width:2px
 
   class Client,Edge primary
   class Auth,RL,Router secondary
@@ -810,7 +765,7 @@ graph LR
   </section>
 
   <!-- SLIDE 7: DASHBOARD -->
-  <section class="slide slide--dashboard" style="background-image:radial-gradient(ellipse at 70% 30%, var(--accent-dim) 0%, transparent 40%);">
+  <section class="slide slide--dashboard">
     <h2 class="slide__heading reveal">Performance Impact</h2>
     <div class="slide__kpis">
       <div class="slide__kpi reveal">
@@ -856,7 +811,7 @@ graph LR
   </section>
 
   <!-- SLIDE 9: CODE -->
-  <section class="slide slide--code" style="background-image:radial-gradient(ellipse at 50% 80%, var(--accent-dim) 0%, transparent 40%);">
+  <section class="slide slide--code">
     <h2 class="slide__heading reveal" style="text-align:center;">Edge Worker Entry Point</h2>
     <div class="slide__code-block reveal" style="margin-top:clamp(12px,2vh,24px);">
       <span class="slide__code-filename">gateway.ts</span>
@@ -875,7 +830,7 @@ graph LR
   </section>
 
   <!-- SLIDE 10: QUOTE -->
-  <section class="slide slide--quote" style="background-image:radial-gradient(ellipse at 50% 50%, var(--accent-dim) 0%, transparent 35%);">
+  <section class="slide slide--quote">
     <div class="slide__quote-mark reveal">&ldquo;</div>
     <blockquote class="reveal">
       The fastest request is the one that never leaves the edge.
@@ -885,7 +840,7 @@ graph LR
 
   <!-- SLIDE 11: FULL-BLEED -->
   <section class="slide slide--bleed">
-    <div class="slide__bg slide__bg--gradient"></div>
+    <div class="slide__bg slide__bg--solid"></div>
     <div class="slide__scrim"></div>
     <div class="slide__content">
       <p class="slide__label reveal" style="color:rgba(255,255,255,0.6);">Next Steps</p>
@@ -905,21 +860,21 @@ graph LR
     theme: 'base',
     look: 'classic',
     themeVariables: {
-      primaryColor: isDark ? '#1d2b52' : '#fef3e0',
-      primaryBorderColor: isDark ? '#d4a73a' : '#b8860b',
-      primaryTextColor: isDark ? '#e8e4d8' : '#1a1814',
-      secondaryColor: isDark ? '#162040' : '#eff6ff',
-      secondaryBorderColor: isDark ? '#60a5fa' : '#2563eb',
-      secondaryTextColor: isDark ? '#e8e4d8' : '#1a1814',
-      tertiaryColor: isDark ? '#0f2620' : '#f0fdf4',
-      tertiaryBorderColor: isDark ? '#4ade80' : '#16a34a',
-      tertiaryTextColor: isDark ? '#e8e4d8' : '#1a1814',
-      lineColor: isDark ? '#9a9484' : '#7a7468',
+      primaryColor: isDark ? '#183e65' : '#e8eef5',
+      primaryBorderColor: '#497CAB',
+      primaryTextColor: isDark ? '#f3f4f6' : '#1b2536',
+      secondaryColor: isDark ? '#0d3a33' : '#e5f4f1',
+      secondaryBorderColor: isDark ? '#00bb90' : '#15803d',
+      secondaryTextColor: isDark ? '#f3f4f6' : '#1b2536',
+      tertiaryColor: isDark ? '#2e2618' : '#fefce8',
+      tertiaryBorderColor: isDark ? '#facc15' : '#ca8a04',
+      tertiaryTextColor: isDark ? '#f3f4f6' : '#1b2536',
+      lineColor: isDark ? '#9ca3af' : '#6b7280',
       fontSize: '18px',
       fontFamily: 'var(--font-body)',
-      noteBkgColor: isDark ? '#1d2b52' : '#fef3e0',
-      noteTextColor: isDark ? '#e8e4d8' : '#1a1814',
-      noteBorderColor: isDark ? '#d4a73a' : '#b8860b',
+      noteBkgColor: isDark ? '#2e2618' : '#fefce8',
+      noteTextColor: isDark ? '#f3f4f6' : '#1b2536',
+      noteBorderColor: isDark ? '#facc15' : '#ca8a04',
     }
   });
 

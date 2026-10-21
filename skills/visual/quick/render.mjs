@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { flowSvg } from "./diagram.mjs";
 import { autolink } from "./autolink.mjs";
+import { brandFont, brandTokens } from "../brand/brand.mjs";
 
 const quickDir = dirname(fileURLToPath(import.meta.url));
 const tones = new Set(["neutral", "accent", "positive", "warning", "danger", "info"]);
@@ -21,7 +22,7 @@ function renderLinks(links) {
   return `<nav class="links" aria-label="Links"><h2>Links</h2><ul>${sorted.map((l) => `<li><span class="link-kind" data-kind="${l.kind}">${linkKinds[l.kind]}</span><a href="${escapeHtml(l.url)}" target="_blank" rel="noopener">${escapeHtml(l.label)}</a></li>`).join("")}</ul></nav>`;
 }
 const sectionKeys = new Set(["title", "subtitle", "summary", "tone", "layout", "cards", "table", "risks", "files", "steps", "flow", "callouts", "evidence"]);
-const standardFavicon = '<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 64 64\'%3E%3Crect width=\'64\' height=\'64\' rx=\'14\' fill=\'%230f172a\'/%3E%3Cpath d=\'M18 40V24l14-8 14 8v16l-14 8-14-8Z\' fill=\'none\' stroke=\'%23fbbf24\' stroke-width=\'4\' stroke-linejoin=\'round\'/%3E%3Ccircle cx=\'32\' cy=\'32\' r=\'5\' fill=\'%2338bdf8\'/%3E%3C/svg%3E">';
+const standardFavicon = '<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2714%27 fill=%27%23497CAB%27/%3E%3Cpath d=%27M18 40V24l14-8 14 8v16l-14 8-14-8Z%27 fill=%27none%27 stroke=%27%23ffffff%27 stroke-width=%274%27 stroke-linejoin=%27round%27/%3E%3Ccircle cx=%2732%27 cy=%2732%27 r=%275%27 fill=%27%23183e65%27/%3E%3C/svg%3E">';
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -212,7 +213,7 @@ function fileLegend(files) {
 function renderLists(section) {
   const risks = section.risks ? `<div class="risks">${section.risks.map((risk) => `<article class="risk" data-severity="${risk.severity}"><span class="severity">${risk.severity}</span><div><h3>${escapeHtml(risk.title)}</h3><p>${escapeHtml(risk.body)}</p></div></article>`).join("")}</div>` : "";
   const files = section.files ? `<div class="files">${fileLegend(section.files)}${section.files.map((file) => `<div class="file" data-status="${file.status ?? "file"}">${fileIcon(file.status)}<div><code>${escapeHtml(file.path)}</code>${file.detail ? `<p>${escapeHtml(file.detail)}</p>` : ""}</div></div>`).join("")}</div>` : "";
-  const steps = section.steps ? `<div class="steps">${section.steps.map((step, index) => `<div class="step"><span class="index">${index + 1}</span><div><h3>${escapeHtml(step.title)}</h3>${step.body ? `<p>${escapeHtml(step.body)}</p>` : ""}${step.status ? `<span class="status">${escapeHtml(step.status)}</span>` : ""}</div></div>`).join("")}</div>` : "";
+  const steps = section.steps ? `<div class="steps">${section.steps.map((step, index) => `<div class="step" data-status="${step.status ?? "next"}"><span class="index">${index + 1}</span><div><h3>${escapeHtml(step.title)}</h3>${step.body ? `<p>${escapeHtml(step.body)}</p>` : ""}${step.status ? `<span class="status">${escapeHtml(step.status)}</span>` : ""}</div></div>`).join("")}</div>` : "";
   return `${risks}${files}${steps}`;
 }
 
@@ -231,7 +232,9 @@ function renderCalloutsAndEvidence(section) {
 export async function renderQuickSpec(spec) {
   const errors = validateQuickSpec(spec);
   if (errors.length) throw new Error(`Quick spec validation failed:\n- ${errors.join("\n- ")}`);
-  const css = await readFile(join(quickDir, "base.css"), "utf8");
+  const css = `${await brandFont()}
+${await brandTokens()}
+${await readFile(join(quickDir, "base.css"), "utf8")}`;
   const dragScript = spec.sections.some((s) => s.flow) ? `<script>\n${await readFile(join(quickDir, "drag.js"), "utf8")}</script>\n` : "";
   const sections = spec.sections.map((section, index) => `<section class="section" data-tone="${tone(section.tone)}"${section.layout === "stack" ? ' data-layout="stack"' : ""}><div class="section-head"><div><h2>${escapeHtml(section.title)}</h2>${section.subtitle ? `<p class="section-subtitle">${escapeHtml(section.subtitle)}</p>` : ""}</div><span class="section-kicker">${String(index + 1).padStart(2, "0")}</span></div>${section.summary ? `<p class="section-summary">${escapeHtml(section.summary)}</p>` : ""}${renderCards(section.cards)}${renderTable(section.table)}${renderLists(section)}${renderFlow(section.flow)}${renderCalloutsAndEvidence(section)}</section>`).join("");
   return `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n<title>${escapeHtml(spec.title)}</title>\n${standardFavicon}\n<style>\n${css}\n</style>\n</head>\n<body>\n<main>\n${autolink(`<header><h1>${escapeHtml(spec.title)}</h1>${spec.subtitle ? `<p class="subtitle">${escapeHtml(spec.subtitle)}</p>` : ""}${spec.summary ? `<p class="summary">${escapeHtml(spec.summary)}</p>` : ""}</header>`, spec.links)}\n${autolink(`<aside class="tldr" aria-label="TL;DR"><h2>TL;DR</h2><ul>${spec.tldr.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul></aside>`, spec.links)}\n${renderLinks(spec.links)}\n<div class="sections">${autolink(sections, spec.links)}</div>\n</main>\n${dragScript}</body>\n</html>\n`;

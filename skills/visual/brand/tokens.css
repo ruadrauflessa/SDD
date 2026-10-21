@@ -1,0 +1,359 @@
+/* SpesNet Design System tokens, copied verbatim from the design system (Public Sans face,
+   typography, colours, spacing, radius, elevation, motion). To update: re-copy these files in
+   this order. brand.mjs adds the @font-face and the dark-mode media rule. */
+
+/* ---- tokens/typography.css ---- */
+/* Type tokens.
+   Public Sans is the product's declared UI face (--font-sans in the Switch app).
+   It is loaded from Google Fonts here; no binaries were present in the codebase. */
+:root {
+  --font-sans: "Public Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* Sizes — the app works in a compact, dense range. 10px and 11px are used
+     only for uppercase micro-labels and key chips, never for prose. */
+  --text-micro: 0.625rem;   /* 10px — key chips, badge text */
+  --text-label: 0.6875rem;  /* 11px — uppercase field labels */
+  --text-xs: 0.75rem;       /* 12px — table cells, meta */
+  --text-sm: 0.875rem;      /* 14px — body, controls */
+  --text-base: 1rem;        /* 16px */
+  --text-lg: 1.125rem;      /* 18px — dialog titles */
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;       /* 24px — page titles */
+  --text-3xl: 1.875rem;     /* 30px — metric values */
+  --text-4xl: 2.25rem;      /* 36px — hero metric values */
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --leading-tight: 1.2;
+  --leading-snug: 1.35;
+  --leading-normal: 1.5;
+
+  /* Tracking — the uppercase micro-label look depends on these */
+  --tracking-wider: 0.05em;
+  --tracking-widest: 0.1em;
+  --tracking-brand: 0.15em;
+
+  --font-feature-ui: "cv11", "ss01";
+}
+
+/* ---- tokens/colors.css ---- */
+/* Color tokens — "Clinical Precision" palette, lifted verbatim from
+   SpesnetSwitch.UI/src/src/styles.css and tailwind.config.js.
+   Three themes ship: light (:root), .dim and .dark. */
+
+:root {
+  --background: oklch(0.965 0.005 240);
+  --foreground: oklch(0.22 0.04 260);
+
+  --surface: oklch(0.98 0.003 240);
+  --panel: oklch(1 0 0);
+  --panel-border: oklch(0.9 0.012 250);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.04 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.04 260);
+
+  --primary: #497CAB;
+  --primary-dark: #183e65;
+  --primary-foreground: oklch(0.99 0.003 240);
+
+  --secondary: oklch(0.96 0.008 250);
+  --secondary-foreground: oklch(0.22 0.04 260);
+
+  --muted: oklch(0.95 0.008 250);
+  --muted-foreground: oklch(0.5 0.02 255);
+
+  --accent: oklch(0.94 0.015 245);
+  --accent-foreground: oklch(0.22 0.04 260);
+
+  --destructive: oklch(0.55 0.2 20);
+  --destructive-foreground: oklch(0.99 0 0);
+
+  --success: oklch(0.55 0.12 175);
+  --success-foreground: #e5f4f1;
+  --warning: #f7e19c;
+  --warning-foreground: oklch(0.2 0.04 260);
+  --fail: #cc2443;
+  --fail-foreground: #fae9ec;
+
+  --border: oklch(0.9 0.012 250);
+  --input: oklch(0.9 0.012 250);
+  --ring: oklch(0.48 0.14 245);
+
+  --chart-1: oklch(0.55 0.12 175);
+  --chart-2: oklch(0.65 0.14 65);
+  --chart-3: oklch(0.55 0.2 18);
+  --chart-4: oklch(0.48 0.14 245);
+  --chart-5: oklch(0.6 0.1 290);
+
+  --sidebar: oklch(0.99 0.002 240);
+  --sidebar-foreground: oklch(0.22 0.04 260);
+  --sidebar-primary: oklch(0.48 0.14 245);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.95 0.008 250);
+  --sidebar-accent-foreground: oklch(0.22 0.04 260);
+  --sidebar-border: oklch(0.9 0.012 250);
+  --sidebar-ring: oklch(0.48 0.14 245);
+
+  /* Primary ramp (tailwind.config.js) */
+  --primary-50: oklch(0.96 0.008 250);
+  --primary-100: oklch(0.94 0.015 245);
+  --primary-200: oklch(0.85 0.08 245);
+  --primary-300: oklch(0.75 0.11 245);
+  --primary-400: oklch(0.6 0.13 245);
+  --primary-500: var(--primary);
+  --primary-600: oklch(0.42 0.14 245);
+  --primary-700: oklch(0.35 0.12 245);
+  --primary-800: oklch(0.28 0.09 245);
+  --primary-900: oklch(0.22 0.06 245);
+
+  /* Success ramp */
+  --success-50: oklch(0.95 0.04 175);
+  --success-100: oklch(0.90 0.06 175);
+  --success-200: oklch(0.80 0.08 175);
+  --success-300: oklch(0.70 0.10 175);
+  --success-400: oklch(0.62 0.11 175);
+  --success-500: var(--success);
+  --success-600: oklch(0.48 0.12 175);
+  --success-700: oklch(0.40 0.10 175);
+  --success-800: oklch(0.32 0.08 175);
+  --success-900: oklch(0.16 0.02 260);
+
+  /* Warning ramp */
+  --warning-50: oklch(0.95 0.04 65);
+  --warning-100: oklch(0.90 0.06 65);
+  --warning-200: oklch(0.80 0.08 65);
+  --warning-300: oklch(0.75 0.11 65);
+  --warning-400: oklch(0.70 0.13 65);
+  --warning-500: var(--warning);
+  --warning-600: oklch(0.58 0.14 65);
+  --warning-700: oklch(0.48 0.12 65);
+  --warning-800: oklch(0.38 0.09 65);
+  --warning-900: oklch(0.30 0.07 65);
+
+  /* Neutral steps the product leans on (Tailwind gray) */
+  --gray-50: #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
+  --gray-400: #9ca3af;
+  --gray-500: #6b7280;
+  --gray-600: #4b5563;
+  --gray-700: #374151;
+  --gray-800: #1f2937;
+  --gray-900: #111827;
+  --gray-950: #030712;
+
+  /* Text and fills that sit on a coloured surface */
+  --on-primary: #ffffff;
+  --on-accent: #ffffff;
+  --destructive-tint: #fef2f2;
+  --destructive-strong: #dc2626;
+  /* --warning is a pale surface tint; this is the solid fill for bullets,
+     chart segments and progress bars. */
+  --warning-solid: var(--warning-600);
+  --pending-solid: #f97316;
+  --field-disabled-bg: #e2e8f0;
+
+  /* Status surfaces — the five states a record can be in */
+  --status-success-bg: var(--success-foreground);
+  --status-success-fg: #15803d;
+  --status-pending-bg: #fff7ed;
+  --status-pending-fg: #ea580c;
+  --status-warning-bg: #fefce8;
+  --status-warning-fg: #ca8a04;
+  --status-error-bg: var(--fail-foreground);
+  --status-error-fg: var(--fail);
+  --status-neutral-bg: var(--gray-50);
+  --status-neutral-fg: var(--gray-500);
+}
+
+.dark {
+  --background: oklch(0.16 0.02 260);
+  --foreground: oklch(0.96 0.005 240);
+  --surface: oklch(0.18 0.022 260);
+  --panel: oklch(0.21 0.025 260);
+  --panel-border: oklch(0.3 0.025 260);
+
+  --card: oklch(0.21 0.025 260);
+  --card-foreground: oklch(0.96 0.005 240);
+  --popover: oklch(0.21 0.025 260);
+  --popover-foreground: oklch(0.96 0.005 240);
+
+  --primary: #497CAB;
+  --primary-dark: #183e65;
+  --primary-foreground: oklch(0.99 0.003 240);
+
+  --secondary: oklch(0.26 0.025 260);
+  --secondary-foreground: oklch(0.96 0.005 240);
+  --muted: oklch(0.26 0.025 260);
+  --muted-foreground: oklch(0.7 0.02 255);
+  --accent: oklch(0.26 0.025 260);
+  --accent-foreground: oklch(0.96 0.005 240);
+  --destructive: oklch(0.65 0.2 20);
+  --destructive-foreground: oklch(0.99 0 0);
+
+  --success: #00bb90;
+  --success-foreground: #00bb901B;
+  --warning: #e7da8b;
+  --warning-foreground: #e7da8b1B;
+  --fail: oklch(0.65 0.2 18);
+  --fail-foreground: #cc24431B;
+
+  --border: oklch(1 0 0 / 0.1);
+  --input: oklch(1 0 0 / 0.15);
+  --ring: oklch(0.7 0.13 245);
+
+  --sidebar: oklch(0.18 0.022 260);
+  --sidebar-foreground: oklch(0.96 0.005 240);
+  --sidebar-primary: oklch(0.7 0.13 245);
+  --sidebar-primary-foreground: oklch(0.16 0.02 260);
+  --sidebar-accent: oklch(0.26 0.025 260);
+  --sidebar-accent-foreground: oklch(0.96 0.005 240);
+  --sidebar-border: oklch(1 0 0 / 0.1);
+  --sidebar-ring: oklch(0.7 0.13 245);
+
+  --on-primary: #ffffff;
+  --on-accent: #ffffff;
+  --destructive-tint: rgba(69, 10, 10, 0.2);
+  --destructive-strong: #f87171;
+  --warning-solid: var(--warning-400);
+  --pending-solid: #fb923c;
+  --field-disabled-bg: var(--secondary);
+
+  --status-success-bg: var(--success-foreground);
+  --status-success-fg: var(--success);
+  --status-pending-bg: rgba(124, 45, 18, 0.2);
+  --status-pending-fg: #fb923c;
+  --status-warning-bg: rgba(113, 63, 18, 0.2);
+  --status-warning-fg: #facc15;
+  --status-error-bg: var(--fail-foreground);
+  --status-error-fg: var(--fail);
+  --status-neutral-bg: rgba(17, 24, 39, 0.2);
+  --status-neutral-fg: var(--gray-400);
+
+  color-scheme: dark;
+}
+
+/* Dim — a mid-slate third theme, between light and dark */
+.dim {
+  --background: oklch(0.33 0.022 260);
+  --foreground: oklch(0.94 0.008 240);
+  --surface: oklch(0.355 0.024 260);
+  --panel: oklch(0.375 0.025 260);
+  --panel-border: oklch(0.46 0.022 260);
+
+  --card: oklch(0.375 0.025 260);
+  --card-foreground: oklch(0.94 0.008 240);
+  --popover: oklch(0.375 0.025 260);
+  --popover-foreground: oklch(0.94 0.008 240);
+
+  --primary: #497CAB;
+  --primary-dark: #183e65;
+  --primary-foreground: oklch(0.99 0.003 240);
+
+  --secondary: oklch(0.42 0.025 260);
+  --secondary-foreground: oklch(0.94 0.008 240);
+  --muted: oklch(0.42 0.025 260);
+  --muted-foreground: oklch(0.74 0.018 255);
+  --accent: oklch(0.42 0.025 260);
+  --accent-foreground: oklch(0.94 0.008 240);
+
+  --destructive: oklch(0.62 0.19 20);
+  --destructive-foreground: oklch(0.99 0 0);
+
+  --success: oklch(0.65 0.14 170);
+  --success-foreground: #00bb901B;
+  --warning: oklch(0.75 0.15 70);
+  --fail: #cc2443;
+  --fail-foreground: #cc24431B;
+
+  --border: oklch(1 0 0 / 0.13);
+  --input: oklch(1 0 0 / 0.15);
+  --ring: oklch(0.65 0.13 245);
+
+  --sidebar: oklch(0.355 0.024 260);
+  --sidebar-foreground: oklch(0.94 0.008 240);
+  --sidebar-primary: oklch(0.65 0.13 245);
+  --sidebar-primary-foreground: oklch(0.33 0.022 260);
+  --sidebar-accent: oklch(0.42 0.025 260);
+  --sidebar-accent-foreground: oklch(0.94 0.008 240);
+  --sidebar-border: oklch(1 0 0 / 0.11);
+  --sidebar-ring: oklch(0.65 0.13 245);
+
+  color-scheme: dark;
+}
+
+/* ---- tokens/spacing.css ---- */
+/* Spacing — the product is built on a 4px grid (Tailwind's scale).
+   These are the steps that actually appear in the Switch UI. */
+:root {
+  --space-0-5: 0.125rem;  /* 2px */
+  --space-1: 0.25rem;     /* 4px */
+  --space-1-5: 0.375rem;  /* 6px */
+  --space-2: 0.5rem;      /* 8px */
+  --space-2-5: 0.625rem;  /* 10px */
+  --space-3: 0.75rem;     /* 12px */
+  --space-4: 1rem;        /* 16px */
+  --space-5: 1.25rem;     /* 20px */
+  --space-6: 1.5rem;      /* 24px */
+  --space-8: 2rem;        /* 32px */
+  --space-10: 2.5rem;     /* 40px */
+  --space-12: 3rem;       /* 48px */
+  --space-14: 3.5rem;     /* 56px */
+
+  /* Layout constants read off the shell */
+  --header-height: 4rem;        /* 64px top bar */
+  --sidenav-width: 16rem;       /* expanded */
+  --sidenav-width-collapsed: 4.5rem;
+  --dialog-max-width: 32rem;    /* max-w-lg */
+  --content-gutter: var(--space-6);
+}
+
+/* ---- tokens/radius.css ---- */
+/* Radii — one base, everything derived from it (as in the app's styles.css). */
+:root {
+  --radius: 0.625rem;                    /* 10px */
+  --radius-sm: calc(var(--radius) - 4px); /* 6px  */
+  --radius-md: calc(var(--radius) - 2px); /* 8px  */
+  --radius-lg: var(--radius);             /* 10px */
+  --radius-xl: calc(var(--radius) + 4px); /* 14px — cards */
+  --radius-2xl: calc(var(--radius) + 8px);/* 18px — dialogs */
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --radius-field: 4px;                    /* the shared text field is deliberately tighter */
+  --radius-full: 9999px;
+}
+
+/* ---- tokens/elevation.css ---- */
+/* Elevation — shadows are quiet. Panels sit almost flat; only overlays lift. */
+:root {
+  --shadow-panel: 0 1px 2px oklch(0.2 0.04 260 / 0.04), 0 4px 24px oklch(0.2 0.04 260 / 0.04);
+  --shadow-inset-top: inset 0 1px 0 oklch(1 0 0 / 0.85);
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+  --overlay-scrim: rgb(0 0 0 / 0.5);
+}
+
+/* ---- tokens/motion.css ---- */
+/* Motion — short, functional, no bounce. Presses shrink; colours cross-fade. */
+:root {
+  --duration-fast: 100ms; /* @kind other */
+  --duration-150: 150ms; /* @kind other */
+  --duration-200: 200ms; /* @kind other */
+  --duration-300: 300ms; /* @kind other */
+  --duration-slow: 400ms; /* @kind other */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1); /* @kind other */
+  --ease-out: cubic-bezier(0, 0, 0.2, 1); /* @kind other */
+  --press-scale: 0.95; /* @kind other */
+  --shimmer-duration: 1.4s; /* @kind other */
+}
+
