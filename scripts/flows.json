@@ -1,7 +1,8 @@
 {
-  "_": "The stages of each sdd flow, in order. env.py reads it for its state guards and the view draws it. key = what progress --phase starts with; needs = gates that must be met before the stage may start; passes = gates the stage records; stop = the flow stops here for the user. conditional = the stage runs only when there is something to do (spec flow Open Questions: unanswered questions in questions.md); inferFromGates = a stage added after items were started: with its gates already passed, it needs no record. A conditional stage is recorded skipped without the user's words when there is nothing to do. reworkTo = on a review stage, the stage a rejected PR goes back to. proofs = gates that pass only on a recorded run (env.py run / revert-check / verify, see proof.py): needs lists the runs; current = the runs must be on the code as it is now. doc = the stage's own file (from the plugin root): env.py can --op phase prints it as `read:`. paths = ways through a flow the user picks (env.py path): every stage after `choose` needs one; a path's dropNeeds lifts gates a stage would otherwise need.",
+  "_": "The stages of each sdd flow, in order. env.py reads it for its state guards and the view draws it. key = what progress --phase starts with; needs = gates that must be met before the stage may start (Graph: the code graph is built, and current when the stage starts); passes = gates the stage records; stop = the flow stops here for the user. conditional = the stage runs only when there is something to do (spec flow Open Questions: unanswered questions in questions.md); inferFromGates = a stage added after items were started: with its gates already passed, it needs no record. A conditional stage is recorded skipped without the user's words when there is nothing to do. reworkTo = on a review stage, the stage a rejected PR goes back to. proofs = gates that pass only on a recorded run (env.py run / revert-check / verify / anchors, see proof.py): needs lists the runs; current = the runs must be on the code as it is now. doc = the stage's own file (from the plugin root): env.py can --op phase prints it as `read:`. paths = ways through a flow the user picks (env.py path): every stage after `choose` needs one; a path's dropNeeds lifts gates a stage would otherwise need.",
   "derived": [
     "Worktree",
+    "Graph",
     "PR raised",
     "Tasks written",
     "Tasks done"
@@ -58,6 +59,7 @@
           ],
           "passes": [
             "Worktree",
+            "Graph",
             "Design agreed"
           ],
           "stop": true,
@@ -69,7 +71,8 @@
           "needs": [
             "Requirements agreed",
             "Design agreed",
-            "Worktree"
+            "Worktree",
+            "Graph"
           ],
           "passes": [
             "Tasks written"
@@ -84,7 +87,8 @@
             "Requirements agreed",
             "Design agreed",
             "Tasks written",
-            "Worktree"
+            "Worktree",
+            "Graph"
           ],
           "passes": [
             "Tasks done"
@@ -95,7 +99,8 @@
           "key": "Verify",
           "label": "Verify",
           "needs": [
-            "Tasks done"
+            "Tasks done",
+            "Graph"
           ],
           "passes": [
             "Ready to PR",
@@ -119,6 +124,13 @@
         }
       ],
       "proofs": {
+        "Design agreed": {
+          "needs": [
+            {
+              "kind": "anchors"
+            }
+          ]
+        },
         "Ready to PR": {
           "current": true,
           "needs": [
@@ -167,7 +179,8 @@
             "Claimed"
           ],
           "passes": [
-            "Worktree"
+            "Worktree",
+            "Graph"
           ],
           "doc": "skills/bug/phases/02-branch-and-worktree.md"
         },
@@ -176,7 +189,8 @@
           "label": "Validate against story",
           "needs": [
             "Claimed",
-            "Worktree"
+            "Worktree",
+            "Graph"
           ],
           "passes": [],
           "doc": "skills/bug/phases/03-validate.md"
@@ -186,7 +200,8 @@
           "label": "Reproduce and locate",
           "needs": [
             "Claimed",
-            "Worktree"
+            "Worktree",
+            "Graph"
           ],
           "passes": [],
           "doc": "skills/bug/phases/04-reproduce.md"
@@ -196,7 +211,8 @@
           "label": "Prove root cause",
           "needs": [
             "Claimed",
-            "Worktree"
+            "Worktree",
+            "Graph"
           ],
           "passes": [],
           "doc": "skills/bug/phases/05-root-cause.md"
@@ -206,7 +222,8 @@
           "label": "Approval gate",
           "needs": [
             "Claimed",
-            "Worktree"
+            "Worktree",
+            "Graph"
           ],
           "passes": [
             "Approval"
@@ -218,7 +235,8 @@
           "key": "Phase 7",
           "label": "Failing regression test",
           "needs": [
-            "Approval"
+            "Approval",
+            "Graph"
           ],
           "passes": [
             "Red test"
@@ -230,7 +248,8 @@
           "label": "Apply fix",
           "needs": [
             "Approval",
-            "Red test"
+            "Red test",
+            "Graph"
           ],
           "passes": [],
           "doc": "skills/bug/phases/08-fix.md"
@@ -240,7 +259,8 @@
           "label": "Verify",
           "needs": [
             "Approval",
-            "Red test"
+            "Red test",
+            "Graph"
           ],
           "passes": [
             "Verified"

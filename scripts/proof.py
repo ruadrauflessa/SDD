@@ -5,6 +5,10 @@ lines of output, and a fingerprint of the repo's working files (`tree`) at the t
 "proofs" says what each gate needs. A gate marked `current` needs runs made on the files as they are
 now: change the code after the run and the proof no longer counts.
 
+An `anchors` record (env.py anchors) is not a test run: it says design.md's components were checked
+against the code graph, and it holds a hash of design.md (`design`). It counts only while design.md is
+unchanged since the check.
+
 The fingerprint is git's tree id of the working files, ignored files left out, made with a scratch
 index — so a commit of the same files keeps the proof, and an edit does not. The real index is never
 touched.
@@ -226,6 +230,8 @@ def verify(data, repo_dirs, tasks, gate, timeout=1800):
 # ---------------------------------------------------------------- what a gate still needs
 
 def need_text(need):
+    if need.get("kind") == "anchors":
+        return "design.md's Affected components checked against the code graph (env.py anchors)"
     if need.get("kind") == "revert-check":
         return "a revert check (env.py revert-check)"
     if need.get("kind") == "verify":
@@ -238,28 +244,34 @@ def need_text(need):
     return " ".join(bits)
 
 
-def satisfies(r, gate, need):
+def satisfies(r, gate, need, design=None):
     if r.get("gate") != gate or not r.get("ok"):
         return False
     kind = need.get("kind", "run")
     if r.get("kind", "run") != kind:
         return False
+    if kind == "anchors":
+        return design is not None and r.get("design") == design
     if kind == "run":
         return (r.get("expect") == need.get("expect", "pass") and r.get("repeat", 1) >= need.get("repeat", 1)
                 and (r.get("suite") or not need.get("suite")))
     return True
 
 
-def missing(data, gate, rule, repo_dirs, trees=None):
+def missing(data, gate, rule, repo_dirs, trees=None, design=None):
     """What `gate` still lacks under `rule` ({"current": bool, "needs": [...]}), as sentences.
     `repo_dirs` {repo: (dir, base)}: for a `current` gate, every repo that carries a change must have
-    each need met by a run on its files as they are now. Otherwise one matching run anywhere will do."""
+    each need met by a run on its files as they are now. Otherwise one matching run anywhere will do.
+    `design`: the hash of design.md as it is now, for an `anchors` need."""
     runs = data.get("runs") or []
     out = []
     if not rule.get("current"):
         for need in rule["needs"]:
-            if not any(satisfies(r, gate, need) for r in runs):
-                out.append(f"'{gate}' needs {need_text(need)}")
+            if not any(satisfies(r, gate, need, design) for r in runs):
+                stale = need.get("kind") == "anchors" and design is not None and any(
+                    r.get("gate") == gate and r.get("kind") == "anchors" and r.get("ok") for r in runs)
+                out.append(f"'{gate}' needs {need_text(need)}"
+                           + (" on design.md as it is now (it changed since the last check)" if stale else ""))
         return out
     trees = trees if trees is not None else {}
     for repo, (d, base) in repo_dirs.items():

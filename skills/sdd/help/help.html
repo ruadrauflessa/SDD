@@ -96,8 +96,8 @@
     </ul>
     <h3>What sdd needs</h3>
     <ul>
-      <li><b>Required:</b> Python 3.9 or newer (with SQLite FTS5), Node 18 or newer, git, and the Azure CLI signed in (<code>az login</code>). The scripts use the <code>az</code> login, never a token you paste.</li>
-      <li><b>Optional:</b> <b>graphify</b> (the code graph of a work item), <b>pandoc</b> (turns ADO's HTML into Markdown), <b>Ollama</b> with the <code>nomic-embed-text</code> model (meaning search; without it, word search still works).</li>
+      <li><b>Required:</b> Python 3.9 or newer (with SQLite FTS5), Node 18 or newer, git, the Azure CLI signed in (<code>az login</code>), and <b>graphify</b> (<code>pip install graphifyy</code>: the code graph every work item folder gets, and that Claude explores the code from). The scripts use the <code>az</code> login, never a token you paste.</li>
+      <li><b>Optional:</b> <b>pandoc</b> (turns ADO's HTML into Markdown), <b>Ollama</b> with the <code>nomic-embed-text</code> model (meaning search; without it, word search still works).</li>
       <li><b>For the bug manager:</b> PowerShell (Windows PowerShell 5.1 or PowerShell 7) and <code>az login</code>. A personal access token in <code>AZURE_DEVOPS_EXT_PAT</code> works too.</li>
       <li><b>For the panels:</b> the Claude Desktop app. In a terminal, in the VS Code extension or on a phone the panels do nothing; the commands and flows still work.</li>
     </ul>
@@ -169,7 +169,7 @@
       <li><b>Specify</b><span>Claims the item, mirrors it, runs impact.</span><span class="you">You: pick the path.</span></li>
       <li><b>Open Questions</b><span>Asks the questions in <code>questions.md</code>, one by one.</span><span class="you">You: answer, or say "Continue with this open".</span></li>
       <li class="stop"><b>Requirements</b><span>Shows the requirements as understood.</span><span class="you">You: approve.</span></li>
-      <li class="stop"><b>Design</b><span>Writes <code>design.md</code> after reading the real code. Skipped on the short path.</span><span class="you">You: approve.</span></li>
+      <li class="stop"><b>Design</b><span>Writes <code>design.md</code> after reading the real code. Each component it names is checked against the code graph (<code>env.py anchors</code>) before you can approve. Skipped on the short path.</span><span class="you">You: approve.</span></li>
       <li class="stop"><b>Decompose</b><span>Writes <code>tasks.md</code>. May propose tech stories.</span><span class="you">You: approve.</span></li>
       <li><b>Implement</b><span>One task at a time, each with its tests.</span></li>
       <li class="stop"><b>Verify</b><span>Checks drift from the spec and overlap with other work.</span><span class="you">You: approve.</span></li>
@@ -376,7 +376,8 @@
     <p>sdd enforces its rules with scripts and hooks, not by asking nicely.</p>
     <table>
       <tr><td>State guards</td><td><code>env.py can</code> answers whether a stage, PR, <code>done</code>, <code>abandon</code> or <code>reopen</code> is allowed in the item's state. A refusal says why and what gets it there; sdd never works around it. <code>env.py pr</code> and <code>env.py remove</code> enforce the same checks themselves.</td></tr>
-      <tr><td>Proof runs</td><td>The failing test, the revert check, the repeat run, the full suite and the task Verify commands are <b>recorded runs</b> (exit code, output, a fingerprint of the code). A gate passes only on a record that matches the current code. A later edit voids it.</td></tr>
+      <tr><td>Proof runs</td><td>The failing test, the revert check, the repeat run, the full suite and the task Verify commands are <b>recorded runs</b> (exit code, output, a fingerprint of the code). A gate passes only on a record that matches the current code. A later edit voids it. <b>Design agreed</b> passes only on an <code>env.py anchors</code> check of <code>design.md</code> against the code graph, and an edit of <code>design.md</code> voids it.</td></tr>
+      <tr><td>Graph guard (hook)</td><td>Claude finds code from the work item's <b>code graph</b>, not by grepping: a search of the code is refused until it has asked the graph in that stage, and while a flow runs a search of the main checkout is refused. The graph is rebuilt before every read once the code changed, and a stage that reads code starts only on a current graph. <code>env.py status</code> counts graph queries against searches.</td></tr>
       <tr><td>Question guard (hook)</td><td>Blocks a question to you unless its Links block ran first, blocks a question that has a link inside it, and sends a plain-text question back to be asked as a pick-list. Silent unless an sdd flow is running.</td></tr>
       <tr><td>Edit guard (hook)</td><td>While a flow runs, blocks edits to a repo file in the <b>main checkout</b>. Your spec folder, <code>.claude/</code> and <code>CLAUDE.md</code> stay open.</td></tr>
       <tr><td>Agent guard (hook)</td><td>Keeps the sub-agents read-only: no git writes (an allowlist of read commands) and no <code>env.py</code> or <code>spec.py</code> runs.</td></tr>
@@ -474,9 +475,9 @@
     <h3>Work item folder: <code>.claude/worktrees/&lt;id&gt;-&lt;slug&gt;/</code></h3>
     <ul>
       <li><code>src/&lt;Repo&gt;/</code>: your code. Every edit, build, test and commit happens here.</li>
-      <li><code>graph/</code>: code graph of <code>src/</code>. Start with <code>GRAPH_REPORT.md</code>.</li>
+      <li><code>graph/</code>: code graph of <code>src/</code>. Start with <code>GRAPH_REPORT.md</code>. Claude finds code by asking the graph first (a search is refused until it has), and the graph is rebuilt as the code changes.</li>
       <li><code>workitem.json</code>: which repo is on which branch, its PR, and where the flow stopped (the last 50 checkpoints, and the cost).</li>
-      <li><code>CLAUDE.md</code>: generated; says "work only here" and lists the paths. <code>cost.jsonl</code>: one line per turn.</li>
+      <li><code>CLAUDE.md</code>: generated; says "work only here" and lists the paths. <code>cost.jsonl</code>: one line per turn. <code>graph-use.jsonl</code>: one line per graph query or code search.</li>
     </ul>
     <p>After <code>/sdd done</code> the folder is removed and a record stays in <code>.claude/worktrees/.done/&lt;id&gt;.json</code>, so <code>/sdd status</code> still says completed.</p>
     <h3>Spec folder: <code>specRoot</code> in <code>.claude/sdd.json</code>, then <code>**/&lt;id&gt;-&lt;TYPE&gt;-&lt;slug&gt;/</code></h3>

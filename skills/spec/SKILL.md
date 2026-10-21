@@ -156,7 +156,7 @@ The checkpoint rules are in `flow-rules.md`. The rows this flow adds:
 | `Claimed` | Specify step 2: assigned, `Active`, `Dev In Progress` written | Design |
 | `Open questions` | Open Questions: every question answered, or the user chose "Continue with this open" (with `--caveat`) | Requirements, while `questions.md` has open questions |
 | `Requirements agreed` | "Requirements agreed" gate: the user chose "Approve — start Design" | Design, Decompose, Implement, the PR |
-| `Design agreed` | "Design agreed" gate: the user chose "Approve — start Decompose" | Decompose, Implement |
+| `Design agreed` | "Design agreed" gate: the user chose "Approve — start Decompose", and `env.py anchors` passed on `design.md` as it is now | Decompose, Implement |
 | `Ready to PR` | "Ready to PR" gate: the user chose "Raise the PR", and `env.py verify` passed on the current code | the PR |
 
 **Revoke** a gate when what it approved has changed — with `--revoke` on the next checkpoint:

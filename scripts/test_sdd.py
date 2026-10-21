@@ -203,7 +203,8 @@ def main():
         assert not ok and any("Phase 7 was never worked" in w for w in why), why  # no jumping past a stage
         rec["stages"]["Phase 7"] = {"at": "t", "status": "done"}
         (wdir / "workitem.json").write_text(json.dumps(rec))
-        assert env.check_op(root, cfg, 5, "phase", None, "Phase 8")[0]
+        ok, why = env.check_op(root, cfg, 5, "phase", None, "Phase 8")[:2]
+        assert not ok and why == ["Phase 8 needs 'Graph' first — not true on disk yet: env.py graph --id 5"], why  # code stages need the graph
         assert not env.check_op(root, cfg, 5, "phase", None, "Phase 4")[0]         # derived Worktree missing
 
         # progress: a stage is never skipped silently, only with the user's recorded yes
@@ -279,12 +280,14 @@ def main():
         # a real remove: folder gone, record kept, verdict now "completed"
         (ddir / "workitem.json").write_text(json.dumps({**drec, "repos": {}}))
         (ddir / "cost.jsonl").write_text(json.dumps({"stage": "Verify", "usd": 0.5}) + "\n", encoding="utf-8")
+        (ddir / "graph-use.jsonl").write_text(json.dumps({"stage": "Phase 4", "kind": "graph"}) + "\n", encoding="utf-8")
         with contextlib.redirect_stdout(io.StringIO()):
             env.cmd_remove(_ap.Namespace(id=6, abandon=False, yes=True))
         kept = json.loads((env.done_dir(root, cfg) / "6.json").read_text(encoding="utf-8"))
         assert not ddir.exists() and v(None, kept, []).startswith("completed")
         assert kept["spend"] == {"Verify": {"usd": 0.5, "turns": 1, "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}}                       # the cost file goes with the folder: its totals stay
         assert env.view_item(root, cfg, kept, None, False)["spend"] == kept["spend"]       # and the view still reports them
+        assert kept["graphUse"]["graph"] == 1 and env.view_item(root, cfg, kept, None, False)["graphUse"] == kept["graphUse"]
         # Open Questions: conditional stage, driven by the unticked boxes in questions.md
         sdir = root / cfg["specRoot"] / "9-US-asks"
         sdir.mkdir(parents=True)
@@ -386,6 +389,22 @@ def main():
         got = json.loads((qdir / "workitem.json").read_text(encoding="utf-8"))
         assert "spend" not in got and got["progress"]["phase"] == "Design"                 # workitem.json is never rewritten by a cost
         assert env.view_item(root, cfg, got, qdir, False)["spend"]["Design"]["cacheRead"] == 50000
+        # graph-use.jsonl (hooks/graph_use.py): graph queries vs hand searches, and whether each stage began with the graph
+        assert env.read_graph_use(qdir) == {"graph": 0, "search": 0, "stages": {}}
+        assert env.graph_use_line(env.read_graph_use(qdir)) == "no graph queries or searches recorded"
+        with open(qdir / "graph-use.jsonl", "w", encoding="utf-8") as f:
+            for stage, kind in (("Design", "graph"), ("Design", "search"), ("Design", "graph"),
+                                ("Implement (task 2)", "search"), ("Implement", "graph"), ("", "search")):
+                f.write(json.dumps({"stage": stage, "kind": kind}) + "\n")
+            f.write("not json\n" + json.dumps({"stage": "Design", "kind": "read"}) + "\n[1]\n")
+        use = env.read_graph_use(qdir)
+        assert use == {"graph": 3, "search": 3, "stages": {
+            "Design": {"graph": 2, "search": 1, "graphFirst": True},
+            "Implement": {"graph": 1, "search": 1, "graphFirst": False},
+            "no stage": {"graph": 0, "search": 1, "graphFirst": False}}}, use
+        assert env.graph_use_line(use) == ("3 graph queries, 3 searches; searched before asking the graph in "
+                                           "Implement, no stage")
+        assert env.view_item(root, cfg, got, qdir, False)["graphUse"] == use
         os.chdir(Path(__file__).parent)
     stage_docs()
     short_path()

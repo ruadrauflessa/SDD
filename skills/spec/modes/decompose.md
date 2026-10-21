@@ -27,5 +27,6 @@
    **Short path:** this one stop approves the design and the tasks together. Send both pages and
    pass both as refs (`--ref visuals/design.html --ref visuals/tasks.html`), and say in the gate that
    it covers the design too. On "Approve — start Implement", record it with
-   `--passed "Design agreed"`: Implement needs that gate. On "Needs changes", rework `design.md`,
+   `--passed "Design agreed"`: Implement needs that gate. It passes only on an `env.py anchors` run
+   on `design.md` as it is now (Design step 4); run it again first if `design.md` changed. On "Needs changes", rework `design.md`,
    `tasks.md` or both, and ask again.

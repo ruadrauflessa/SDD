@@ -7,6 +7,8 @@
 1. **Create the work item's folder first:** `env.py new --id <id> --repos <affected repos>
    --version <version>` (`--base Repo=main` for a repo without `team/*` branches). It branches
    each repo off the freshly fetched `team/{version}` into `src\{Repo}` and builds the graph.
+   Without graphify it stops after the worktrees: fix graphify (`env.py doctor`), then
+   `env.py graph --id <id>`. Decompose, Implement and Verify need the graph.
    Design is read against the branch the change will actually land on, not against whatever the
    main checkout happens to have. Mechanics in `references/branching.md`.
 2. **Read the code** — inside `src\{Repo}` — the modules, contracts and data the change touches.
@@ -18,10 +20,17 @@
    `env.py new` with that repo in `--repos` before reading further into it — existing repos are
    skipped.
 3. **Write `design.md`** from `assets/design.md.template`: approach, affected components,
-   contracts and data changes, risks, rejected alternatives with the reason.
+   contracts and data changes, risks, rejected alternatives with the reason. In the Affected
+   components table, give each modified or removed component its **Graph node**: the `ID:` line of
+   `graphify explain "<name>" --graph <folder>\graph\graph.json`. A new component gets `new`.
 4. **Name the anchors deliberately** — file paths, exported symbols, API routes, tables,
    migrations, config and feature-flag keys. These are what overlap detection compares across
    branches, so vague ones cost you a real gate.
+   **Check them against the graph:** `env.py anchors --id <id>`. It fails on a node the graph does
+   not have, a node in another file than the component, a "new" component that already exists, and
+   a graph older than the code (`env.py graph --id <id>` rebuilds it). Fix `design.md` until it
+   prints `anchors OK`. "Design agreed" passes only on that run, and only while `design.md` is
+   unchanged since it: after any edit, run it again.
 5. **Run the tech story gate** before closing: enumerate what this design *creates* that didn't
    exist, search ADO for existing coverage, and propose only what survives. Present what's left
    as the "Tech story creation" gate — one `AskUserQuestion` option per proposal, `multiSelect:
@@ -42,7 +51,8 @@
    record Design `done` with **no** `--passed "Design agreed"`, and go straight to Decompose — its
    one stop approves the design and the tasks together. The tech story gate (step 5) still asks,
    because it writes to ADO.
-8. **"Needs changes"?** Revise `design.md` to address what was asked for, then re-run step 7 —
+8. **"Needs changes"?** Revise `design.md` to address what was asked for, run `env.py anchors`
+   again (step 4), then re-run step 7 —
    present what changed and run the same gate again. Never guess at the fix and move on to
    Decompose without a fresh approval; a design that changed since it was last agreed to hasn't
    actually been agreed to.
