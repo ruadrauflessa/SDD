@@ -506,6 +506,7 @@ def main():
     graph_focus()
     short_path()
     config_upgrade()
+    hook_launcher()
     output_style()
     ado_writes()
     print("ok")
@@ -714,6 +715,28 @@ def stage_docs():
     assert env.stage_doc("bug", "Phase 9 — Verify").endswith("09-verify.md")
     assert env.stage_doc("spec", "Implement (task 3/7)").endswith("implement.md")
     assert env.stage_doc("bug", "Phase 99") is None
+
+
+def hook_launcher():
+    """Every hook runs through hooks/run.cmd (sh; on Windows Git Bash or cmd.exe, by engine), which finds a real Python, not
+    Windows' Microsoft Store stand-in. The script gets the hook's input and arguments, and its exit code is the hook's."""
+    import subprocess
+    plugin = Path(__file__).resolve().parent.parent
+    run = plugin / "hooks" / "run.cmd"
+    for groups in json.loads((plugin / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"].values():
+        for h in (h for g in groups for h in g["hooks"]):
+            assert h["command"].startswith('"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd" "${CLAUDE_PLUGIN_ROOT}/'), h["command"]
+    text = run.read_bytes()
+    cmd_lines = [ln for ln in text.decode("ascii").split("\n") if not ln.startswith(":;")]
+    assert b"\r" not in text and not any("goto" in ln.lower() for ln in cmd_lines)  # sh needs LF; cmd's goto can miss a label in an LF file
+    mode = subprocess.run(["git", "ls-files", "-s", "hooks/run.cmd"], cwd=plugin, capture_output=True, text=True).stdout
+    assert not mode or mode.startswith("100755"), mode  # sh runs it by its path
+    with tempfile.TemporaryDirectory() as tmp:
+        script = Path(tmp) / "blocks.py"
+        script.write_text("import sys\nprint(sys.argv[1:], sys.stdin.read())\nsys.exit(2)\n")
+        # as Claude Code runs a hook: the command through the shell, the hook's input on stdin
+        r = subprocess.run(f'"{run}" "{script}" pre "a b"', shell=True, input='{"x": 1}', capture_output=True, text=True)
+        assert r.returncode == 2 and r.stdout.strip() == "['pre', 'a b'] {\"x\": 1}", r
 
 
 def config_upgrade():

@@ -9,7 +9,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/question_guard.py\" pre"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd\" \"${CLAUDE_PLUGIN_ROOT}/hooks/question_guard.py\" pre"
           }
         ]
       },
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_guard.py\" pre"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd\" \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_guard.py\" pre"
           }
         ]
       },
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/edit_guard.py\" pre"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd\" \"${CLAUDE_PLUGIN_ROOT}/hooks/edit_guard.py\" pre"
           }
         ]
       },
@@ -36,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/graph_use.py\" pre",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd\" \"${CLAUDE_PLUGIN_ROOT}/hooks/graph_use.py\" pre",
             "timeout": 600
           }
         ]
@@ -46,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/spec_use.py\" pre"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd\" \"${CLAUDE_PLUGIN_ROOT}/hooks/spec_use.py\" pre"
           }
         ]
       }
@@ -57,7 +57,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/graph_use.py\" post"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd\" \"${CLAUDE_PLUGIN_ROOT}/hooks/graph_use.py\" post"
           }
         ]
       },
@@ -66,7 +66,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/spec_use.py\" post"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd\" \"${CLAUDE_PLUGIN_ROOT}/hooks/spec_use.py\" post"
           }
         ]
       }
@@ -76,7 +76,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/question_guard.py\" stop"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd\" \"${CLAUDE_PLUGIN_ROOT}/hooks/question_guard.py\" stop"
           }
         ]
       }
@@ -86,7 +86,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}/scripts/env.py\" upgrade-config"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd\" \"${CLAUDE_PLUGIN_ROOT}/scripts/env.py\" upgrade-config"
           }
         ]
       }

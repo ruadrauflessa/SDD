@@ -7,7 +7,7 @@ import { update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { BugAnalysis, BugCategory, BugChange, BugCondition, BugSettings, BugSettingsDraft, BugDetail, BugEvidence, BugFilter, BugIndex, BugRecord, BugsConfig, SddAsk, SddColors, SddLiveState, SddDoc, SddItem, SddQuestion, SddSnapshot, SddStage } from '../types'
-import { GLYPH, agentRows, contextTone, moneyText, spendHead, SPEND_ICON, spendTokens, spendTotal, tokensLine, answerMessage, answersFor, approveAnswers, approveFor, approveMessage,decidedGates, fileLinks, defaultStage, flowFinished, railSlice, railBarColor, clipboardArgv, stageWord, shortStamp, flowTag, MARK_WORD, idFromArgs, idFromScript, itemOptions, itemSuggestions, startPage, pendingGate, reviewLinks, stamp, fileTarget, gateStory, phaseKey, phaseLabel, refLink, stageDocs, stageHistory, stageRows, stageSummary, spinnerNote, statusWord, when, yourTurn } from './view/model'
+import { GLYPH, agentRows, contextTone, moneyText, spendHead, SPEND_ICON, spendTokens, spendTotal, tokensLine, answerMessage, answersFor, approveAnswers, approveFor, approveMessage,decidedGates, fileLinks, defaultStage, flowFinished, railSlice, railBarColor, clipboardArgv, NO_PYTHON, isPythonStub, pythonCandidates, stageWord, shortStamp, flowTag, MARK_WORD, idFromArgs, idFromScript, itemOptions, itemSuggestions, startPage, pendingGate, reviewLinks, stamp, fileTarget, gateStory, phaseKey, phaseLabel, refLink, stageDocs, stageHistory, stageRows, stageSummary, spinnerNote, statusWord, when, yourTurn } from './view/model'
 import type { AgentInfoLike, AgentTone, Mark, StageRow } from './view/model'
 import { ageShort, agoText, cleanupNote, conflictNote, counts, groupByItem, historyArgs, joinWorktrees, lineFacts, lineKey, linePath, lineTone, lineWord, sortLines } from './view/worktrees'
 import { ANALYSIS_SYSTEM, F, FIELD_NAME, NO_FILTER, UNASSIGNED, ago, analysisKey, analysisNote, analysisPrompt, bugsConfig, assigneeOptions, categorize, chipCounts, clipboardArgvFor, commentProblem, countText, currentValue, filterItems, isMine,
@@ -94,23 +94,36 @@ const answering = new Map<string, (answers: Record<string, string>) => void>()
 // Helpers do only the reading and drawing calls. $.state is read and written in the hook bodies
 // (and the closures they make), which is where the engine hands it out.
 
+type Ran = { exitCode: number; stdout: string; stderr: string }
+
+/** Runs a plugin script with the first candidate that is a real Python, and keeps it for next time. A missing one, or
+ *  Windows' Microsoft Store stand-in (which runs, prints "Python was not found" and exits 9009), gives way to the next.
+ *  Any other failure (a timeout) is the script's own and is said as it is. */
+async function runPython($: EngineInterface, args: string[], opts: { cwd: string; timeoutMs: number }): Promise<{ r: Ran | null; why: string | null }> {
+  for (const exe of pythonCandidates(python)) {
+    try {
+      const r = await $.process.run([exe, ...args], opts)
+      if (isPythonStub(r)) continue
+      python = exe
+      return { r, why: null }
+    } catch (err) {
+      const why = String(err).slice(0, 200)
+      if (!/ENOENT|not found|not recognized|no such|cannot find|spawn/i.test(why)) return { r: null, why: `could not run ${exe}: ${why}` }
+    }
+  }
+  return { r: null, why: NO_PYTHON }
+}
+
 /** Runs `env.py view` (local files, no ADO) and toasts what changed since `before`. */
 async function loadView($: EngineInterface, id: number | null, before: SddSnapshot | null, folder: string | null): Promise<View> {
-  const argv = (exe: string) => [exe, `${$.plugin.root}/scripts/env.py`, 'view', '--json', '--compact',
-    ...(id != null ? ['--id', String(id)] : [])]
+  const args = [`${$.plugin.root}/scripts/env.py`, 'view', '--json', '--compact', ...(id != null ? ['--id', String(id)] : [])]
   const cwd = folder || (await $.session.cwd())
   let out: SddSnapshot | null = null
-  let why: string | null = null
-  for (const exe of [python, 'python3', 'py']) {
-    try {
-      const r = await $.process.run(argv(exe), { cwd, timeoutMs: 20000 })
-      python = exe
-      if (r.exitCode === 0) out = JSON.parse(r.stdout) as SddSnapshot
-      else why = (r.stderr || r.stdout).trim().split('\n').pop() || `env.py view exited ${r.exitCode}`
-      break
-    } catch (err) {
-      why = `could not run python: ${String(err)}`
-    }
+  const ran = await runPython($, args, { cwd, timeoutMs: 20000 })
+  let why = ran.why
+  if (ran.r) {
+    if (ran.r.exitCode === 0) out = JSON.parse(ran.r.stdout) as SddSnapshot
+    else why = (ran.r.stderr || ran.r.stdout).trim().split('\n').pop() || `env.py view exited ${ran.r.exitCode}`
   }
   isWorkspace = out !== null
   if (out && before) toastChanges($, before, out)
@@ -195,33 +208,25 @@ async function openIn($: EngineInterface, app: 'files' | 'code', path: string): 
 async function openCodeGraph($: EngineInterface, id: number): Promise<void> {
   $.ui.toast('Building the code graph…')
   const cwd = (await $.state.get(place)).value || (await $.session.cwd())
-  let why = 'could not run python'
-  for (const exe of [python, 'python3', 'py']) {
-    try {
-      const r = await $.process.run([exe, `${$.plugin.root}/scripts/env.py`, 'graph-focus', '--id', String(id), '--refresh', '--open', '--json'], { cwd, timeoutMs: 180000 })
-      python = exe
-      const last = r.stdout.trim().split('\n').pop() ?? ''
-      let got: { ok?: boolean; error?: string; mode?: string; primary?: number; planned?: number; opened?: boolean; path?: string } = {}
-      try {
-        got = JSON.parse(last)
-      } catch {
-        why = (r.stderr || r.stdout).trim().split('\n').pop() || `env.py graph-focus exited ${r.exitCode}`
-        break
-      }
-      if (!got.ok) {
-        why = (got.error ?? 'the graph could not be built').replace(/^no code graph:\s*/i, '')
-        break
-      }
-      const lit = got.mode === 'design' ? `${got.primary} nodes named in the design`
-        : got.mode === 'implementation' ? `${got.primary} nodes changed${got.planned ? `, ${got.planned} named in the design and not changed yet` : ''}`
-        : 'nothing to light at this stage'
-      $.ui.toast(got.opened ? `Code graph opened: ${lit}.` : `Code graph written to ${got.path} (no browser opened): ${lit}.`)
-      return
-    } catch (err) {
-      why = `could not run python: ${String(err)}`
-    }
+  const ran = await runPython($, [`${$.plugin.root}/scripts/env.py`, 'graph-focus', '--id', String(id), '--refresh', '--open', '--json'], { cwd, timeoutMs: 180000 })
+  const r = ran.r
+  if (!r) { $.ui.toast(`No code graph: ${ran.why}`); return }
+  const last = r.stdout.trim().split('\n').pop() ?? ''
+  let got: { ok?: boolean; error?: string; mode?: string; primary?: number; planned?: number; opened?: boolean; path?: string } = {}
+  try {
+    got = JSON.parse(last)
+  } catch {
+    $.ui.toast(`No code graph: ${(r.stderr || r.stdout).trim().split('\n').pop() || `env.py graph-focus exited ${r.exitCode}`}`)
+    return
   }
-  $.ui.toast(`No code graph: ${why}`)
+  if (!got.ok) {
+    $.ui.toast(`No code graph: ${(got.error ?? 'the graph could not be built').replace(/^no code graph:\s*/i, '')}`)
+    return
+  }
+  const lit = got.mode === 'design' ? `${got.primary} nodes named in the design`
+    : got.mode === 'implementation' ? `${got.primary} nodes changed${got.planned ? `, ${got.planned} named in the design and not changed yet` : ''}`
+    : 'nothing to light at this stage'
+  $.ui.toast(got.opened ? `Code graph opened: ${lit}.` : `Code graph written to ${got.path} (no browser opened): ${lit}.`)
 }
 
 /** Copies a path to the clipboard (the mod kit has no clipboard call, so the computer's own tool does it) and says so. */
@@ -324,17 +329,9 @@ async function recordCost($: EngineInterface, folder: string | null, id: number,
   const args = ['cost', '--id', String(id), '--stage', key, '--usd', p.usd.toFixed(6), '--input', String(p.input), '--output', String(p.output),
     '--cache-read', String(p.cacheRead), '--cache-write', String(p.cacheWrite), '--turns', String(turns), '--session', sessionId,
     ...(p.model ? ['--model', p.model] : [])]
-  let why: string | null = null
-  for (const exe of [python, 'python3', 'py']) {
-    try {
-      const r = await $.process.run([exe, `${$.plugin.root}/scripts/env.py`, ...args], { cwd, timeoutMs: 20000 })
-      python = exe
-      return r.exitCode === 0 ? null : (r.stderr || r.stdout).trim().split('\n').pop() || `env.py cost exited ${r.exitCode}`
-    } catch (err) {
-      why = `could not run python: ${String(err)}`
-    }
-  }
-  return why
+  const { r, why } = await runPython($, [`${$.plugin.root}/scripts/env.py`, ...args], { cwd, timeoutMs: 20000 })
+  if (!r) return why
+  return r.exitCode === 0 ? null : (r.stderr || r.stdout).trim().split('\n').pop() || `env.py cost exited ${r.exitCode}`
 }
 
 /** Records what is pending against the stage the turn began in. True when a line was written. A chat with no
@@ -2099,11 +2096,15 @@ export const register: Register = (on, options) => {
             <Button key="retry" label="↻ Try again" hotkey="r" onPress={() => void sync(id, true)} />
           </Box>
           {why ? <Text color={C.now} wrap="wrap">{why}</Text> : <Text dimColor wrap="wrap">Reading the work items…</Text>}
-          <Text dimColor wrap="wrap">The view reads .claude/sdd.json at or above the session folder. Is this a new workspace? Set it up once, and the view fills in.</Text>
-          <Box flexDirection="row" gap={1}>
-            <Button key="start-init" variant="primary" label="Set up this workspace" onPress={() => fill('/sdd init')} />
-            <Button key="start-help" label="Help" onPress={() => fill('/sdd:help')} />
-          </Box>
+          {why === NO_PYTHON
+            ? <Text dimColor wrap="wrap">Once Python runs, press Try again. The hooks and the /sdd commands need it too.</Text>
+            : <Text dimColor wrap="wrap">The view reads .claude/sdd.json at or above the session folder. Is this a new workspace? Set it up once, and the view fills in.</Text>}
+          {why === NO_PYTHON ? null : (
+            <Box flexDirection="row" gap={1}>
+              <Button key="start-init" variant="primary" label="Set up this workspace" onPress={() => fill('/sdd init')} />
+              <Button key="start-help" label="Help" onPress={() => fill('/sdd:help')} />
+            </Box>
+          )}
         </Box>
       )
     }
