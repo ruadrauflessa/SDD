@@ -50,6 +50,7 @@ python hooks/test_spec_use.py
 python repowatch/scripts/test_repowatch.py   # needs git; real repos in temp folders
 python devops/scripts/test_devops.py # needs git; the scan commands need pwsh (skipped without it); offline ADO
 python devops/hooks/test_guards.py   # needs git; every guard rule through the hook's stdin/exit code
+python devops/scripts/check_ado_routes.py   # needs the network (no sign-in): each ADO call devops makes is a route ADO serves
 claude plugin test repowatch         # also mounts and presses the pane (hooks/pane.test.ts)
 claude plugin validate repowatch
 claude plugin test devops            # the /devops pane (hooks/pane.test.ts mounts and presses it) and view/model.ts

@@ -417,9 +417,10 @@ def link_pr_ops(project_id, repo_id, pr_id):
 
 def unlink_pr_ops(item, project_id, repo_id, pr_id):
     """JSON Patch that removes this PR's link from a work item read with relations; [] when it has none."""
-    want = pr_link_url(project_id, repo_id, pr_id).lower()
+    # ADO keeps the link as .../p%2Fr%2F7 or as .../p/r/7: compare them decoded
+    want = urllib.parse.unquote(pr_link_url(project_id, repo_id, pr_id)).lower()
     for i, rel in enumerate(item.get("relations") or []):
-        if (rel.get("url") or "").lower() == want:
+        if urllib.parse.unquote(rel.get("url") or "").lower() == want:
             return [{"op": "test", "path": "/rev", "value": item.get("rev")},
                     {"op": "remove", "path": f"/relations/{i}"}]
     return []

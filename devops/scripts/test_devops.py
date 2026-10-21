@@ -96,6 +96,10 @@ def check_helpers():
     assert L.parse_remote("https://org.visualstudio.com/Proj/_git/Repo.git") == ("org", "Proj", "Repo")
     assert L.wiki_git_path("/Release Notes/Release 1.0.2 [QA] - 2026-07-17") == "/Release-Notes/Release-1.0.2-%5BQA%5D-%2D-2026%2D07%2D17"
     assert L.digest("a \r\nb\n") == L.digest("a\nb")
+    for stored in ("vstfs:///Git/PullRequestId/p1%2Fr1%2F77", "vstfs:///Git/PullRequestId/p1/r1/77", "vstfs:///Git/PullRequestId/P1%2fR1%2f77"):
+        ops = L.unlink_pr_ops({"rev": 4, "relations": [{"url": "x"}, {"url": stored}]}, "p1", "r1", 77)
+        assert ops == [{"op": "test", "path": "/rev", "value": 4}, {"op": "remove", "path": "/relations/1"}], stored
+    assert L.unlink_pr_ops({"rev": 1, "relations": [{"url": "vstfs:///Git/PullRequestId/p1/r1/770"}]}, "p1", "r1", 77) == []
     assert devops.candidates("Fix 12345: login, AB#777, ADO 888 and #999") == [777, 888, 999, 12345]
     row = {"SourceBranch": "Team/1", "TargetBranch": "Release/1", "Ahead": 40, "FilesChanged": 3, "Insertions": 1, "Deletions": 2,
            "WorkItems": [5], "MigrationFiles": [], "Commits": [{"Short": f"{i:07x}", "Subject": "x" * 120, "WorkItems": []} for i in range(60)]}

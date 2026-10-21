@@ -52,6 +52,9 @@ def _pr_view(pr):
 
 
 def request(method, url, body, headers):
+    if os.environ.get("DEVOPS_FAKE_LOG"):  # every call, for checking the URLs against ADO's own route table
+        with open(os.environ["DEVOPS_FAKE_LOG"], "a", encoding="utf-8") as f:
+            f.write(json.dumps({"method": method, "url": url, "body": body, "headers": headers}) + "\n")
     p, world = _load()
     parts = urllib.parse.urlsplit(url)
     q = dict(urllib.parse.parse_qsl(parts.query))
