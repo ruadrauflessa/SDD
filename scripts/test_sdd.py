@@ -1,8 +1,12 @@
 """Offline self-check: python test_sdd.py  (no ADO, no Ollama, temp folder only)."""
+import contextlib
+import gc
 import json
 import os
+import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -21,6 +25,33 @@ def wi(i, title, parent=None, rels=(), desc="", typ="User Story", rev=1, state="
     return {"id": i, "relations": r, "fields": {
         "System.TeamProject": "P", "System.WorkItemType": typ, "System.Title": title,
         "System.State": state, "System.Rev": rev, "System.Description": desc}}
+
+
+@contextlib.contextmanager
+def scratch():
+    """A temp folder that is really removed afterwards. The working folder moves back out first and open SQLite
+    handles nobody holds are closed (Windows deletes neither a folder in use nor an open file), and a lock that
+    lingers (git, a virus scanner) is waited out. A folder that still cannot go fails the run and is named, rather
+    than being left in TEMP without a word."""
+    here = os.getcwd()
+    d = tempfile.mkdtemp(prefix="sdd-test-")
+    ok = False
+    try:
+        yield d
+        ok = True
+    finally:
+        os.chdir(here)
+        gc.collect()
+        why = None
+        for wait in (0, 0.2, 1, 3):
+            time.sleep(wait)
+            try:
+                shutil.rmtree(d, onerror=env._force)
+                break
+            except OSError as e:
+                why = e
+        if ok and os.path.exists(d):
+            raise AssertionError(f"could not remove the test folder {d}: {why}")
 
 
 def check_help_copy():
@@ -170,7 +201,7 @@ def main():
         assert t in terms, (t, terms)
     assert spec.to_markdown(["<p>a <b>b</b></p>", "", "<ul><li>x</li></ul>"])[2].startswith("- x")
 
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+    with scratch() as tmp:
         root = Path(tmp)
         (root / ".claude").mkdir()
         (root / ".claude" / "sdd.json").write_text(json.dumps({"specRoot": "docs/spec", "ado": {"org": "Org"}}))
@@ -597,7 +628,7 @@ def ado_writes():
 
 def output_style():
     """The ELI5 style: written to the global output-styles folder and set once in settings.json."""
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+    with scratch() as tmp:
         home = Path(tmp)
         os.environ["CLAUDE_CONFIG_DIR"] = tmp
         try:
@@ -714,7 +745,7 @@ def config_upgrade():
     for name, model in sddlib.DEFAULTS["agents"]["models"].items():  # the agent file's own default agrees
         head = (plugin / "agents" / f"{name}.md").read_text(encoding="utf-8").split("---")[1]
         assert f"\nmodel: {model}\n" in head, (name, model)
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+    with scratch() as tmp:
         root = Path(tmp)
         (root / ".claude").mkdir()
         path = root / ".claude" / "sdd.json"

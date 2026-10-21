@@ -51,6 +51,7 @@ claude plugin test repowatch         # also mounts and presses the pane (hooks/p
 claude plugin validate repowatch
 claude plugin test .                 # the view (model tests and hooks/pane.test.ts, which mounts the pane) and the Worktrees page; it also finds repowatch's tests, whose pane tests stand down (the plugin under test is sdd)
 claude plugin validate .             # the author warning is expected
+uv run --no-project --python 3.9 python scripts/test_sdd.py   # and the other python tests: the oldest Python the users run
 ```
 
 All of them should pass before a commit. Never run `claude plugin eval` yourself: it needs the user
@@ -64,6 +65,9 @@ to trust the plugin directory, and each case is a paid agent run. A full TypeScr
   speed a path up (`spec.top_similar` uses numpy when it is there), never be needed. The users run
   PowerShell on Windows: no shell-only paths, no 3.10+ syntax (`match`, `X | Y` types, a quote in an
   f-string's `{}` that matches its own quotes).
+- **A test removes everything it creates.** Temp files go in a `TemporaryDirectory` (or `scratch()` in `test_sdd.py`, which also
+  moves the working folder back out, closes open SQLite handles and waits out a Windows lock); a `delete=False` file is
+  unlinked in a `finally`. Never `ignore_cleanup_errors`: it is 3.10+, and it hides the leak instead of fixing it.
 - **Mechanics go in a script, judgement in a skill.** If a rule can be checked, the script enforces
   it (`env.py can`, `progress --passed`, `env.py pr`) rather than the skill text asking for it.
 - **ADO writes only through `adowrite.py`** (`spec.py claim | handover | sprint | comment | route`): every

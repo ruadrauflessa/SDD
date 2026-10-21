@@ -305,9 +305,11 @@ def main():
         env.write_env(env_dir, rec)
         (wt / "calc.py").write_text(FIXED + "# a line the work added\n")           # uncommitted, below the committed fix
         (wt / "new.py").write_text("def newfn():\n    pass\n")                      # a new file
+        env.record_graph(env_dir)                                                    # the faked graph counts as built from this code
         r = env_py(root, "graph-focus", "--id", "5", "--json")
         got = json.loads(r.stdout)
         assert got["ok"] and got["mode"] == "implementation" and got["stage"].startswith("Phase 8"), got
+        assert got["rebuilt"] is False, got                                          # current: used as it is
         focus = json.loads((gdir / "focus.json").read_text(encoding="utf-8"))
         assert focus["files"] == ["Repo/calc.py", "Repo/new.py"], focus
         page = (gdir / "graph-focus.html").read_text(encoding="utf-8")
@@ -322,6 +324,21 @@ def main():
         env.write_env(env_dir, rec)
         assert json.loads(env_py(root, "graph-focus", "--id", "5", "--json").stdout)["mode"] == "none"   # a stage with nothing to light
         assert 'sdd-graph-focus' not in (gdir / "graph-focus.html").read_text(encoding="utf-8")
+
+        # a graph older than the code is rebuilt first, or refused when it cannot be
+        (wt / "new.py").write_text("def newfn():\n    pass\n\ndef later():\n    pass\n")
+        os.environ["PATH"] = no_graphify
+        r = env_py(root, "graph-focus", "--id", "5", "--json", check=False)
+        got = json.loads(r.stdout)
+        assert r.returncode == 1 and "older than the code" in got["error"] and "graphify is not on PATH" in got["error"], got
+        os.environ["PATH"] = with_graphify
+        got = json.loads(env_py(root, "graph-focus", "--id", "5", "--json").stdout)
+        assert got["ok"] and got["rebuilt"] is True and "repo_new_later" in (gdir / "graph.json").read_text(), got
+        assert json.loads(env_py(root, "graph-focus", "--id", "5", "--json").stdout)["rebuilt"] is False   # current again
+        os.environ["FAKE_GRAPHIFY_FAIL"] = "1"
+        got = json.loads(env_py(root, "graph-focus", "--id", "5", "--refresh", "--json").stdout)
+        assert got["ok"] and got["rebuilt"] is False, got                            # --refresh failed, but the graph is current
+        del os.environ["FAKE_GRAPHIFY_FAIL"]
         (gdir / "graph.json").unlink()
         os.environ["PATH"] = no_graphify
         r = env_py(root, "graph-focus", "--id", "5", "--json", check=False)
