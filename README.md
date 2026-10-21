@@ -12,6 +12,13 @@ a git worktree per work item, an ADO spec mirror, impact analysis and visual pag
 /plugin install sdd@sdd
 ```
 
+The same marketplace also has **devops**: release and branch skills for Azure DevOps repos
+(`release-prep`, `sync-team-branches`, `release-notes`, `pre-pr-verify`). Install it on its own:
+
+```
+/plugin install devops@sdd
+```
+
 Then, in each workspace (the folder above your repos), run `/sdd init` once. It checks Python 3, Node,
 git, the Azure CLI login and the rest, and writes `.claude/sdd.json`.
 
