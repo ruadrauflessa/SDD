@@ -171,5 +171,6 @@ The shared rules are in `flow-rules.md`. In this flow:
 | --- | --- |
 | `pre-pr-verify` | Phase 11, **only when the user asks for it** — brings the stack up from this bug's worktrees, proves the worktree build is the one answering, and hands the app to the user for manual testing. The user tests; the agent waits. |
 
-It is a **global** skill, so it is available in every workspace. It reads the same
-`## Claude skills — workspace facts` block this skill writes at Phase 14, and derives what is missing.
+It ships with sdd (`/sdd:pre-pr-verify`). It reads the same `## Claude skills — workspace facts`
+block this skill writes at Phase 14, and derives what is missing; `env.py stack` and `stack-gate` do its
+mechanics.

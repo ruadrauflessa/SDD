@@ -15,8 +15,7 @@ often not developers. They read the text once, often at the end of a long day, a
 | PR title and PR description | `release-prep`, `sync-team-branches` |
 | The release notes (wiki page and repository file) | `release-notes` |
 | The sync report and the plan the user approves | `release-prep`, `sync-team-branches` |
-| The brief that tells the user what to test | `pre-pr-verify` |
-| Every report to the user in chat | all four |
+| Every report to the user in chat | all three |
 
 It does **not** apply to anything a machine reads, or anything a person will copy and paste. Keep
 these exact. Never "simplify" them:

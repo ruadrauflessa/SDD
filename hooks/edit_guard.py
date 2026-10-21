@@ -4,12 +4,16 @@ the main checkout.
     pre  (PreToolUse, matcher Edit|Write|MultiEdit|NotebookEdit) -> blocks a file inside a repo folder
                                                                    of the main checkout
 
+In any session, a new run-stack launcher in the workspace's scripts/ (scripts/run-*.ps1) is refused too:
+scripts/ is tracked and shared, and pre-pr-verify writes a generated launcher to .claude/scripts/.
+
 Only the repo folders are guarded (the ones env.py works with: .gitmodules, child and grandchild git
 folders, or sdd.json repoDirs). The spec folder, .claude/ (worktrees, scripts), the workspace
 CLAUDE.md and anything outside the workspace stay open. Active only when this session ran an sdd
 script (the same signal question_guard uses). Exit 2 = block, stderr goes to the agent.
 """
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -52,6 +56,17 @@ def worktree_copies(root, cfg, name, rel):
             if d.is_dir() and (d / "src" / name).is_dir()]
 
 
+def new_launcher(path, cwd):
+    """The workspace root when `path` is a new scripts/run-*.ps1 in it (a generated launcher), else None."""
+    p = Path(path)
+    if not p.is_absolute():
+        p = Path(cwd or ".") / p
+    root = find_root(cwd)
+    if not root or p.exists() or not re.fullmatch(r"run-.*\.ps1", p.name, re.I):
+        return None
+    return root if p.resolve().parent == (root / "scripts").resolve() else None
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -60,6 +75,12 @@ def main():
     path = target(data)
     if not path:
         return 0
+    root = new_launcher(path, data.get("cwd"))
+    if root:
+        print(f"sdd: {path} would be a new launcher in the workspace's scripts/, which is tracked and shared with the team. "
+              f"A generated launcher is machine-specific: write it to {root / '.claude' / 'scripts' / Path(path).name} "
+              "(check `env.py stack` says .claude/scripts is ignored first).", file=sys.stderr)
+        return 2
     rs = rows(data.get("transcript_path", ""))
     if not (ran_sdd_script(current_turn(rs)) or flow_this_session(rs, data.get("cwd"))):
         return 0

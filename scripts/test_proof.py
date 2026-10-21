@@ -4,6 +4,7 @@
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -345,6 +346,32 @@ def main():
         got = json.loads(r.stdout)                                                   # no graph, and nothing here can build one
         assert r.returncode == 1 and got["ok"] is False and "graphify is not on PATH" in got["error"], (r.stdout, r.stderr)
         os.environ["PATH"] = with_graphify
+
+        # pre-pr-verify: env.py stack finds the worktrees (both layouts), the run script and its real flags, the facts
+        r = env_py(root, "stack", "--id", "5")
+        assert f"Repo ({env_dir.name}): {wt}" in r.stdout and "calc.py" in r.stdout, r.stdout     # changed files against its base
+        assert "Run script: none found" in r.stdout and "No workspace facts" in r.stdout, r.stdout
+        (root / "scripts").mkdir()
+        (root / "scripts" / "run-lumina.ps1").write_text(
+            "param(\n  [ValidateSet('uat', 'local')][string]$Database = 'uat',\n  [string[]]$Only,\n  [string]$Worktree,\n"
+            "  [switch]$Status,\n  [switch]$Stop\n)\n"
+            f"Write-Host 'mainapi   Main API   7097   UP   (pid 1)  worktree: {env_dir.name}'\n"
+            "Write-Host 'gateway   Gateway    7001   UP   (pid 2)'\n")
+        (root / "CLAUDE.md").write_text("# ws\n\n## Claude skills — workspace facts\n\n- Run-stack script: `./scripts/run-lumina.ps1 -Only <keys>`\n\n## Other\n")
+        old = root / ".claude" / "worktrees" / "Gateway" / "5_old-layout"                       # ado-bug-fix's layout
+        old.mkdir(parents=True)
+        r = env_py(root, "stack", "--id", "5")
+        assert "run-lumina.ps1 · parameters: Database, Only, Status, Stop, Worktree" in r.stdout, r.stdout
+        assert "- Run-stack script" in r.stdout and "## Other" not in r.stdout, r.stdout
+        assert f"Gateway (5_old-layout): {old}" in r.stdout, r.stdout
+        assert env_py(root, "stack", "--id", "77", check=False).returncode != 0
+        old.rmdir()
+        if shutil.which("pwsh") or shutil.which("powershell"):
+            r = env_py(root, "stack-gate", "--id", "5")
+            assert "Gate D: PASS" in r.stdout and "from the main checkout: gateway" in r.stdout, r.stdout
+            (root / "scripts" / "run-lumina.ps1").write_text("param([switch]$Status)\nWrite-Host 'mainapi  Main API  7097  UP  (pid 1)'\n")
+            r = env_py(root, "stack-gate", "--id", "5", check=False)
+            assert r.returncode == 1 and "Gate D: FAIL" in r.stdout, r.stdout
     print("ok")
 
 

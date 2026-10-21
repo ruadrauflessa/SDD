@@ -1,5 +1,8 @@
 # Release Notes Markdown Template
 
+`devops.py notes render` writes both outputs from this layout (`scripts/notes.py`); the agent does not
+copy it by hand. Change the layout in `notes.py` and here together.
+
 Structural reference for the two required outputs:
 
 1. **Repository file** — plain, portable markdown saved under `documents/release-notes/` (Step 11).
