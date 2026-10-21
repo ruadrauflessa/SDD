@@ -509,7 +509,39 @@ def main():
     hook_launcher()
     output_style()
     ado_writes()
+    progress_rules()
     print("ok")
+
+
+def progress_rules():
+    """progress.py: what an acceptance-criteria section counts, how a state is read, and the rules a project may save."""
+    import progress as pg
+    ac = lambda t: pg.count_criteria(f"## Description\n\nx\n\n## Acceptance criteria\n\n{t}\n\n## Repro steps\n\ny")
+    assert ac("**Acceptance Criteria 1 - A**\nGiven x\n\n**Acceptance Criteria 2 - B**\n\n~~**Acceptance Criteria 3 - C**~~") == (2, 1)
+    assert ac("- Given a, when b, then c\n- Given d\n- And e") == (2, 0)          # scenarios, not every bullet
+    assert ac("- totals are rounded\n- cents show\n- ~~old one~~") == (2, 1)
+    assert ac("The export shows cents.\n\nIt rounds to two places.") == (2, 0)
+    assert ac("") == (0, 0) and pg.count_criteria("## Description\n\nno criteria") == (0, 0)
+    cfg = {"doneStates": ["Resolved", "Closed", "Done"], "progress": {**sddlib.DEFAULTS["progress"],
+           "projects": {"P": {"done": ["Closed"], "todo": ["New", "Active"], "measure": "nonsense"}}}}
+    other, p = pg.rules_for(cfg, "Q"), pg.rules_for(cfg, "P")
+    assert other["done"] == ["Resolved", "Closed", "Done"] and other["measure"] == "count"
+    assert p["done"] == ["Closed"] and p["measure"] == "count" and p["ignore"] == ["Removed"]   # a bad measure falls back
+    st = lambda **r: pg.status_of(r, other)
+    assert [st(state="closed"), st(state="New"), st(state="Active"), st(state="Removed"), st(state="Active", removed=1)] == \
+        ["done", "todo", "active", "ignored", "ignored"]
+    assert pg.status_of({"state": "Active", "board": "UAT Deployed"}, {**other, "doneBoards": ["UAT deployed"]}) == "done"
+    assert pg.rules_problems(["Closed"], ["New"], ["Removed"], "points") == []
+    assert pg.rules_problems([], ["New", "new"], [], "x") == ["measure must be one of count, points, criteria",
+                                                              "at least one state must count as done"]
+    assert pg.set_project_rules({"a": 1}, "P", {"measure": "count"}) == {"a": 1, "progress": {"projects": {"P": {"measure": "count"}}}}
+    assert pg.set_project_rules({"progress": {"measure": "points", "projects": {"P": {}}}}, "P") == {"progress": {"measure": "points", "projects": {}}}
+    data = {"tops": [{"id": 1, "measures": {m: {"total": 4, "done": 1} for m in pg.MEASURES}}]}
+    h = pg.add_history([{"day": "2026-10-01", "pct": {"1": {"count": 10.0}}}, {"day": "2026-10-20", "pct": {}}], data, today="2026-10-21")
+    assert [x["day"] for x in h] == ["2026-10-01", "2026-10-20", "2026-10-21"]
+    assert pg.trend(h, data, today="2026-10-21")["1"]["count"] == {"delta": 15.0, "since": "2026-10-01"}
+    assert pg.trend([], data, today="2026-10-21") == {}
+    assert [x["day"] for x in pg.add_history([{"day": "2026-01-01", "pct": {}}], data, today="2026-10-21")] == ["2026-10-21"]
 
 
 def ado_writes():
@@ -752,8 +784,9 @@ def config_upgrade():
         before = {"specRoot": "docs/spec", "ado": {"org": "Org", "projects": ["P"]}}
         path.write_text(json.dumps(before))
         assert sddlib.load_config(root)["agents"]["models"] == {"investigator": "sonnet", "skeptic": "opus"}
-        assert sddlib.upgrade_config(root) == ["agents.models.investigator", "agents.models.skeptic"] + ["next.weights.priority", "next.weights.severity", "next.weights.complexity", "next.complexity"] + ["bugs.folder", "bugs.categories"]
+        assert sddlib.upgrade_config(root) == ["agents.models.investigator", "agents.models.skeptic"] + ["next.weights.priority", "next.weights.severity", "next.weights.complexity", "next.complexity"] + ["bugs.folder", "bugs.categories", "progress.measure"]
         got = json.loads(path.read_text())
+        assert got["progress"] == {"measure": "count"}
         assert got["bugs"] == {"folder": ".bugs", "categories": sddlib.DEFAULTS["bugs"]["categories"]}
         assert got["agents"] == {"models": {"investigator": "sonnet", "skeptic": "opus"}}
         assert got["next"] == {"weights": {"priority": 50, "severity": 30, "complexity": 20}, "complexity": "complex-first"}
@@ -762,14 +795,14 @@ def config_upgrade():
         assert sddlib.upgrade_config(root) == []                         # second run: nothing to do
         path.write_text(json.dumps({**before, "agents": {"models": {"skeptic": "sonnet"}, "x": 1},
                                     "next": {"weights": {"priority": 70}, "complexity": "simple-first"},
-                                    "bugs": {"folder": ".bugs", "categories": []}}))
+                                    "bugs": {"folder": ".bugs", "categories": []}, "progress": {"measure": "points"}}))
         assert sddlib.upgrade_config(root) == ["agents.models.investigator", "next.weights.severity",
                                                "next.weights.complexity"]
         assert json.loads(path.read_text())["next"]["weights"]["priority"] == 70     # a tuned weight stays
         assert sddlib.load_config(root)["next"]["complexity"] == "simple-first"
         got = json.loads(path.read_text())
         assert got["agents"] == {"models": {"skeptic": "sonnet", "investigator": "sonnet"}, "x": 1}  # set value kept
-        path.write_text(json.dumps({**before, "agents": "opus", "next": dict(sddlib.DEFAULTS["next"]), "bugs": "off"}))
+        path.write_text(json.dumps({**before, "agents": "opus", "next": dict(sddlib.DEFAULTS["next"]), "bugs": "off", "progress": "off"}))
         assert sddlib.upgrade_config(root) == [] and json.loads(path.read_text())["agents"] == "opus"
         assert sddlib.load_config(root)["agents"]["models"]["skeptic"] == "opus"
         path.write_text(json.dumps({**before, "agents": {"models": {"investigator": "gpt-4"}}}))

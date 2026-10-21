@@ -56,6 +56,19 @@ DEFAULTS = {
     },
     # the bug manager (/sdd-bugs): where it keeps the synced bugs and issues, and how it sorts them into categories
     "bugs": json.loads(BUGS_DEFAULTS.read_text(encoding="utf-8")),
+    # the progress page (/sdd-progress): how far each epic is, from the synced specs (scripts/progress.py).
+    # A project overrides any of these in "projects": {"<project>": {...}}; the page's Rules panel writes them.
+    "progress": {
+        "measure": "count",                      # count | points | criteria: what a bar adds up
+        "work": ["Feature", "User Story", "Product Backlog Item", "Tech Story", "Change Request", "Requirement"],
+        "defects": ["Bug", "Issue"],             # their own metric, never part of an epic's completion
+        "done": [],                              # states that are done; empty = doneStates
+        "todo": ["New", "Proposed", "To Do", "Approved"],   # not started; any other state is in progress
+        "ignore": ["Removed"],                   # left out of every count
+        "doneBoards": [],                        # board columns that count as done whatever the state
+        "syncMinutes": 0,                        # the page syncs from ADO this often while open; 0 = on a press only
+        "projects": {},
+    },
 }
 # What the Agent tool's `model` takes.
 AGENT_MODELS = ("sonnet", "opus", "haiku")
@@ -65,7 +78,7 @@ AGENT_MODELS = ("sonnet", "opus", "haiku")
 # A value already in the file is never changed.
 UPGRADE_KEYS = [("agents", "models", "investigator"), ("agents", "models", "skeptic"),
                 ("next", "weights", "priority"), ("next", "weights", "severity"), ("next", "weights", "complexity"),
-                ("next", "complexity"), ("bugs", "folder"), ("bugs", "categories")]
+                ("next", "complexity"), ("bugs", "folder"), ("bugs", "categories"), ("progress", "measure")]
 
 TYPE_SEGMENT = {
     "User Story": "story", "Product Backlog Item": "story", "Change Request": "story",
@@ -116,6 +129,9 @@ def load_config(root):
                       "weights": {**DEFAULTS["next"]["weights"], **(nxt.get("weights") or {})},
                       "inProgress": {**DEFAULTS["next"]["inProgress"], **(nxt.get("inProgress") or {})}}
     merged["bugs"] = merge_bugs(cfg.get("bugs"))
+    prog = cfg.get("progress") if isinstance(cfg.get("progress"), dict) else {}
+    merged["progress"] = {**DEFAULTS["progress"], **prog,
+                          "projects": prog.get("projects") if isinstance(prog.get("projects"), dict) else {}}
     return merged
 
 

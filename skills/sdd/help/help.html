@@ -296,6 +296,8 @@
       <li><b>Band and spinner:</b> the band shows <code>[spec · short]</code> while the chat's item is in progress, turns amber when it waits on you, and shows the context fill from 80 percent. The spinner names the item, its stage and what it works toward. A system notification tells you once when the item waits on you.</li>
       <li><b>Cost:</b> each turn's cost is recorded against the work item and the stage the turn began in, in dollars and in tokens (uncached input, output, cache read, cache write). Chats and sessions on the same item add up; a sub-agent's tokens count with the turn that ran it. The totals stay after the folder is removed. Colours and the other view settings are in <a href="#config" style="color:var(--accent)">Configure</a>.</li>
     </ul>
+    <h3>Progress page <code>/sdd-progress</code></h3>
+    <p>How far each epic is, from the synced specs (no ADO, no tokens): a bar of done, in progress and not started, the percentage, and the change since about a week ago. Features and stories count; bugs and issues are their own line under each bar. Switch between <b>Work items</b>, <b>Story points</b> and <b>Acceptance criteria</b> at the top. Open an epic for its features, and a feature for its stories, with each one's sdd stage. <b>Rules…</b> sets what each state of a project counts as and the measure it shows first, saved to <code>.claude/sdd.json</code> <code>"progress"</code>. <b>Sync from ADO</b> (or <b>Auto sync</b>) refreshes the synced scopes. Open it with <code>/sdd-progress</code>, <b>Progress</b> on the band, or <b>Project progress</b> on the start page.</p>
     <h3>Worktrees page <code>/sdd-worktrees</code></h3>
     <p>Every work item that still has worktrees, with each worktree's live state (needs the <b>repowatch</b> plugin, which installs with sdd). Read-only. Each work item is a header; each worktree is one line: a colour dot, <code>repo · branch</code>, a state word and its age. Press a line for its facts, 📋 copy folder, and a <b>History</b> button. Clean-up is in <code>/repowatch worktrees</code>.</p>
   </section>
@@ -427,7 +429,7 @@ Seven cubist portraits in a row, each face seen front-on and in profile at once.
 SECTION II: "THE VIEW" (subtitle "(hooks/register.tsx · Claude Desktop only)")
 Exactly five tilted collage cards side by side. Each card has a heading and its hooks, one per line:
 "Setting up": session.start, session.attach
-"Commands": command.run sdd, sdd-view, sdd-worktrees, sdd-bugs, prompt.autocomplete
+"Commands": command.run sdd, sdd-view, sdd-worktrees, sdd-bugs, sdd-progress, prompt.autocomplete
 "Tool calls": tool.call Bash | PowerShell, tool.call AskUserQuestion
 "Cost &amp; status": turn.start, turn.complete, session.measure, session.end
 "Drawing": ui.render Spinner, ui.render AbovePrompt, ui.render Pane, ui.close
@@ -484,6 +486,7 @@ A strip of faux wood-grain paper holding three pasted labels: "session.start", "
     <h3>Panels (Claude Desktop app)</h3>
     <table>
       <tr><td><code>/sdd-view [id]</code></td><td>The sdd view of this chat's work item, or the one given: stages, gates, cost, feedback, approve and review buttons. See <a href="#panels" style="color:var(--accent)">Panels</a>.</td></tr>
+      <tr><td><code>/sdd-progress</code></td><td>How far each epic is: done, in progress and not started by work items, story points or acceptance criteria, with bugs and issues apart, and each project's rules.</td></tr>
       <tr><td><code>/sdd-worktrees</code></td><td>Every work item that still has worktrees and the live state of each. Read-only.</td></tr>
       <tr><td><code>/repowatch</code></td><td>The repos pane. Also <code>/repowatch worktrees</code>, <code>sync</code>, <code>scan</code>, <code>fetch</code>, <code>history &lt;repo&gt; &lt;branch&gt; [&lt;base&gt;]</code> and <code>worktree &lt;path&gt;</code>. See <a href="#repos" style="color:var(--accent)">Repos and worktrees</a>.</td></tr>
     </table>

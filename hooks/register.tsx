@@ -2,10 +2,12 @@
 // person, and a toast when a gate passes. It reads `env.py view` (local files, no ADO) and the spec
 // documents. The one thing it writes is what each turn cost (`env.py cost`: one appended line in the item's
 // folder). It never passes a gate or runs any other state-changing command; "Resume" only fills the
-// prompt box with `/sdd <id>` for the person to send.
+// prompt box with `/sdd <id>` for the person to send. The bug manager and the progress page are apart: see
+// their own sections below and the rules in CLAUDE.md.
 import { update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
+import type { ProgressData, ProgressMeasureKey, ProgressNode, ProgressRulesDraft } from '../types'
 import type { BugAnalysis, BugCategory, BugChange, BugCondition, BugSettings, BugSettingsDraft, BugDetail, BugEvidence, BugFilter, BugIndex, BugRecord, BugsConfig, SddAsk, SddColors, SddLiveState, SddDoc, SddItem, SddQuestion, SddSnapshot, SddStage } from '../types'
 import { GLYPH, agentRows, contextTone, moneyText, spendHead, SPEND_ICON, spendTokens, spendTotal, tokensLine, answerMessage, answersFor, approveAnswers, approveFor, approveMessage,decidedGates, fileLinks, defaultStage, flowFinished, railSlice, railBarColor, clipboardArgv, NO_PYTHON, isPythonStub, pythonCandidates, stageWord, shortStamp, flowTag, MARK_WORD, idFromArgs, idFromScript, itemOptions, itemSuggestions, startPage, pendingGate, reviewLinks, stamp, fileTarget, gateStory, phaseKey, phaseLabel, refLink, stageDocs, stageHistory, stageRows, stageSummary, spinnerNote, statusWord, when, yourTurn } from './view/model'
 import type { AgentInfoLike, AgentTone, Mark, StageRow } from './view/model'
@@ -17,6 +19,9 @@ import { CATEGORY_TEXT_FIELDS, SECTIONS, addAlternative, addCategory, addToField
   filesToWrite, freeKeys, getAt, isDirty, moveCategory, needsSync, removeAlternative, removeCategory, removeConditionKey, removeFromField, resetSection, revertDraft, sectionDirty,
   seedFor, setCategoryText, setConditionKey, setField, settingsProblems, startDraft, updateCategory, valueText, withCondition } from './view/settings'
 import type { CategoryTextField, Field } from './view/settings'
+import { AUTO_STEPS, MEASURE_KEYS, MEASURE_LABEL, RULE_WORD, autoNext, barLabel, defectBar, defectText, hiddenFinished, leafLine, measureFor, nextRule, pct,
+  projectsOf, rulesArgs, rulesDraft, syncedText, textBar, trendText, visibleTops, workBar } from './view/progress'
+import type { Rule } from './view/progress'
 
 const PANE = 'sdd-view'
 const snap = { plugin: 'sdd', key: 'snap' } as const
@@ -408,6 +413,10 @@ async function setupDesktop($: EngineInterface, isAttach = false): Promise<boole
     description: 'Show every sdd work item that still has worktrees, with the live state of each (from repowatch)',
   })
   await $.command.register({
+    name: 'sdd-progress',
+    description: 'Show how far each epic is: its features and stories done, in progress and not started (by count, story points or acceptance criteria), with bugs and issues apart',
+  })
+  await $.command.register({
     name: 'sdd-view',
     description: 'Show the sdd flow of the work item this chat works on (or the one given) in a pane',
     argumentHint: '[work item id] [workspace folder]',
@@ -713,6 +722,95 @@ async function openBugsPage($: EngineInterface, args = ''): Promise<string> {
   await $.ui.open({ id: BUG_PANE, title: 'sdd bugs', closeOnEscape: true, columns: 120 })
   const w = await bugsRead($)
   return w ? 'sdd bugs opened.' : 'sdd bugs opened (no workspace: see the pane).'
+}
+
+// ---------------------------------------------------------------- the progress page (/sdd-progress): helpers
+
+const PROG_PANE = 'sdd-progress'
+const progDataS = { plugin: 'sdd', key: 'progData' } as const
+const progErrS = { plugin: 'sdd', key: 'progError' } as const
+const progMeasureS = { plugin: 'sdd', key: 'progMeasure' } as const
+const progProjectS = { plugin: 'sdd', key: 'progProject' } as const
+const progOpenS = { plugin: 'sdd', key: 'progOpen' } as const
+const progFinishedS = { plugin: 'sdd', key: 'progFinished' } as const
+const progAutoS = { plugin: 'sdd', key: 'progAuto' } as const
+const progBusyS = { plugin: 'sdd', key: 'progBusy' } as const
+const progRulesS = { plugin: 'sdd', key: 'progRules' } as const
+let progPaneOpen = false
+let progTimer = false
+let progRunning = false
+let progLastSync = 0
+/** Why the last press failed: kept until the next press, so the minute's read does not wipe it. */
+let progActErr: string | null = null
+const PROG_SYNC_MS = 600_000  // the engine's longest process.run
+
+/** The workspace folder spec.py runs in: the one the view read, else the session's. */
+async function progCwd($: EngineInterface): Promise<string> {
+  return (await $.state.get(snap)).value?.root || (await $.state.get(place)).value || await $.session.cwd()
+}
+
+/** `spec.py <args>` in the workspace: its output, or why it failed. */
+async function progRun($: EngineInterface, args: string[], timeoutMs: number): Promise<{ out: string; why: string | null }> {
+  const { r, why } = await runPython($, [`${$.plugin.root}/scripts/spec.py`, ...args], { cwd: await progCwd($), timeoutMs })
+  if (!r) return { out: '', why }
+  if (r.exitCode !== 0) return { out: r.stdout, why: (r.stderr || r.stdout).trim().split('\n').slice(-3).join(' ').replace(/^error: /, '').slice(0, 400) || `spec.py ${args[0]} failed` }
+  return { out: r.stdout, why: null }
+}
+
+/** Reads the numbers again (`spec.py progress --json`: the index only, no ADO). */
+async function progRead($: EngineInterface): Promise<void> {
+  const r = await progRun($, ['progress', '--json'], 120_000)
+  if (r.why) {
+    await $.state.set(progErrS, r.why)
+    return
+  }
+  try {
+    await $.state.set(progDataS, JSON.parse(r.out) as ProgressData)
+    await $.state.set(progErrS, progActErr)
+  } catch {
+    await $.state.set(progErrS, 'spec.py progress did not answer with JSON.')
+  }
+}
+
+/** A press (or the timer): `spec.py <args>`, then the numbers again. One at a time. */
+async function progAct($: EngineInterface, busy: string, args: string[], timeoutMs: number): Promise<boolean> {
+  if (progRunning) return false
+  progRunning = true
+  let ok = false
+  try {
+    await $.state.set(progBusyS, busy)
+    const r = await progRun($, args, timeoutMs)
+    progActErr = r.why
+    ok = !r.why
+    if (args[0] === 'sync' && ok) progLastSync = Date.now()
+    await progRead($)
+  } catch (err) {
+    progActErr = String(err instanceof Error ? err.message : err).slice(0, 300)
+    await $.state.set(progErrS, progActErr)
+  } finally {
+    progRunning = false
+    await $.state.set(progBusyS, null)
+  }
+  return ok
+}
+
+/** Opens the progress page. The numbers are read at once and every minute while it is open (a sync another chat
+ *  ran shows up without a press); a sync from ADO runs on a press, or on the auto-sync timer the person set. */
+async function openProgressPage($: EngineInterface): Promise<void> {
+  progPaneOpen = true
+  if (!progTimer) {
+    progTimer = true
+    $.clock.every(60_000, () => {
+      if (!progPaneOpen || progRunning) return
+      void (async () => {
+        const auto = (await $.state.get(progAutoS)).value ?? (await $.state.get(progDataS)).value?.syncMinutes ?? 0
+        if (auto > 0 && Date.now() - progLastSync >= auto * 60_000) await progAct($, 'Syncing from ADO (auto)', ['sync', '--no-embed'], PROG_SYNC_MS)
+        else await progRead($)
+      })().catch(() => undefined)
+    })
+  }
+  await $.ui.open({ id: PROG_PANE, title: 'sdd progress', closeOnEscape: true, columns: 120 })
+  await progRead($)
 }
 
 export const register: Register = (on, options) => {
@@ -1823,6 +1921,215 @@ export const register: Register = (on, options) => {
     })
   }
 
+  // ---------------------------------------------------------------- the progress page (/sdd-progress)
+  // How far each epic is, from the synced specs: features and stories by count, story points or acceptance criteria,
+  // bugs and issues as their own metric. It runs spec.py progress (the index only), a sync from ADO on a press or on the
+  // person's auto-sync timer, and progress-rules when the person saves the Rules panel. It lives in this file for the
+  // same reason as the Worktrees page.
+
+  on('command.run', { command: 'sdd-progress' }, async ($) => {
+    if (!desktopReady) return { text: 'The sdd progress page works in the Claude Desktop app only.' }
+    await openProgressPage($)
+    return { text: 'sdd progress opened.' }
+  })
+
+  on('ui.render', { component: 'Pane', requestId: PROG_PANE }, async ($, e, next) => {
+    if (e.surface !== 'desktop') return next(e)
+    const t = $.ui.resolve(e)
+    const { Box, Text, Button, Link } = t
+    const Svg = 'Svg' in t ? t.Svg : undefined
+    const Select = 'Select' in t ? t.Select : undefined
+    const cols = e.props.bodyColumns
+    const s = (await $.state.get(snap)).value ?? null
+    paint(s?.colors)
+    const data = (await $.state.get(progDataS)).value ?? null
+    const why = (await $.state.get(progErrS)).value ?? null
+    const chosen = (await $.state.get(progMeasureS)).value ?? null
+    const project = (await $.state.get(progProjectS)).value ?? null
+    const opened = (await $.state.get(progOpenS)).value ?? []
+    const finished = (await $.state.get(progFinishedS)).value ?? false
+    const auto = (await $.state.get(progAutoS)).value ?? data?.syncMinutes ?? 0
+    const busy = (await $.state.get(progBusyS)).value ?? null
+    const draft = (await $.state.get(progRulesS)).value ?? null
+    const now = Math.floor(Date.now() / 1000)
+    const projects = projectsOf(data)
+    const tops = visibleTops(data, project, finished, chosen)
+    const hidden = hiddenFinished(data, project)
+
+    const toggle = (id: number) => () => $.state.set(progOpenS, opened.includes(id) ? opened.filter(x => x !== id) : [...opened, id])
+    const sync = () => progAct($, 'Syncing from ADO', ['sync', '--no-embed'], PROG_SYNC_MS)
+    const bar = (key: string, m: ProgressNode['measures']['count'], width = 240, height = 10) => {
+      if (Svg) {
+        const b = workBar(m, C, width, height)
+        return <Svg key={key} source={b.source} alt={b.alt} width={b.width} height={b.height} />
+      }
+      const [d, a, left] = textBar(m, Math.round(width / 10))
+      return (
+        <Box key={key} flexDirection="row" flexShrink={0}>
+          <Text color={C.done}>{'█'.repeat(d)}</Text><Text color={C.work}>{'▓'.repeat(a)}</Text><Text color={C.dim}>{'░'.repeat(left)}</Text>
+        </Box>
+      )
+    }
+    const defects = (key: string, n: ProgressNode) => (
+      <Box key={key} flexDirection="row" gap={1} alignItems="center">
+        {Svg && n.defects.total > 0 && (() => { const b = defectBar(n.defects, C); return <Svg source={b.source} alt={b.alt} width={b.width} height={b.height} /> })()}
+        <Text color={n.defects.todo ? C.revoked : C.dim} dimColor={!n.defects.todo} wrap="wrap">{defectText(n.defects)}</Text>
+      </Box>
+    )
+    const leaf = (n: ProgressNode, depth: number) => (
+      <Box key={`leaf-${n.id}`} flexDirection="row" gap={1} marginLeft={depth * 2}>
+        <Text color={n.status === 'done' ? C.done : n.status === 'active' ? C.work : C.dim}>{n.status === 'done' ? '●' : n.status === 'active' ? '◐' : '○'}</Text>
+        <Box flexShrink={1} minWidth={0}>{n.url ? <Link href={n.url} label={`${n.id} ${n.title}`} /> : <Text wrap="truncate-end">{`${n.id} ${n.title}`}</Text>}</Box>
+        <Box flexShrink={1} minWidth={0}><Text dimColor wrap="truncate-end">{leafLine(n, s?.items ?? [])}</Text></Box>
+      </Box>
+    )
+    const branch = (n: ProgressNode, measure: ProgressMeasureKey, depth: number): ReturnType<typeof leaf> => {
+      if (!n.kids.length) return leaf(n, depth)
+      const isOpen = opened.includes(n.id)
+      const m = n.measures[measure]
+      return (
+        <Box key={`node-${n.id}`} flexDirection="column" marginLeft={depth * 2}>
+          <Box flexDirection="row" gap={1} alignItems="center">
+            <Box flexGrow={1} flexShrink={1} minWidth={0}><Button key={`prog-${n.id}`} label={`${isOpen ? '▾' : '▸'} ${n.type} ${n.id} · ${n.title}`} onPress={toggle(n.id)} /></Box>
+            {bar(`bar-${n.id}`, m, 160, 8)}
+            <Text>{`${pct(m)}%`.padStart(6)}</Text>
+          </Box>
+          {isOpen && (
+            <Box flexDirection="column" marginLeft={2}>
+              <Text dimColor wrap="wrap">{barLabel(m, measure)}</Text>
+              {n.defects.total > 0 && defects(`def-${n.id}`, n)}
+              {n.kids.map(k => branch(k, measure, 1))}
+              {n.defects.items.filter(d => d.status !== 'done').map(d => (
+                <Box key={`bug-${n.id}-${d.id}`} flexDirection="row" gap={1} marginLeft={2}>
+                  <Text color={d.high ? C.revoked : C.now}>{d.high ? '▲' : '•'}</Text>
+                  <Box flexShrink={1} minWidth={0}>{d.url ? <Link href={d.url} label={`${d.type} ${d.id} ${d.title}`} /> : <Text>{`${d.type} ${d.id} ${d.title}`}</Text>}</Box>
+                  <Text dimColor>{d.state}{d.assigned ? ` · ${d.assigned}` : ''}</Text>
+                </Box>
+              ))}
+            </Box>
+          )}
+        </Box>
+      )
+    }
+
+    const header = (
+      <Box flexDirection="column" gap={1}>
+        <Box flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
+          <Box flexGrow={1}><Text bold>Project progress</Text></Box>
+          {MEASURE_KEYS.map(k => (
+            <Button key={`measure-${k}`} label={chosen === k ? `[${MEASURE_LABEL[k]}]` : MEASURE_LABEL[k]}
+              onPress={() => $.state.set(progMeasureS, chosen === k ? null : k)} />
+          ))}
+          <Button key="prog-sync" label={busy ? 'Syncing…' : 'Sync from ADO'} onPress={sync} />
+          <Button key="prog-auto" label={`Auto sync: ${auto ? `${auto} min` : 'off'}`} onPress={() => $.state.set(progAutoS, autoNext(AUTO_STEPS.includes(auto) ? auto : 0))} />
+          <Button key="prog-reload" label="↻" onPress={() => void progRead($)} />
+        </Box>
+        <Text dimColor wrap="wrap">{[syncedText(data, now), chosen ? `showing ${MEASURE_LABEL[chosen].toLowerCase()} for every project` : 'each project shows its own measure',
+          'bugs and issues apart'].join(' · ')}</Text>
+        {busy && <Text color={C.now}>{busy}…</Text>}
+        {why && <Text color={C.revoked} wrap="wrap">{why}</Text>}
+        {Select && projects.length > 1 && (
+          <Select key="prog-project" label="Project" options={[{ value: '', label: 'All projects' }, ...projects.map(p => ({ value: p, label: p }))]}
+            value={project ?? ''} onSelect={v => void $.state.set(progProjectS, v || null)} />
+        )}
+      </Box>
+    )
+
+    // ---- the Rules panel: what each state of one project counts as, and the measure it shows first
+    if (draft) {
+      const saved = rulesArgs(draft)
+      const rules = data?.projects[draft.project]?.rules
+      const setDraft = (d: ProgressRulesDraft) => $.state.set(progRulesS, d)
+      return (
+        <Box flexDirection="column" width={cols} gap={1}>
+          {header}
+          <Box flexDirection="column" gap={1} borderStyle="round" borderColor={C.line} paddingX={1}>
+            <Text bold>{`Rules for ${draft.project}`}</Text>
+            <Text dimColor wrap="wrap">Press a state to change what it counts as: done, in progress, not started or left out. These rules apply to this project only.</Text>
+            <Box flexDirection="row" gap={1} flexWrap="wrap">
+              {Object.entries(draft.states).map(([st, rule]) => (
+                <Button key={`rule-${st}`} label={`${st}: ${RULE_WORD[rule as Rule]}`} onPress={() => setDraft({ ...draft, states: { ...draft.states, [st]: nextRule(rule as Rule) } })} />
+              ))}
+            </Box>
+            <Box flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
+              <Text dimColor>Show first:</Text>
+              {MEASURE_KEYS.map(k => <Button key={`rule-measure-${k}`} label={draft.measure === k ? `[${MEASURE_LABEL[k]}]` : MEASURE_LABEL[k]} onPress={() => setDraft({ ...draft, measure: k })} />)}
+            </Box>
+            {rules && <Text dimColor wrap="wrap">{`Work: ${rules.work.join(', ')} · apart: ${rules.defects.join(', ')}. Those two lists are in .claude/sdd.json "progress".`}</Text>}
+            {saved.problem && <Text color={C.revoked}>{saved.problem}</Text>}
+            <Box flexDirection="row" gap={1}>
+              <Button key="rules-save" variant="primary" label="Save" onPress={async () => {
+                if (!saved.args) return
+                if (await progAct($, `Saving the rules of ${draft.project}`, saved.args, 120_000)) await $.state.set(progRulesS, null)
+              }} />
+              <Button key="rules-reset" label="Use the workspace's rules" onPress={async () => {
+                if (await progAct($, `Resetting the rules of ${draft.project}`, ['progress-rules', '--project', draft.project, '--reset'], 120_000)) await $.state.set(progRulesS, null)
+              }} />
+              <Button key="rules-cancel" label="Cancel" onPress={() => $.state.set(progRulesS, null)} />
+            </Box>
+          </Box>
+        </Box>
+      )
+    }
+
+    return (
+      <Box flexDirection="column" width={cols} gap={1}>
+        {header}
+        {data && !data.tops.length && (
+          <Box flexDirection="column" gap={1}>
+            <Text wrap="wrap">No epic is synced yet. Pull one from ADO, then this page fills itself.</Text>
+            <Button key="prog-first" label="Pull an epic" onPress={() => $.prompt.fill({ text: '/sdd sync ' })} />
+          </Box>
+        )}
+        {tops.map(top => {
+          const measure = measureFor(data, top.project, chosen)
+          const m = top.measures[measure]
+          const isOpen = opened.includes(top.id)
+          const trend = trendText(data, top.id, measure)
+          return (
+            <Box key={`top-${top.id}`} flexDirection="column" borderStyle="round" borderColor={C.line} paddingX={1}>
+              <Box flexDirection="row" gap={1} alignItems="center">
+                <Box flexGrow={1} flexShrink={1} minWidth={0}><Button key={`prog-${top.id}`} label={`${isOpen ? '▾' : '▸'} ${top.type} ${top.id} · ${top.title}`} onPress={toggle(top.id)} /></Box>
+                {bar(`bar-${top.id}`, m)}
+                <Text bold>{`${pct(m)}%`.padStart(6)}</Text>
+              </Box>
+              <Text dimColor wrap="wrap">{[barLabel(m, measure), trend, projects.length > 1 && !project ? top.project : ''].filter(Boolean).join(' · ')}</Text>
+              {defects(`def-${top.id}`, top)}
+              {top.partial && (
+                <Box flexDirection="row" gap={1} alignItems="center">
+                  <Text color={C.now} wrap="wrap">Only part of it is synced (it came in as another item's parent), so these numbers are short.</Text>
+                  <Button key={`sync-${top.id}`} label="Sync all of it" onPress={() => progAct($, `Syncing ${top.type} ${top.id} from ADO`, ['sync', '--id', String(top.id), '--no-embed'], PROG_SYNC_MS)} />
+                </Box>
+              )}
+              {isOpen && (
+                <Box flexDirection="column" marginTop={1}>
+                  {top.kids.length === 0 && <Text dimColor>No features or stories under it are synced.</Text>}
+                  {top.kids.map(k => branch(k, measure, 0))}
+                  {top.defects.items.filter(d => d.status !== 'done').map(d => (
+                    <Box key={`topbug-${top.id}-${d.id}`} flexDirection="row" gap={1}>
+                      <Text color={d.high ? C.revoked : C.now}>{d.high ? '▲' : '•'}</Text>
+                      <Box flexShrink={1} minWidth={0}>{d.url ? <Link href={d.url} label={`${d.type} ${d.id} ${d.title}`} /> : <Text>{`${d.type} ${d.id} ${d.title}`}</Text>}</Box>
+                      <Text dimColor>{d.state}{d.assigned ? ` · ${d.assigned}` : ''}</Text>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          )
+        })}
+        {data && (
+          <Box flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
+            {hidden > 0 && <Button key="prog-finished" label={finished ? 'Hide finished' : `Show ${hidden} finished`} onPress={() => $.state.set(progFinishedS, !finished)} />}
+            {(project ? [project] : projects).map(p => (
+              <Button key={`rules-${p}`} label={projects.length > 1 ? `Rules: ${p}…` : 'Rules…'} onPress={() => $.state.set(progRulesS, rulesDraft(data, p))} />
+            ))}
+            {data.orphans.defects > 0 && <Text dimColor>{`${data.orphans.defects} bugs and issues sit under no synced epic or feature`}</Text>}
+          </Box>
+        )}
+      </Box>
+    )
+  })
+
   on('command.run', { command: 'sdd-view' }, async ($, e) => {
     if (!desktopReady) return { text: 'The sdd view works in the Claude Desktop app only.' }
     return { text: await openSddView($, e.args) }
@@ -1833,6 +2140,7 @@ export const register: Register = (on, options) => {
     if (e.id === PANE) isOpen = false
     if (e.id === WT_PANE) wtOpen = false
     if (e.id === BUG_PANE) bugsPaneOpen = false
+    if (e.id === PROG_PANE) progPaneOpen = false
     return next(e)
   })
 
@@ -2020,6 +2328,7 @@ export const register: Register = (on, options) => {
     const launcher = (
       <Box flexShrink={0} flexDirection="row" gap={1}>
         <Button key="band-bugs" label={staged ? `Bugs ✎${staged}` : 'Bugs'} onPress={() => void openBugsPage($)} />
+        <Button key="band-progress" label="Progress" onPress={() => void openProgressPage($)} />
         <Button key="band-worktrees" label="Worktrees" onPress={openWorktrees} />
         <Button key="band-repowatch" label="repowatch" onPress={openRepowatch} />
       </Box>
@@ -2161,6 +2470,10 @@ export const register: Register = (on, options) => {
             <Box flexDirection="row" gap={1} alignItems="center">
               <Button key="start-bugs" label="Triage bugs" onPress={() => void openBugsPage($)} />
               <Text dimColor wrap="wrap">Sort every bug and issue, change many at once, and start a fix from a row.</Text>
+            </Box>
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Button key="start-progress" label="Project progress" onPress={() => void openProgressPage($)} />
+              <Text dimColor wrap="wrap">How far each epic is, from the synced specs: done, in progress and not started, with bugs and issues apart.</Text>
             </Box>
             <Box flexDirection="row" gap={1} alignItems="center">
               <Button key="start-help" label="Help" onPress={() => fill('/sdd:help')} />

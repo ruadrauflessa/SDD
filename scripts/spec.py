@@ -42,6 +42,13 @@ Which item to take next (nextpick.py; read-only, from the index — sync the sco
     next-judge --scope N --id M (--blocked yes|no | --complexity 1-5) --reason TEXT
                                     record the agent's judgement; it holds while its evidence holds
 
+How far each epic is (progress.py; read-only, from the index; the /sdd-progress page shows it):
+    progress [--json]                    every epic's (and each feature's with no epic) done, in progress and to
+                                         do, by work item count, story points and acceptance criteria; bugs and
+                                         issues apart. Writes .index/progress.json and today's line of the trend
+    progress-rules --project P (--measure M --done CSV --todo CSV --ignore CSV | --reset)
+                                         a project's rules in .claude/sdd.json "progress.projects" (the page's Rules panel)
+
 Every sync also writes {specRoot}/.index/metrics.json (metrics.py): every work item with its state,
 board, planning fields, versions, epic/feature chain, child counts, blockers and what it blocks, plus
 what this sync changed and what each change likely affects. `metrics` rebuilds it without a sync.
@@ -71,7 +78,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 import adowrite
 import metrics
 import nextpick
-from sddlib import die, get_items, load_config, org_url, require_root, slug, wiql
+import progress as prog
+from sddlib import CONFIG_REL, die, get_items, load_config, org_url, require_root, slug, wiql
 
 SYNCED_BY = "sdd-spec-sync@1"
 TEXT_FIELDS = [("System.Description", "Description"),
@@ -339,6 +347,7 @@ def cmd_sync(a):
     path = write_metrics(ctx, sync_changes(ctx, report), f"all:{','.join(all_projects)}" if all_projects and a.all
                          else a.id or "refresh")
     print(f"metrics: {path}")
+    progress_after(ctx)
 
 
 # ---------------------------------------------------------------- metrics.json
@@ -389,6 +398,81 @@ def cmd_metrics(a):
     """Rebuild metrics.json from the index without a sync; the last sync's changes stay."""
     ctx = Ctx()
     print(f"wrote {write_metrics(ctx, [], None, keep_changes=True)}")
+    progress_after(ctx)
+
+
+# ---------------------------------------------------------------- progress.json (the /sdd-progress page)
+
+def write_progress(ctx):
+    """progress.json, and today's line of progress-history.jsonl (the trend), from the index. -> (data, path)"""
+    rows = {r["id"]: dict(r) for r in ctx.db.execute("SELECT * FROM items")}
+    scopes = {r["root"]: r["synced_at"] for r in ctx.db.execute("SELECT root, synced_at FROM scopes")}
+    data = prog.build(rows, ctx.cfg, list(scopes), ctx.cfg["ado"]["org"])
+    idx = ctx.spec / ".index"
+    hist = idx / "progress-history.jsonl"
+    lines = []
+    if hist.is_file():
+        for ln in hist.read_text(encoding="utf-8").splitlines():
+            try:
+                lines.append(json.loads(ln))
+            except ValueError:
+                continue
+    lines = prog.add_history(lines, data)
+    data["trend"] = prog.trend(lines, data)
+    data["syncedAt"] = max(scopes.values()) if scopes else None
+    data["syncMinutes"] = ctx.cfg["progress"].get("syncMinutes") or 0
+    hist.write_text("".join(json.dumps(x, sort_keys=True) + "\n" for x in lines), encoding="utf-8")
+    path = idx / "progress.json"
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return data, path
+
+
+def progress_after(ctx):
+    """After a sync: the page's numbers follow. A failure here never fails the sync."""
+    try:
+        print(f"progress: {write_progress(ctx)[1]}")
+    except Exception as e:  # noqa: BLE001 - the sync's own work is done; say why the bars did not move
+        print(f"warning: progress.json not written: {e}")
+
+
+def cmd_progress(a):
+    ctx = Ctx()
+    data, path = write_progress(ctx)
+    if a.json:
+        print(json.dumps(data, ensure_ascii=False))
+        return
+    if not data["tops"]:
+        print("No epic synced yet. Run: spec.py sync --id <epic id>")
+    for t in data["tops"]:
+        m = prog.rules_for(ctx.cfg, t["project"])["measure"]
+        x = t["measures"][m]
+        d = t["defects"]
+        unit = {"count": "items", "points": "points", "criteria": "criteria"}[m]
+        print(f"{t['id']} {t['type']} {t['title']}: {prog.pct(x)}% of {x['total']:g} {unit} done, {x['active']:g} in progress"
+              f"{' (only part synced)' if t['partial'] else ''} · bugs and issues: {d['total'] - d['done']} open of {d['total']}")
+    print(f"wrote {path}")
+
+
+def cmd_progress_rules(a):
+    """A project's progress rules, written into .claude/sdd.json "progress.projects.<project>" (read fresh first)."""
+    root = require_root()
+    path = root / CONFIG_REL
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as e:
+        die(f"{path} is not valid JSON ({e}): fix it first; nothing was written")
+    if a.reset:
+        new = prog.set_project_rules(raw, a.project, None)
+    else:
+        csv = lambda v: [x.strip() for x in (v or "").split(",") if x.strip()]
+        done, todo, ignore = csv(a.done), csv(a.todo), csv(a.ignore)
+        problems = prog.rules_problems(done, todo, ignore, a.measure)
+        if problems:
+            die("; ".join(problems) + ". Nothing was written.")
+        new = prog.set_project_rules(raw, a.project, {"measure": a.measure, "done": done, "todo": todo, "ignore": ignore})
+    path.write_text(json.dumps(new, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"{'Reset' if a.reset else 'Saved'} the progress rules of {a.project} in {path}")
+    write_progress(Ctx())
 
 
 def write_items(ctx, items, other=None):
@@ -1290,6 +1374,15 @@ def main():
     s.add_argument("--related", type=int, action="append", help="repeat: other items to link the new item to")
     s.add_argument("--dry-run", action="store_true")
     sp.add_parser("metrics", help="rebuild .index/metrics.json from the index (every sync writes it too)")
+    s = sp.add_parser("progress", help="how far each epic is: .index/progress.json (every sync writes it too)")
+    s.add_argument("--json", action="store_true")
+    s = sp.add_parser("progress-rules", help="a project's progress rules in .claude/sdd.json")
+    s.add_argument("--project", required=True)
+    s.add_argument("--measure", choices=list(prog.MEASURES), default="count")
+    s.add_argument("--done", help="states that are done, comma-separated")
+    s.add_argument("--todo", help="states not started, comma-separated")
+    s.add_argument("--ignore", help="states left out, comma-separated")
+    s.add_argument("--reset", action="store_true", help="take the project's own rules out: the workspace's apply")
     s = sp.add_parser("next", help="which item under an epic or feature to take next")
     s.add_argument("--scope", type=int, required=True, help="the epic or feature the dev is assigned")
     s.add_argument("--version", required=True, help="the team branch version the items are tagged with")
@@ -1322,7 +1415,8 @@ def main():
     {"sync": cmd_sync, "embed": cmd_embed, "query": cmd_query, "impact": cmd_impact, "claim": cmd_claim,
      "handover": cmd_handover, "sprint": cmd_sprint, "comment": cmd_comment, "next": cmd_next,
      "request": cmd_request, "route": cmd_route,
-     "next-judge": cmd_next_judge, "metrics": cmd_metrics}[a.cmd](a)
+     "next-judge": cmd_next_judge, "metrics": cmd_metrics, "progress": cmd_progress,
+     "progress-rules": cmd_progress_rules}[a.cmd](a)
 
 
 if __name__ == "__main__":

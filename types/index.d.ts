@@ -307,6 +307,58 @@ export type BugFilter = {
   assignee: string
 }
 
+/** One measure of a progress node: what its leaves add up to. `missing`: leaves with no points (or no criteria). */
+export type ProgressMeasure = { total: number; done: number; active: number; todo: number; missing: number }
+
+export type ProgressMeasureKey = 'count' | 'points' | 'criteria'
+
+/** Bugs and issues under a node: their own metric, never part of its completion. */
+export type ProgressDefects = {
+  total: number; done: number; active: number; todo: number
+  /** Open ones of severity 1 or 2 (or priority 1). */
+  high: number
+  items: Array<{ id: number; type: string; title: string; state: string; status: 'done' | 'active' | 'todo'; high: boolean; assigned: string; url: string }>
+}
+
+/** An epic, feature or story in `spec.py progress`: a leaf has `units`, a parent its `kids`. */
+export type ProgressNode = {
+  id: number
+  type: string
+  title: string
+  state: string
+  status: 'done' | 'active' | 'todo' | 'ignored'
+  project: string
+  assigned: string
+  url: string
+  board: string
+  measures: Record<ProgressMeasureKey, ProgressMeasure>
+  defects: ProgressDefects
+  kids: ProgressNode[]
+  units?: Record<ProgressMeasureKey, number>
+  /** Struck-through acceptance criteria: withdrawn, not counted. */
+  withdrawn?: number
+  /** A top only: some of it was synced as another item's parent, not as a scope of its own. */
+  partial?: boolean
+}
+
+export type ProgressRules = { measure: ProgressMeasureKey; work: string[]; defects: string[]; done: string[]; todo: string[]; ignore: string[]; doneBoards: string[] }
+
+/** `spec.py progress --json`: {specRoot}/.index/progress.json. */
+export type ProgressData = {
+  generated_at: string
+  syncedAt: string | null
+  syncMinutes: number
+  measures: ProgressMeasureKey[]
+  projects: Record<string, { rules: ProgressRules; states: Array<{ state: string; count: number; rule: 'done' | 'active' | 'todo' | 'ignored' }> }>
+  tops: ProgressNode[]
+  orphans: { defects: number }
+  /** The change of each top since about a week ago, per measure. */
+  trend: Record<string, Partial<Record<ProgressMeasureKey, { delta: number; since: string }>>>
+}
+
+/** The Rules panel's edit of one project: each state's rule, and the measure shown first. */
+export type ProgressRulesDraft = { project: string; measure: ProgressMeasureKey; states: Record<string, 'done' | 'active' | 'todo' | 'ignored'> }
+
 declare module 'claude-code' {
   interface PluginState {
     sdd: {
@@ -375,6 +427,24 @@ declare module 'claude-code' {
       bugsDraft: BugSettingsDraft | null
       /** The settings section open in the panel, and inside Categories the category open ('categories:quick-wins'), or null. */
       bugsSection: string | null
+      /** The progress page: what `spec.py progress` last said, or null while unread. */
+      progData: ProgressData | null
+      /** Why the progress page cannot show it, or null. */
+      progError: string | null
+      /** The measure the page shows; null = each project's own. */
+      progMeasure: ProgressMeasureKey | null
+      /** The project the page shows; null = all. */
+      progProject: string | null
+      /** The rows opened on the page (epic and feature ids). */
+      progOpen: number[]
+      /** Finished epics are listed too. */
+      progFinished: boolean
+      /** Sync from ADO every this many minutes while the page is open; 0 = on a press only. null = sdd.json's. */
+      progAuto: number | null
+      /** What runs now ('sync', 'rules'), or null. */
+      progBusy: string | null
+      /** The Rules panel's edit, or null while it is closed. */
+      progRules: ProgressRulesDraft | null
     }
   }
 }
