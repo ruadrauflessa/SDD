@@ -535,7 +535,8 @@ def place_folders(ctx, pending):
             target = desired / "requirements.md"
             text = render(pending[wid])
             if not target.exists() or target.read_text(encoding="utf-8") != text:
-                target.write_text(text, encoding="utf-8", newline="\n")
+                with open(target, "w", encoding="utf-8", newline="\n") as f:  # write_text's newline= is 3.10+
+                    f.write(text)
     # a moved or renamed parent moves its children too, so refresh every recorded path
     for wid, d in scan_folders(ctx.spec).items():
         ctx.db.execute("UPDATE items SET path=? WHERE id=?", (d.relative_to(ctx.spec).as_posix(), wid))

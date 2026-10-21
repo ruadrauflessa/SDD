@@ -1102,7 +1102,8 @@ def graph_changes(env_dir, data):
 
 def cmd_graph_focus(a):
     """Writes graph/graph-focus.html: graphify's graph.html with the nodes the item's design (design.md, tasks.md) names,
-    or the code it changed, lit and the rest dimmed. It changes nothing but that file (and graph/ when --refresh or no graph)."""
+    or the code it changed, lit and the rest dimmed. It changes nothing but that file, and graph/ when it builds: always with
+    --refresh, else when there is no graph or the code changed since it was built (a stale graph would light code that is gone)."""
     import contextlib
     import io
     import webbrowser
@@ -1111,20 +1112,27 @@ def cmd_graph_focus(a):
     env_dir = env_or_die(root, cfg, a.id)
     data = read_env(env_dir)
     out_dir = env_dir / "graph"
-    notes, failed = io.StringIO(), ""
-    if a.refresh or not (out_dir / "graph.json").is_file() or not (out_dir / "graph.html").is_file():
-        with contextlib.redirect_stdout(notes):
-            try:
-                build_graph(env_dir)
-            except RuntimeError as e:  # no graphify, or it failed: said below, as JSON when asked
-                failed = str(e)
     gj, gh = out_dir / "graph.json", out_dir / "graph.html"
+    notes, failed, rebuilt = io.StringIO(), "", False
+    with contextlib.redirect_stdout(notes):
+        try:
+            if a.refresh or not (gj.is_file() and gh.is_file()):
+                build_graph(env_dir)
+                rebuilt = True
+            else:
+                rebuilt = ensure_graph(env_dir)
+        except RuntimeError as e:  # no graphify, or it failed: said below, as JSON when asked
+            failed = str(e)
+    error = ""
     if not (gj.is_file() and gh.is_file()):
-        why = failed or (notes.getvalue().strip().splitlines() or ["the graph was not built"])[-1]
+        error = "no code graph: " + (failed or (notes.getvalue().strip().splitlines() or ["the graph was not built"])[-1])
+    elif failed and graph_stale(env_dir, data):  # a failed --refresh of a graph that is current anyway is no loss
+        error = f"the code graph is older than the code and could not be rebuilt: {failed}"
+    if error:
         if a.json:
-            print(json.dumps({"ok": False, "error": f"no code graph: {why}"}))
+            print(json.dumps({"ok": False, "error": error}))
             sys.exit(1)
-        die(f"no code graph: {why}")
+        die(error)
     prog = data.get("progress") or {}
     flow = prog.get("flow") or data.get("flow")
     mode = a.mode if a.mode != "auto" else (stage_lens(flow, prog.get("phase")) or "none")
@@ -1141,7 +1149,8 @@ def cmd_graph_focus(a):
     (out_dir / "graph-focus.html").write_text(graphfocus.render(gh.read_text(encoding="utf-8"), result), encoding="utf-8")
     summary = {"ok": True, "path": str(out_dir / "graph-focus.html"), "mode": mode, "stage": prog.get("phase"),
                "primary": len(result["primary"]), "planned": len(result["planned"]), "secondary": len(result["secondary"]),
-               "neighbors": len(result["neighbors"]), "skipped": result["skipped"], "nodes": len(graph.get("nodes") or [])}
+               "neighbors": len(result["neighbors"]), "skipped": result["skipped"], "nodes": len(graph.get("nodes") or []),
+               "rebuilt": rebuilt}
     (out_dir / "focus.json").write_text(json.dumps({**summary, "files": result["files"]}, indent=2) + "\n", encoding="utf-8")
     opened = False
     if a.open:
@@ -1783,7 +1792,7 @@ def main():
     s = sp.add_parser("graph-focus", help="the code graph with the nodes of the item's design or its changes lit (graph/graph-focus.html)")
     s.add_argument("--id", type=int, required=True)
     s.add_argument("--mode", choices=("auto", *graphfocus.MODES), default="auto", help="auto: the lens of the stage the item is at")
-    s.add_argument("--refresh", action="store_true", help="rebuild the graph from src/ first (it is built when missing either way)")
+    s.add_argument("--refresh", action="store_true", help="rebuild the graph from src/ first (it is built when missing, and rebuilt when the code changed, either way)")
     s.add_argument("--open", action="store_true", help="open the page in the default browser")
     s.add_argument("--json", action="store_true")
     s = sp.add_parser("anchors", help="check design.md's Affected components against the code graph; proof for Design agreed")
