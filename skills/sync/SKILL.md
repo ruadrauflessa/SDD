@@ -61,7 +61,8 @@ Removed items are kept and flagged `[REMOVED]`. An item ADO no longer returns is
 - **Meaning search needs Ollama with the embeddings model.** If the sync prints `model ... not
   pulled`, ask the user before running `ollama pull nomic-embed-text` (a download of about
   274 MB). If it prints `Ollama is not running`, say so; everything except meaning search still
-  works, and `spec.py embed` fills the gap later.
+  works, and `spec.py embed` fills the gap later. Once it is on, `spec.py query search` ranks by words and
+  by meaning, and a grep of the spec folder waits for that query (`hooks/spec_use.py`).
 - `could not get an ADO token` → ask the user to run `az login`.
 
 ## Reading the result

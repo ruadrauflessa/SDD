@@ -130,7 +130,7 @@
       <li>A removed item is kept and marked <code>[REMOVED]</code>. An item ADO no longer returns is marked <code>MISSING</code>: deleted, moved to a project not in your list, or no access.</li>
       <li>A folder keeps its name when the title changes, is renamed when the type changes, and moves (with your own files) when the item gets a new parent.</li>
       <li>Every sync also writes <code>.index/metrics.json</code>: each item with what a decision needs (state, board column, assignee, versions, epic chain, what blocks it and what it blocks) and <b>what this sync changed</b>, with the fields before and after. A <b>MATERIAL</b> change is one to the requirement itself (title, description, acceptance criteria, repro steps, type or links); an <i>incidental</i> one is a tracked field such as the state. For a new or material item it lists the items it likely affects. No tokens used.</li>
-      <li>Search the synced spec in chat: ask for a word search or an items-like-this search (meaning search needs Ollama).</li>
+      <li>Search the synced spec in chat: ask for a search or for items like one you know. With Ollama on, every search ranks the items by their words <b>and</b> by their meaning, in one list, so an item that says the same thing in other words is found too. Without Ollama it is a word search.</li>
     </ul>
   </section>
 
@@ -384,6 +384,7 @@
       <tr><td>State guards</td><td><code>env.py can</code> answers whether a stage, PR, <code>done</code>, <code>abandon</code> or <code>reopen</code> is allowed in the item's state. A refusal says why and what gets it there; sdd never works around it. <code>env.py pr</code> and <code>env.py remove</code> enforce the same checks themselves.</td></tr>
       <tr><td>Proof runs</td><td>The failing test, the revert check, the repeat run, the full suite and the task Verify commands are <b>recorded runs</b> (exit code, output, a fingerprint of the code). A gate passes only on a record that matches the current code. A later edit voids it. <b>Design agreed</b> passes only on an <code>env.py anchors</code> check of <code>design.md</code> against the code graph, and an edit of <code>design.md</code> voids it.</td></tr>
       <tr><td>Graph guard (hook)</td><td>Claude finds code from the work item's <b>code graph</b>, not by grepping: a search of the code is refused until it has asked the graph in that stage, and while a flow runs a search of the main checkout is refused. The graph is rebuilt before every read once the code changed, and a stage that reads code starts only on a current graph. <code>env.py status</code> counts graph queries against searches.</td></tr>
+      <tr><td>Spec search guard (hook)</td><td>While meaning search is on (Ollama answers with the model, and the specs are embedded), Claude searches the synced specs by meaning first: a grep of the spec folder, or of a folder of items in it, is refused until it ran <code>spec.py query search</code> or <code>query similar</code> in that turn. After that, grep is open for exact text: an id, a field name, a quoted phrase. Reading one spec and finding a folder by its id stay open. Silent without Ollama.</td></tr>
       <tr><td>Question guard (hook)</td><td>Blocks a question to you unless its Links block ran first, blocks a question that has a link inside it, and sends a plain-text question back to be asked as a pick-list. Silent unless an sdd flow is running.</td></tr>
       <tr><td>Edit guard (hook)</td><td>While a flow runs, blocks edits to a repo file in the <b>main checkout</b>. Your spec folder, <code>.claude/</code> and <code>CLAUDE.md</code> stay open.</td></tr>
       <tr><td>Agent guard (hook)</td><td>Keeps the sub-agents read-only: no git writes (an allowlist of read commands) and no <code>env.py</code> or <code>spec.py</code> runs.</td></tr>
@@ -412,13 +413,14 @@
 Three sections, stacked top to bottom. All text is sharp, horizontal and readable, and spelled exactly as written below. No card or scrap may cover any text on another card. No signatures.
 
 SECTION I: "THE GUARDIANS" (subtitle "(hooks/hooks.json · exit 2 blocks)")
-Six cubist portraits in a row, each face seen front-on and in profile at once. Below each portrait is a pasted card with three lines: the event, the script name and the rule.
+Seven cubist portraits in a row, each face seen front-on and in profile at once. Below each portrait is a pasted card with three lines: the event, the script name and the rule.
 1. "PreToolUse · AskUserQuestion" / "question_guard.py pre" / "Every question bears its Links"
 2. "Stop" / "question_guard.py stop" / "Ask with the tool, not in prose"
 3. "PreToolUse · Bash | PowerShell" / "agent_guard.py pre" / "Sub-agents only read"
 4. "PreToolUse · Edit | Write" / "edit_guard.py pre" / "Work in the worktree"
 5. "PreToolUse · Bash | PowerShell | Grep | Glob | Read" / "graph_use.py pre + post" / "Explore the code from the graph"
-6. "SessionStart" / "env.py upgrade-config" / "The Herald: adds new config keys"
+6. "PreToolUse · Bash | PowerShell | Grep" / "spec_use.py pre + post" / "Search the specs by meaning first"
+7. "SessionStart" / "env.py upgrade-config" / "The Herald: adds new config keys"
 
 SECTION II: "THE VIEW" (subtitle "(hooks/register.tsx · Claude Desktop only)")
 Exactly five tilted collage cards side by side. Each card has a heading and its hooks, one per line:
