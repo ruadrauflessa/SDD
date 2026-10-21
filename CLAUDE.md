@@ -30,6 +30,7 @@ the user's view; this file is for working on the plugin itself.
 | `agents/` | `investigator` and `skeptic`, the read-only sub-agents |
 | `evals/` | `claude plugin eval` cases; `_fixtures/workspace.py` builds each case's workspace |
 | `repowatch/` | A second, standalone plugin (sdd depends on it, same marketplace): tracks many git repos and worktrees. `scripts/repowatch.py` does the git mechanics and writes `.claude/repowatch/state.json`; `hooks/register.tsx` draws the pane and status line from it, and runs a clean-up only after `plan`, a confirm and `apply` (which re-checks). Has its own `plugin.json` and version |
+| `devops/` | A third, standalone plugin (same marketplace, no code, skills only): `release-prep`, `sync-team-branches`, `release-notes`, `pre-pr-verify`. Their PowerShell scripts run as `${CLAUDE_PLUGIN_ROOT}/skills/<skill>/scripts/...`. Has its own `plugin.json` and version. `devops/references/writing-style.md` is its own copy of the house writing style (`skills/bug/references/writing-style.md` is sdd's), so devops works without sdd; keep the ten rules and the word swaps in step |
 | `assets/output-styles/ELI5.md` | The output style installed globally (kept outside `output-styles/` on purpose) |
 
 ## Checks to run
