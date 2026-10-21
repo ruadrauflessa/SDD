@@ -30,6 +30,27 @@
             "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/edit_guard.py\" pre"
           }
         ]
+      },
+      {
+        "matcher": "Bash|PowerShell|Grep|Glob|Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/graph_use.py\" pre",
+            "timeout": 600
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|PowerShell|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/graph_use.py\" post"
+          }
+        ]
       }
     ],
     "Stop": [

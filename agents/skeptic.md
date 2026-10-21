@@ -20,7 +20,8 @@ The caller gives you the work item folder: `<workspace root>\.claude\worktrees\{
 the spec files under `{specRoot}` (`requirements.md`, `design.md`, `tasks.md`). Read code only under
 `src\{Repo}\` of that folder, never in the main checkout. Use the graph
 (`graphify query` / `graphify affected` on `<folder>\graph\graph.json`) and git history
-(`git log -S`, `git blame`) as the investigator does — and confirm by reading the file.
+(`git log -S`, `git blame`) as the investigator does — and confirm by reading the file. Your first
+lookup is a graph query: searches of the code are refused until you have asked the graph yourself.
 
 ## What you never do
 

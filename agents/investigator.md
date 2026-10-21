@@ -23,6 +23,9 @@ The caller gives you the work item folder: `<workspace root>\.claude\worktrees\{
   `graphify query "<question>" --graph <folder>\graph\graph.json` and
   `graphify affected "<symbol>" --graph <folder>\graph\graph.json`. The graph is a map, not the
   truth. Confirm every lead by reading the file it points at.
+- Your first lookup is a graph query. The plugin's `graph_use.py` hook refuses Grep, Glob, grep and
+  git grep on the folder's code until you have asked the graph yourself (the caller's query does not
+  count for you). After that, search for what a graph does not hold: string literals, config keys, SQL.
 - History: `git -C <worktree> log -S "<text>"`, `git -C <worktree> blame -L <a>,<b> <file>`.
 
 ## What you never do

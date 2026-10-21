@@ -67,7 +67,8 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/env.py new --id <id> --repos <RepoA>,<RepoB
 
 It fetches each repo, creates each worktree with `--no-track` from `origin/team/{version}` (matched
 case-insensitively, so `HealthCodeIndex_V2`'s `Team/1.1.0` resolves), writes `workitem.json` and the
-folder's `CLAUDE.md`, and builds the graph. A repo that must base off something other than
+folder's `CLAUDE.md`, and builds the graph. Without graphify it stops after the worktrees: run
+`env.py doctor`, fix graphify, then `env.py graph --id <id>` (Phase 3 needs the graph). A repo that must base off something other than
 `team/{version}` gets `--base <Repo>=<branch>` — only after the user named that branch. If the
 chosen version is missing from a repo, the script stops and lists what it found; ask again.
 

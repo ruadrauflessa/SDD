@@ -18,10 +18,11 @@ Answer all six honestly. If any answer is weak, keep investigating — do not pr
 5. **History** — when did this break? `git log -S` / `git blame` on the suspect line often names
    the change and tells you whether the fix would undo something intentional — which loops back to
    Gate 1, because "intentional" may mean "specified".
-6. **Scope** — does the same flawed pattern exist elsewhere in the repo? Grep for it. Report
-   siblings even if you only fix the reported one. List every caller of the function you intend to
-   change: `graphify affected "<symbol>" --graph <folder>\graph\graph.json`, then confirm each by
-   reading it. A fix in the shared function reaches callers the ticket never named.
+6. **Scope** — list every caller of the function you intend to change first:
+   `graphify affected "<symbol>" --graph <folder>\graph\graph.json`, then confirm each by reading
+   it. Then look for the same flawed pattern elsewhere in the repo: once you have asked the graph in
+   this stage, grep is open for a pattern like that. Report siblings even if you only fix the
+   reported one. A fix in the shared function reaches callers the ticket never named.
 
 Items 5 and 6 (history and every caller) are a good fit for **`sdd:investigator`**: give it the
 suspect line and the function you intend to change.

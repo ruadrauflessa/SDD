@@ -22,8 +22,11 @@ updated, and on `/sdd init`. Restart Claude Code to see it. It sets the style on
 `/config` and the plugin leaves your choice alone (`/sdd init` sets it again). A style file you edit
 is kept; an unedited one is updated with the plugin.
 
-Needs: Python 3.9+, Node 18+, git, the Azure CLI (`az login`). Optional: graphify (code graphs),
-pandoc, Ollama (meaning search).
+Needs: Python 3.9+, Node 18+, git, the Azure CLI (`az login`), graphify (`pip install graphifyy`). Each
+work item folder gets a code graph, and the agent explores the code from it: a search of the code is refused
+until the graph was asked in that stage, and the graph is rebuilt before every read once the code changed. The
+spec flow's "Design agreed" checks the design against it.
+Optional: pandoc, Ollama (meaning search).
 
 **Moving from the loose skills** (`~/.claude/skills/sdd*`): remove those folders and the two
 `question_guard.py` entries from `~/.claude/settings.json`, or every question is checked twice.

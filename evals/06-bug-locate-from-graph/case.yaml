@@ -1,0 +1,18 @@
+schema_version: "1.0"
+name: bug-locate-from-graph
+description: >-
+  Bug 501 has passed Gate 1 and its folder has a code graph. Phase 4 (reproduce and locate) must start from the graph: a graphify query before any grep or Grep of the worktree, as hooks/graph_use.py records it. Like every case past a fresh start, its scaffold needs graphify on PATH.
+tags: [bug, graph, measure]
+runs: 3
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 40
+  timeout_seconds: 900
+  allowed_tools: [Skill, Read, Glob, Grep, Bash, Write, Edit, AskUserQuestion]
+  env:
+    SDD_FAKE_ADO: world.json
+  prompt: |
+    Continue ADO 501 in the sdd bug flow. Phases 1 to 3 are done: it is claimed, the worktree is on
+    team/1.0.0, and Gate 1 found the bug consistent with CR 500. Resume at Phase 4 — I already chose to
+    resume, so do not ask me that again. Do Phase 4, then stop before Phase 5.
