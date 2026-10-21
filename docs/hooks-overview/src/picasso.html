@@ -1,0 +1,254 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Special+Elite&family=Josefin+Sans:ital,wght@0,400;0,600;0,700;1,400&family=Caveat+Brush&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --black:#1c1a17; --cream:#efe4c8; --paper:#e9dcbc;
+    --ochre:#c8963e; --umber:#6b4a2b; --blue:#2f5d8c; --sky:#8fa9bf;
+    --rose:#c8705a; --green:#6f8a5b; --red:#b33a2b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--black)}
+  .page{width:1600px;position:relative;overflow:hidden;padding:40px 46px 46px;color:var(--black);
+    font:400 17.5px/1.32 "Josefin Sans",sans-serif;background:var(--ochre)}
+  #bg{position:absolute;inset:0;z-index:0}
+  .layer{position:relative;z-index:2}
+
+  /* newsprint and typewriter, as cut and pasted */
+  .paper{background:
+      repeating-linear-gradient(0deg, transparent 0 5px, rgba(60,45,25,.06) 5px 6px),
+      radial-gradient(ellipse at 30% 20%, #f6eed8, var(--cream) 70%);
+    border:3.5px solid var(--black)}
+  .type{font-family:"Special Elite",monospace}
+
+  /* ---------- header: a collage of scraps ---------- */
+  header{position:relative;height:250px;margin-bottom:26px}
+  .scrap{position:absolute;padding:8px 22px;border:3.5px solid var(--black);font-family:"Abril Fatface",serif;line-height:1}
+  .s1{left:40px;top:18px;font-size:108px;background:var(--cream);transform:rotate(-3deg)}
+  .s2{left:572px;top:150px;font-size:62px;background:var(--blue);color:var(--cream);transform:rotate(4deg);padding:10px 26px}
+  .s3{left:705px;top:112px;font-size:112px;background:var(--rose);transform:rotate(-1.5deg)}
+  .s4{left:52px;top:160px;width:500px;font:400 19px/1.35 "Special Elite",monospace;background:var(--paper);transform:rotate(1deg);padding:12px 16px}
+  .guitar{position:absolute;right:30px;top:-10px;width:520px;height:270px}
+
+  /* ---------- a section: a tilted plane over a coloured one ---------- */
+  .plane{position:relative;margin:0 6px 34px;padding:24px 26px 26px}
+  .plane::before{content:"";position:absolute;inset:0;z-index:-1;border:3.5px solid var(--black);background:var(--under);transform:rotate(var(--tilt)) translate(10px,10px)}
+  .plane > .paper.back{position:absolute;inset:0;z-index:-1}
+  .head{display:flex;align-items:flex-end;gap:20px;margin-bottom:16px}
+  .head h2{margin:0;font:400 50px/0.95 "Abril Fatface",serif;letter-spacing:.01em}
+  .head h2 span{display:inline-block;background:var(--hl);color:var(--cream);padding:4px 14px 6px;border:3px solid var(--black);transform:rotate(-1.5deg)}
+  .head .sub{font-style:italic;font-size:19px;padding-bottom:6px}
+  .head .where{margin-left:auto;text-align:right;font-size:16px;padding-bottom:4px}
+  .head .where b{display:inline-block;font:400 17px "Special Elite",monospace;background:var(--black);color:var(--cream);padding:3px 9px;margin-bottom:4px;transform:rotate(1deg)}
+
+  /* ---------- I: the guardians, each a cubist face ---------- */
+  .guards{display:grid;grid-template-columns:repeat(5,1fr);gap:20px}
+  .guard{position:relative;background:var(--cream);border:3.5px solid var(--black);padding:0 0 16px;transform:rotate(var(--r))}
+  .guard .face{display:block;width:100%;height:180px;border-bottom:3.5px solid var(--black)}
+  .guard .ev{margin:12px 14px 0;font:700 15px/1.3 "Josefin Sans";letter-spacing:.06em}
+  .guard .ev i{display:block;font:italic 400 16px "Josefin Sans";letter-spacing:0;text-transform:none;color:#4a3a28}
+  .guard .label{margin:10px 10px 10px;padding:6px 10px;font:400 17px "Special Elite",monospace;background:var(--black);color:var(--cream);transform:rotate(-1deg)}
+  .guard h3{margin:0 14px 6px;font:400 25px/1.05 "Abril Fatface",serif;color:var(--hl)}
+  .guard p{margin:0 14px;font-size:17px;line-height:1.3}
+  .notes{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:22px}
+  .note{padding:10px 14px;font-size:17px;background:var(--paper);border:3px solid var(--black)}
+  .note:first-child{transform:rotate(-.6deg)}.note:last-child{transform:rotate(.7deg)}
+  .note b{font:400 15px "Special Elite",monospace;background:var(--red);color:var(--cream);padding:1px 7px;margin-right:6px}
+
+  /* ---------- II: the desktop view ---------- */
+  .tiles{display:grid;grid-template-columns:repeat(5,1fr);gap:18px}
+  .tile{border:3.5px solid var(--black);transform:rotate(var(--r));background:var(--cream)}
+  .tile h3{margin:0;padding:9px 12px 8px;font:400 23px/1 "Abril Fatface",serif;color:var(--cream);background:var(--tc);border-bottom:3.5px solid var(--black)}
+  .tile .body{padding:10px 12px 6px}
+  .entry{margin-bottom:11px}
+  .entry .k{display:inline-block;font:400 15px/1.25 "Special Elite",monospace;background:#e1d2ad;border:1.5px solid var(--black);padding:2px 6px}
+  .entry .d{display:block;font-size:16.5px;line-height:1.27;margin-top:4px}
+
+  /* ---------- III: repowatch on a strip of wood grain ---------- */
+  .wood{display:flex;align-items:center;gap:22px;padding:16px 24px;border:3.5px solid var(--black);transform:rotate(-.6deg);
+    background:
+      repeating-radial-gradient(ellipse at -10% 50%, rgba(60,35,15,.0) 0 9px, rgba(60,35,15,.28) 10px 11px, rgba(60,35,15,0) 12px 19px),
+      linear-gradient(90deg,#a8733f,#b9824a 40%,#9c6836)}
+  .wood h2{margin:0;font:400 46px/1 "Abril Fatface",serif;color:var(--cream);text-shadow:3px 3px 0 var(--black)}
+  .wood .say{flex:1;background:var(--cream);border:3px solid var(--black);padding:8px 12px;font-size:17.5px;transform:rotate(.8deg)}
+  .wood .k{font:400 16px "Special Elite",monospace;background:var(--black);color:var(--cream);padding:5px 10px;white-space:nowrap}
+  .wood .k:nth-child(odd){transform:rotate(2deg)}.wood .k:nth-child(even){transform:rotate(-2deg)}
+
+  .mark{position:absolute;right:58px;bottom:12px;z-index:3;font:400 30px "Caveat Brush",cursive;color:var(--black);transform:rotate(-4deg)}
+</style></head><body>
+<div class="page">
+<svg id="bg"></svg>
+<div class="layer">
+
+  <header>
+    <div class="scrap s1">THE HOOKS</div>
+    <div class="scrap s2">of</div>
+    <div class="scrap s3">sdd</div>
+    <div class="scrap s4">The Guardians keep the rules of the flow. The view shows the work in Claude Desktop. The Watcher keeps an eye on the repositories.</div>
+    <svg class="guitar" viewBox="0 0 520 270">
+      <defs>
+        <pattern id="gdots" width="12" height="12" patternUnits="userSpaceOnUse"><rect width="12" height="12" fill="#efe4c8"/><circle cx="6" cy="6" r="2.4" fill="#1c1a17"/></pattern>
+        <pattern id="gstripe" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(35)"><rect width="14" height="14" fill="#2f5d8c"/><rect width="6" height="14" fill="#1c1a17"/></pattern>
+      </defs>
+      <g stroke="#1c1a17" stroke-width="4" stroke-linejoin="round">
+        <polygon points="250,20 470,40 500,180 300,250 210,170" fill="#6b4a2b"/>
+        <!-- the body, split down a plane -->
+        <path d="M300,70 C360,40 430,70 420,120 C470,140 470,230 380,240 C330,248 300,200 300,200 Z" fill="#c8705a"/>
+        <path d="M300,70 C250,60 210,95 230,130 C180,150 200,240 300,200 Z" fill="url(#gdots)"/>
+        <circle cx="318" cy="150" r="30" fill="#1c1a17"/>
+        <!-- the neck, broken and shifted -->
+        <polygon points="40,128 220,138 220,160 40,152" fill="#c8963e"/>
+        <polygon points="20,110 70,104 74,170 24,176" fill="url(#gstripe)"/>
+        <g stroke-width="1.6"><line x1="70" y1="134" x2="300" y2="142"/><line x1="70" y1="141" x2="300" y2="150"/><line x1="70" y1="148" x2="300" y2="158"/><line x1="70" y1="155" x2="300" y2="166"/></g>
+        <polygon points="400,60 470,40 480,110" fill="#efe4c8"/>
+      </g>
+    </svg>
+  </header>
+
+  <!-- I -->
+  <section class="plane" style="--under:var(--red);--tilt:-1deg;--hl:var(--red)">
+    <div class="paper back"></div>
+    <div class="head">
+      <h2><span>I · The Guardians</span></h2>
+      <div class="sub">The Python command hooks. They stop a broken rule before it happens.</div>
+      <div class="where"><b>hooks/hooks.json</b><br>exit 2 blocks, and stderr tells the agent why</div>
+    </div>
+    <div class="guards">
+      <div class="guard" style="--r:-1.2deg;--hl:var(--red)"><svg class="face" data-face="0"></svg>
+        <div class="ev">PreToolUse<i>before AskUserQuestion</i></div>
+        <div class="label">question_guard.py pre</div>
+        <h3>Every question bears its Links</h3>
+        <p>A question is blocked unless the <b>env.py refs</b> Links block sits right above it.</p></div>
+      <div class="guard" style="--r:.9deg;--hl:var(--blue)"><svg class="face" data-face="1"></svg>
+        <div class="ev">Stop<i>at the end of every turn</i></div>
+        <div class="label">question_guard.py stop</div>
+        <h3>Ask with the tool, not in prose</h3>
+        <p>A turn that ends on a plain-text question is sent back to the agent.</p></div>
+      <div class="guard" style="--r:-.6deg;--hl:var(--umber)"><svg class="face" data-face="2"></svg>
+        <div class="ev">PreToolUse<i>before Bash or PowerShell</i></div>
+        <div class="label">agent_guard.py pre</div>
+        <h3>The sub-agents only read</h3>
+        <p><b>investigator</b> and <b>skeptic</b> may run only allowlisted git reads, and never env.py or spec.py. An unknown git command counts as a write.</p></div>
+      <div class="guard" style="--r:1.3deg;--hl:var(--red)"><svg class="face" data-face="3"></svg>
+        <div class="ev">PreToolUse<i>before Edit, Write, MultiEdit, NotebookEdit</i></div>
+        <div class="label">edit_guard.py pre</div>
+        <h3>Work in the worktree</h3>
+        <p>Edits to a repo in the main checkout are blocked, and the message points to the same file in the item's worktree.</p></div>
+      <div class="guard" style="--r:-1deg;--hl:var(--green)"><svg class="face" data-face="4"></svg>
+        <div class="ev">SessionStart<i>as each session begins</i></div>
+        <div class="label">env.py upgrade-config</div>
+        <h3>The Herald</h3>
+        <p>Not a guard. It adds any new keys to <b>.claude/sdd.json</b>.</p></div>
+    </div>
+    <div class="notes">
+      <div class="note"><b>WHEN</b>question_guard and edit_guard act only during an sdd flow: this turn ran env.py or spec.py, or an item's progress was written this session.</div>
+      <div class="note"><b>WHOM</b>agent_guard acts only inside the plugin's own sub-agents. The main chat passes through.</div>
+    </div>
+  </section>
+
+  <!-- II -->
+  <section class="plane" style="--under:var(--blue);--tilt:.8deg;--hl:var(--blue)">
+    <div class="paper back"></div>
+    <div class="head">
+      <h2><span>II · The View</span></h2>
+      <div class="sub">The Desktop mod. It observes and draws, and its one write is each turn's cost.</div>
+      <div class="where"><b>hooks/register.tsx</b><br>Claude Desktop only, other surfaces pass through</div>
+    </div>
+    <div class="tiles">
+      <div class="tile" style="--r:.7deg;--tc:var(--umber)"><h3>Setting up</h3><div class="body">
+        <div class="entry"><span class="k">session.start</span><span class="d">Runs setupDesktop: commands, first read, cost baseline, timers.</span></div>
+        <div class="entry"><span class="k">session.attach</span><span class="d">Does the same when Desktop attaches later.</span></div></div></div>
+      <div class="tile" style="--r:-.8deg;--tc:var(--red)"><h3>Commands</h3><div class="body">
+        <div class="entry"><span class="k">command.run · sdd</span><span class="d">Sets this chat's item and opens the pane the first time.</span></div>
+        <div class="entry"><span class="k">sdd-view · sdd-worktrees · sdd-bugs</span><span class="d">Open the view, the Worktrees page and the bug manager.</span></div>
+        <div class="entry"><span class="k">prompt.autocomplete</span><span class="d">Suggests open items after /sdd.</span></div></div></div>
+      <div class="tile" style="--r:.5deg;--tc:var(--blue)"><h3>Tool calls</h3><div class="body">
+        <div class="entry"><span class="k">tool.call · Bash | PowerShell</span><span class="d">After each sdd script run, follows the item it names and refreshes.</span></div>
+        <div class="entry"><span class="k">tool.call · AskUserQuestion</span><span class="d">Shows the question in the stage's feedback box, where it can also be answered.</span></div></div></div>
+      <div class="tile" style="--r:-.6deg;--tc:var(--green)"><h3>Cost &amp; status</h3><div class="body">
+        <div class="entry"><span class="k">turn.start · turn.complete</span><span class="d">Charges each turn's tokens and dollars to its stage, and notifies once when the item waits on you.</span></div>
+        <div class="entry"><span class="k">session.measure · session.end</span><span class="d">Tracks context fill and cost, and resets on /clear or /resume.</span></div></div></div>
+      <div class="tile" style="--r:.9deg;--tc:var(--black)"><h3>Drawing</h3><div class="body">
+        <div class="entry"><span class="k">ui.render · Spinner</span><span class="d">Adds the item, stage and goal after the spinner word.</span></div>
+        <div class="entry"><span class="k">ui.render · AbovePrompt</span><span class="d">Draws the status band above the prompt.</span></div>
+        <div class="entry"><span class="k">ui.render · Pane</span><span class="d">Draws the sdd view, Worktrees and Bugs panes.</span></div>
+        <div class="entry"><span class="k">ui.close</span><span class="d">Notes which pane closed.</span></div></div></div>
+    </div>
+  </section>
+
+  <!-- III -->
+  <div class="wood">
+    <h2>III · The Watcher</h2>
+    <div class="say"><b>repowatch</b>, the plugin sdd depends on. It's a mod with no command hooks. It keeps a pane and a status line for many repos and worktrees, read from <span class="type">.claude/repowatch/state.json</span>.</div>
+    <span class="k">session.start</span><span class="k">command.run · repowatch</span><span class="k">ui.render · Pane</span>
+  </div>
+</div>
+<div class="mark">sdd · 2026</div>
+</div>
+
+<script>
+  let seed = 23;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const pick = a => a[Math.floor(rnd() * a.length)];
+  const C = { black:'#1c1a17', cream:'#efe4c8', ochre:'#c8963e', umber:'#6b4a2b', blue:'#2f5d8c', sky:'#8fa9bf', rose:'#c8705a', green:'#6f8a5b', red:'#b33a2b' };
+  const DEFS = `<defs>
+    <pattern id="dots" width="16" height="16" patternUnits="userSpaceOnUse"><rect width="16" height="16" fill="${C.cream}"/><circle cx="8" cy="8" r="3" fill="${C.black}"/></pattern>
+    <pattern id="stripe" width="18" height="18" patternUnits="userSpaceOnUse" patternTransform="rotate(30)"><rect width="18" height="18" fill="${C.sky}"/><rect width="7" height="18" fill="${C.blue}"/></pattern>
+    <pattern id="check" width="24" height="24" patternUnits="userSpaceOnUse" patternTransform="rotate(-12)"><rect width="24" height="24" fill="${C.ochre}"/><rect width="12" height="12" fill="${C.umber}"/><rect x="12" y="12" width="12" height="12" fill="${C.umber}"/></pattern>
+    <pattern id="grain" width="40" height="10" patternUnits="userSpaceOnUse"><rect width="40" height="10" fill="#b9824a"/><path d="M0 5 Q10 2 20 5 T40 5" stroke="#7a4f27" stroke-width="1.5" fill="none"/></pattern>
+  </defs>`;
+
+  // the background: the page broken into flat, outlined planes
+  const page = document.querySelector('.page'), bg = document.getElementById('bg');
+  const W = page.offsetWidth, H = page.offsetHeight;
+  bg.setAttribute('viewBox', `0 0 ${W} ${H}`); bg.setAttribute('width', W); bg.setAttribute('height', H);
+  const cols = 7, rows = Math.ceil(H / 260), pts = [];
+  for (let j = 0; j <= rows; j++) { pts.push([]); for (let i = 0; i <= cols; i++) {
+    const edge = i === 0 || j === 0 || i === cols || j === rows;
+    pts[j].push([i * W / cols + (edge && (i === 0 || i === cols) ? 0 : (rnd() - .5) * 150),
+                 j * H / rows + (edge && (j === 0 || j === rows) ? 0 : (rnd() - .5) * 140)]); } }
+  const fills = [C.ochre, C.ochre, C.umber, C.sky, C.rose, C.cream, C.blue, C.green, 'url(#dots)', 'url(#stripe)', 'url(#check)', 'url(#grain)'];
+  let s = DEFS;
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+    const [a, b, c, d] = [pts[j][i], pts[j][i + 1], pts[j + 1][i + 1], pts[j + 1][i]];
+    const tri = rnd() < .5 ? [[a, b, c], [a, c, d]] : [[a, b, d], [b, c, d]];
+    tri.forEach(t => s += `<polygon points="${t.map(p => p.join(',')).join(' ')}" fill="${pick(fills)}" stroke="${C.black}" stroke-width="5" stroke-linejoin="round"/>`);
+  }
+  bg.innerHTML = s;
+
+  // the guardians' faces: a front and a profile in one head, after the cubist portraits
+  const FACES = [
+    { l: C.rose,  r: C.ochre, hair: C.black, bg: 'url(#stripe)', eye: C.blue },
+    { l: C.sky,   r: C.cream, hair: C.umber, bg: 'url(#check)',  eye: C.black },
+    { l: C.ochre, r: C.green, hair: C.black, bg: 'url(#dots)',   eye: C.red, wide: true },
+    { l: C.cream, r: C.rose,  hair: C.blue,  bg: 'url(#grain)',  eye: C.black },
+    { l: C.green, r: C.sky,   hair: C.umber, bg: 'url(#check)',  eye: C.red },
+  ];
+  document.querySelectorAll('svg.face').forEach(el => {
+    const f = FACES[+el.dataset.face], flip = +el.dataset.face % 2 === 1;
+    el.setAttribute('viewBox', '0 0 280 180'); el.setAttribute('preserveAspectRatio', 'xMidYMid slice');
+    const st = `stroke="${C.black}" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"`;
+    el.innerHTML = DEFS + `<rect width="280" height="180" fill="${f.bg}"/>
+      <polygon points="0,180 0,120 90,95 70,180" fill="${C.black}" opacity=".85"/>
+      <g transform="${flip ? 'translate(280,0) scale(-1,1)' : ''}">
+        <!-- neck and shoulders -->
+        <polygon points="110,150 160,150 170,180 100,180" fill="${f.r}" ${st}/>
+        <!-- the frontal half and the profile half -->
+        <path d="M140,22 C100,22 82,56 86,92 C90,128 112,152 140,154 Z" fill="${f.l}" ${st}/>
+        <path d="M140,22 C176,22 194,52 192,78 L214,104 L190,112 C186,136 168,152 140,154 Z" fill="${f.r}" ${st}/>
+        <!-- hair, in blocks -->
+        <path d="M84,74 C78,30 112,10 146,12 C182,12 200,36 196,64 C180,40 160,34 140,36 C118,36 100,46 84,74 Z" fill="${f.hair}" ${st}/>
+        <!-- the front eye, an almond; the profile eye, a triangle set higher -->
+        <path d="M100,86 Q114,72 128,86 Q114,98 100,86 Z" fill="${C.cream}" ${st}/>
+        <circle cx="114" cy="86" r="${f.wide ? 6 : 4.5}" fill="${f.eye}"/>
+        <polygon points="160,74 182,80 162,88" fill="${C.cream}" ${st}/>
+        <circle cx="167" cy="81" r="3" fill="${f.eye}"/>
+        <!-- nose along the seam, mouth across it -->
+        <path d="M140,80 L126,118 L142,118" fill="none" ${st}/>
+        <path d="M120,134 Q136,128 158,134" fill="none" ${st}/>
+        <path d="M128,140 L150,138" fill="none" stroke="${C.red}" stroke-width="4" stroke-linecap="round"/>
+        <circle cx="104" cy="112" r="8" fill="${C.red}" opacity=".55"/>
+      </g>`;
+  });
+</script>
+</body></html>

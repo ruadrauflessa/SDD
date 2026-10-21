@@ -1,0 +1,113 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  :root{--ink:#1d2330;--mute:#5d6678;--line:#d9dee8;--bg:#f6f7fa;--card:#fff;
+        --red:#c2412d;--redbg:#fbece8;--blue:#2d5fc2;--bluebg:#e9effb;--green:#2f8a57;--greenbg:#e7f4ec;--amber:#a86a12;--amberbg:#fbf1e1}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);font:15px/1.4 "Segoe UI",Inter,system-ui,sans-serif;color:var(--ink)}
+  .page{width:1600px;padding:36px 40px 30px}
+  h1{margin:0 0 4px;font-size:30px;letter-spacing:-.01em}
+  .sub{color:var(--mute);margin:0 0 24px;font-size:16px}
+  .band{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 22px 20px;margin-bottom:18px;border-left:6px solid var(--c)}
+  .band h2{margin:0;font-size:19px;display:flex;align-items:baseline;gap:12px}
+  .band h2 code{font-size:14px;color:var(--mute);font-weight:500}
+  .band .why{color:var(--mute);margin:3px 0 14px;font-size:14px}
+  .tag{display:inline-block;font:600 12px/1 ui-monospace,Consolas,monospace;padding:5px 8px;border-radius:6px;background:var(--cb);color:var(--c);white-space:nowrap}
+  code{font-family:ui-monospace,Consolas,monospace;font-size:13px}
+  /* guards */
+  .rows .tag{white-space:normal;line-height:1.35}
+  .rows{display:grid;grid-template-columns:340px 30px 230px 30px 1fr;row-gap:10px;align-items:center}
+  .hd{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:600}
+  .arrow{color:#9aa3b5;text-align:center;font-size:18px}
+  .script{font:600 14px ui-monospace,Consolas,monospace}
+  .rule{background:var(--bg);border-radius:8px;padding:8px 12px;font-size:14px}
+  .rule b{color:var(--c)}
+  .foot{margin-top:14px;display:flex;gap:14px;flex-wrap:wrap}
+  .note{font-size:13px;color:var(--mute);background:var(--bg);border:1px dashed var(--line);border-radius:8px;padding:7px 11px}
+  /* mod */
+  .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+  .box{border:1px solid var(--line);border-radius:10px;padding:12px 13px;background:#fcfdff}
+  .box h3{margin:0 0 8px;font-size:14px;color:var(--c)}
+  .box ul{margin:0;padding:0;list-style:none}
+  .box li{font-size:13.5px;margin-bottom:7px}
+  .box li .tag{margin-bottom:3px}
+  .box li span.d{display:block;color:var(--mute);font-size:13px}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .legend{display:flex;gap:22px;color:var(--mute);font-size:13px;margin-top:6px}
+</style></head><body><div class="page">
+<h1>sdd plugin hooks</h1>
+<p class="sub">The guards enforce the flow's rules. The mod draws the Claude Desktop view. Both are registered in <code>hooks/hooks.json</code>.</p>
+
+<!-- GUARDS -->
+<div class="band" style="--c:var(--red);--cb:var(--redbg)">
+  <h2>Guards (rule enforcement) <code>Python command hooks · exit 2 = block, stderr goes to the agent</code></h2>
+  <p class="why">These stop the agent from breaking an sdd rule before it happens.</p>
+  <div class="rows">
+    <div class="hd">Claude Code event</div><div></div><div class="hd">Script</div><div></div><div class="hd">Rule it enforces</div>
+
+    <div><span class="tag">PreToolUse · AskUserQuestion</span></div><div class="arrow">→</div>
+    <div class="script">question_guard.py pre</div><div class="arrow">→</div>
+    <div class="rule"><b>Every question needs its Links block.</b> A question is blocked unless the <code>env.py refs</code> Links block sits right above it.</div>
+
+    <div><span class="tag">Stop</span></div><div class="arrow">→</div>
+    <div class="script">question_guard.py stop</div><div class="arrow">→</div>
+    <div class="rule"><b>Ask with the tool, not in prose.</b> A turn that ends on a plain-text question is sent back to the agent.</div>
+
+    <div><span class="tag">PreToolUse · Bash | PowerShell</span></div><div class="arrow">→</div>
+    <div class="script">agent_guard.py pre</div><div class="arrow">→</div>
+    <div class="rule"><b>Sub-agents stay read-only.</b> <code>investigator</code> and <code>skeptic</code> may only run allowlisted git reads and may never run <code>env.py</code> or <code>spec.py</code>. Unknown git = write.</div>
+
+    <div><span class="tag">PreToolUse · Edit | Write | MultiEdit | NotebookEdit</span></div><div class="arrow">→</div>
+    <div class="script">edit_guard.py pre</div><div class="arrow">→</div>
+    <div class="rule"><b>Edit in the worktree, never the main checkout.</b> A repo file edit is blocked, and the message points to the same file under the work item's worktree.</div>
+
+    <div><span class="tag" style="--c:var(--green);--cb:var(--greenbg)">SessionStart</span></div><div class="arrow">→</div>
+    <div class="script">env.py upgrade-config</div><div class="arrow">→</div>
+    <div class="rule" style="--c:var(--green)"><b>Housekeeping, not a guard.</b> Adds new keys to <code>.claude/sdd.json</code>.</div>
+  </div>
+  <div class="foot">
+    <div class="note">question_guard and edit_guard act <b>only during an sdd flow</b>: this turn ran env.py/spec.py, or an item's progress was written this session.</div>
+    <div class="note">agent_guard acts <b>only inside the plugin's sub-agents</b>, and the main chat passes through.</div>
+  </div>
+</div>
+
+<!-- MOD -->
+<div class="band" style="--c:var(--blue);--cb:var(--bluebg)">
+  <h2>Desktop view (mod) <code>hooks/register.tsx · Claude Desktop only, other surfaces pass through</code></h2>
+  <p class="why">This code observes and draws. Its one write is each turn's cost (<code>env.py cost</code>). It never passes a gate.</p>
+  <div class="grid">
+    <div class="box"><h3>Setup</h3><ul>
+      <li><span class="tag">session.start</span><span class="d">Runs setupDesktop: commands, first read, cost baseline, timers.</span></li>
+      <li><span class="tag">session.attach</span><span class="d">Does the same when Desktop attaches later.</span></li>
+    </ul></div>
+    <div class="box"><h3>Commands</h3><ul>
+      <li><span class="tag">command.run · sdd</span><span class="d">Sets this chat's item and opens the pane the first time.</span></li>
+      <li><span class="tag">sdd-view · sdd-worktrees · sdd-bugs</span><span class="d">Open the view, the Worktrees page and the bug manager.</span></li>
+      <li><span class="tag">prompt.autocomplete</span><span class="d">Suggests open items after <code>/sdd </code>.</span></li>
+    </ul></div>
+    <div class="box"><h3>Tool calls</h3><ul>
+      <li><span class="tag">tool.call · Bash | PowerShell</span><span class="d">After each sdd script run, follows the item it names and refreshes.</span></li>
+      <li><span class="tag">tool.call · AskUserQuestion</span><span class="d">Shows the question in the stage's feedback box, where it can also be answered.</span></li>
+    </ul></div>
+    <div class="box"><h3>Cost &amp; status</h3><ul>
+      <li><span class="tag">turn.start · turn.complete</span><span class="d">Charges each turn's tokens and dollars to its stage, and notifies once when the item waits on you.</span></li>
+      <li><span class="tag">session.measure · session.end</span><span class="d">Tracks context fill and cost deltas, and resets on /clear or /resume.</span></li>
+    </ul></div>
+    <div class="box"><h3>Drawing</h3><ul>
+      <li><span class="tag">ui.render · Spinner</span><span class="d">Adds the item, stage and goal after the spinner word.</span></li>
+      <li><span class="tag">ui.render · AbovePrompt</span><span class="d">Draws the status band above the prompt.</span></li>
+      <li><span class="tag">ui.render · Pane</span><span class="d">Draws the sdd view, Worktrees and Bugs panes.</span></li>
+      <li><span class="tag">ui.close</span><span class="d">Notes which pane closed.</span></li>
+    </ul></div>
+  </div>
+</div>
+
+<!-- REPOWATCH -->
+<div class="band" style="--c:var(--amber);--cb:var(--amberbg);margin-bottom:8px">
+  <h2>repowatch (dependency plugin) <code>repowatch/hooks/register.tsx · mod only, no command hooks</code></h2>
+  <p class="why" style="margin-bottom:8px">Shows a pane and a status line for many git repos and worktrees, read from <code>.claude/repowatch/state.json</code>.</p>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <span class="tag">session.start</span><span class="tag">command.run · repowatch</span><span class="tag">ui.render · Pane</span>
+  </div>
+</div>
+</div></body></html>
