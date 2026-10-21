@@ -116,9 +116,80 @@ export type DvStatus = {
   notes: { files: Array<{ path: string; name: string; at: number }>; runs: DvNotesRun[] }
   plans: DvPlan[]
   guard: { recent: Array<{ at: number; rule: string; detail: string }> }
+  /** From the last reviews list: PRs waiting on the user. */
+  reviews: { generated: number; waiting: number; active: number } | null
 }
 
-export type DvView = 'overview' | 'release' | 'sync' | 'notes' | 'guard'
+/** One active PR in the workspace's projects, from `devops.py reviews list`. */
+export type DvReviewRow = {
+  org: string
+  project: string
+  id: number
+  repo: string
+  title: string
+  author: string
+  /** The user opened it. */
+  mine: boolean
+  source: string
+  target: string
+  created: string
+  draft: boolean
+  conflicts: boolean
+  /** 'required', 'optional', 'group <name>' (a group the user is in), or null: not a reviewer. */
+  role: string | null
+  myVote: number
+  /** A reviewer (directly or through a group), no vote yet, not theirs, not a draft. */
+  waiting: boolean
+  votes: Array<{ name: string; vote: number; required: boolean }>
+  url: string
+}
+
+export type DvReviewList = { generated: number; me: string; rows: DvReviewRow[] }
+
+export type DvFinding = { file: string; line: number; severity: 'high' | 'medium' | 'low'; comment: string; suggestion: string | null }
+
+/** One PR opened in the Reviews tab, from `devops.py reviews show`. */
+export type DvReviewDetail = DvReviewRow & {
+  description: string
+  iteration: number
+  files: Array<{ path: string; change: string }>
+  workItems: Array<{ id: number; type: string; title: string; state: string; criteria: string }>
+  threads: Array<{ id: number; status: string; file: string | null; line: number | null; author: string; text: string; replies: number }>
+  policies: Array<{ name: string; status: string; blocking: boolean }>
+  canVote: boolean
+  voteNote: string
+  me: string
+  key: string
+  /** The quick review saved for this iteration, if one ran. */
+  review: { findings: DvFinding[]; model?: string; at?: number } | null
+}
+
+/** What the quick review sends to the model, from `devops.py reviews pack`. */
+export type DvReviewPack = {
+  key: string
+  iteration: number
+  system: string
+  prompt: string
+  /** The right-side lines the diff shows, per file: a finding must name one. */
+  lines: Record<string, number[]>
+  truncated: boolean
+  model: string
+  maxTokens: number
+  maxFindings: number
+}
+
+/** A comment the person may post: from a finding, or their own. */
+export type DvDraft = {
+  n: number
+  file: string | null
+  line: number | null
+  severity: 'high' | 'medium' | 'low' | null
+  text: string
+  suggestion: string | null
+  keep: boolean
+}
+
+export type DvView = 'overview' | 'release' | 'sync' | 'notes' | 'reviews' | 'guard'
 
 declare module 'claude-code' {
   interface PluginState {
@@ -140,6 +211,16 @@ declare module 'claude-code' {
       version: string | null
       /** The plan whose Approve panel is open, or null. */
       confirm: string | null
+      /** The PRs of the Reviews tab, as the last list read them; null until read. */
+      reviews: DvReviewList | null
+      /** Show every active PR, not only those waiting on the user. */
+      reviewsAll: boolean
+      /** The PR opened in the Reviews tab, with its detail; null = none. */
+      review: DvReviewDetail | null
+      /** The comments the person is writing for the opened PR. */
+      drafts: DvDraft[]
+      /** What the Reviews tab asks to confirm: 'post', or a vote (approve, suggest, wait, reject, reset); null = nothing. */
+      reviewAsk: string | null
     }
   }
 }

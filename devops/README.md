@@ -41,7 +41,7 @@ Two hook sets, on in every session (turn off with `"guard": {"enabled": false}` 
 - **Branches**: no push to `main`, `master`, `develop`, `release/*` or `team/*` (named, or through the branch's
   upstream); no force push; no `--mirror`/`--prune`; no remote branch deleted but a `sync/*` one; no new
   branch from `origin/<protected>` without `--no-track`; no branch locked, unlocked or cut with a protected
-  name; no PR completed, auto-completed or voted on.
+  name; no PR completed, auto-completed or voted on by Claude.
 - **Your work**: no `reset --hard`, file checkout or restore, `clean -f`, `switch --discard-changes` while
   there is uncommitted work; no `stash drop|clear`; no `stash pop` in a repo the sync snapshot holds; no
   edit, stage, `--ours/--theirs` or abort of a sync merge you have not resolved.
@@ -52,15 +52,16 @@ Two hook sets, on in every session (turn off with `"guard": {"enabled": false}` 
   outbound text is checked for secrets, tokens, local paths, template placeholders, `#<id>` mentions (which
   post onto the work item), the 4000-character PR limit, and old `AB#<id>` on a sync PR. A wiki page must be
   the rendered one, unchanged.
+- **Your name on a PR**: review comments and votes go out only from your own press in the pane's Reviews tab,
+  after a confirm. Claude may read a PR (`reviews list|show|pack`) but the guard refuses `reviews post|vote|save`.
 - **Devops' own files**: plans, approvals and scans under `.claude/devops/` are written by the script only;
-  a published release-notes
-  file is not edited.
+  a published release-notes file is not edited.
 
 Each refusal is logged to `.claude/devops/guard.jsonl` and shown in the pane.
 
 ## The pane
 
-`/devops` (or `/devops release 1.1.0`, `sync`, `notes`, `guard`) opens it beside the chat, on the terminal and
+`/devops` (or `/devops release 1.1.0`, `sync`, `notes`, `reviews`, `guard`) opens it beside the chat, on the terminal and
 in the Desktop app. The status line says what needs you (`devops · 1 to approve · release 1.1.0: 2 ready`).
 
 - **Overview**: what needs you, most urgent first (a sync conflict to resolve, a plan to approve, a release
@@ -71,10 +72,21 @@ in the Desktop app. The status line says what needs you (`devops · 1 to approve
 - **Sync**: syncs waiting for you (with "I resolved it: ask Claude to verify"), the snapshot with
   **Restore…**, the chain's waves, each scan's repos, the sync plan, the team-sync work items, the reports.
 - **Notes**: each run (rendered, approved, published), **Review & approve…**, **Publish now**, the wiki link.
+- **Reviews**: the active PRs of the workspace's ADO projects, **Waiting on me** by default (you are a reviewer,
+  directly or through a group, with no vote yet, and it is not yours or a draft), **All active** on a press. Press a
+  PR for its policies, votes, linked work items, files and comment threads, then:
+  - **Quick review**: one model call (`reviews.model`, Sonnet by default) reads the diff, the description and the
+    work items' acceptance criteria, and drafts comments. Only a finding on a line the diff shows is kept; it is
+    saved for that push, so reopening the PR shows it again.
+  - The drafts are yours: rewrite, keep or drop each, add your own. **Post N comments…** shows them, then **Post**
+    sends them under your name, on the right file and line (a code suggestion as ADO's suggestion block). Posting is
+    refused if the PR got a new push since the review read it.
+  - **Approve**, **Approve with suggestions**, **Wait for author**, **Reject**, **Reset vote**, each with a confirm,
+    under your name. On your own PR, when its reviewer policy does not count the author's vote, only Reset shows.
 - **Guard**: what it protects and what it refused lately.
 
 It reads `devops.py status --json` (files only: no git, no ADO) when it opens, once a minute while open, and
-after each press. Approve runs nothing; a write runs only on its own press or by the agent.
+after each press. The Reviews tab reads ADO when it opens and on **Refresh list**. Approve runs nothing; a write runs only on its own press or by the agent.
 
 ## Config: `.claude/devops.json`
 
@@ -85,6 +97,7 @@ after each press. Approve runs nothing; a write runs only on its own press or by
   "notesDir": "documents/release-notes",
   "clusterGapHours": 2,
   "syncFeatureTitle": "Branch Synchronizations", "syncWorkItemType": "Tech Story",
+  "reviews": { "model": "sonnet", "maxTokens": 4000, "maxDiffChars": 60000, "maxFindings": 12 },
   "guard": {
     "enabled": true,
     "protectedBranches": ["main", "master", "develop", "release/*", "team/*"],

@@ -215,6 +215,11 @@ def check_self_approval(ws):
     expect(bash(ws, "echo {} >> .claude/devops/approvals.jsonl"), 2)
     expect(bash(ws, "cat .claude/devops/approvals.jsonl"), 0)
     expect(bash(ws, "python devops/scripts/devops.py status --json"), 0)
+    expect(bash(ws, "python devops/scripts/devops.py reviews post --project P --id 5"), 2, "under the user's own name")
+    expect(bash(ws, "python3 devops.py reviews vote --project P --id 5 --vote approve"), 2, "Reviews tab")
+    expect(bash(ws, "echo [] | python devops.py reviews save --key k"), 2)
+    expect(bash(ws, "python devops/scripts/devops.py reviews list --all"), 0)
+    expect(bash(ws, "python devops/scripts/devops.py reviews pack --project P --id 5"), 0)
 
 
 def check_edits(ws, repo):

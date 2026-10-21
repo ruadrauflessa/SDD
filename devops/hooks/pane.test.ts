@@ -36,15 +36,28 @@ function status(approved: boolean, done = false): DvStatus {
   }
 }
 
+const ROW = (id: number, extra: Record<string, unknown> = {}) => ({ org: 'O', project: 'P', id, repo: 'Gateway', title: `Fix ${id}`, author: 'Bo',
+  mine: false, source: 'dev/bo/fix', target: 'team/1.1.0', created: '2026-10-20T10:00:00Z', draft: false, conflicts: false, role: 'required',
+  myVote: 0, waiting: true, votes: [], url: `https://dev.azure.com/O/P/_git/Gateway/pullrequest/${id}`, ...extra })
+const REVIEWS = { generated: NOW - 60, me: 'Ann Lee', rows: [ROW(201), ROW(202, { mine: true, waiting: false, role: null, title: 'My own' }),
+  ROW(203, { waiting: false, role: null, title: 'Not mine to review' })] }
+const detail = (id: number) => ({ ...REVIEWS.rows.find(r => r.id === id), description: 'd', iteration: 2, files: [{ path: 'src/login.cs', change: 'edit' }],
+  workItems: [{ id: 12345, type: 'Bug', title: 'Login crash', state: 'Active', criteria: '' }],
+  threads: [{ id: 1, status: 'active', file: 'src/login.cs', line: 3, author: 'Cy', text: 'Why null?', replies: 0 }],
+  policies: [{ name: 'Minimum number of reviewers', status: 'running', blocking: true }],
+  canVote: id !== 202, voteNote: id === 202 ? "you opened this PR, and its reviewer policy does not count the author's vote" : '',
+  me: 'Ann Lee', key: `O-P-${id}-2`, review: null })
+
 const PROPS = { title: 'devops', isFocused: true, bodyColumns: 100, placement: 'dock', scroll: { offset: 0, bodyRows: 60 }, view: {} } as never
 
 // `claude plugin test .` at the repo root also finds this file and runs it with another plugin under test. These
 // tests mean something only when `devops` registered its command; everything a stand-in remembers lives on it.
-type Fake = string[][] & { registered: string[]; filled: string[]; approved: boolean; done: boolean }
+type Fake = string[][] & { registered: string[]; filled: string[]; approved: boolean; done: boolean; stdin: Record<string, string>; prompts: string[] }
 
 function fake(on: (event: string, hook: (...a: never[]) => unknown) => void): Fake {
-  const calls = Object.assign([] as string[][], { registered: [] as string[], filled: [] as string[], approved: false, done: false })
-  on('process.run', ((_$: unknown, e: { argv: string[] }) => {
+  const calls = Object.assign([] as string[][], { registered: [] as string[], filled: [] as string[], approved: false, done: false,
+    stdin: {} as Record<string, string>, prompts: [] as string[] })
+  on('process.run', ((_$: unknown, e: { argv: string[]; init?: { stdin?: string } }) => {
     const mine = String(e.argv[1]).endsWith('devops.py')
     const args = e.argv.slice(2)
     if (mine) calls.push(args)
@@ -53,6 +66,17 @@ function fake(on: (event: string, hook: (...a: never[]) => unknown) => void): Fa
     if (mine && args[0] === 'versions') out = JSON.stringify({ '1.0.0': ['a'], '1.1.0': ['a'], '1.10.0': ['a'] })
     if (mine && args[0] === 'approve') { calls.approved = true; out = 'Plan aaaaaaaaaa approved.' }
     if (mine && args[0] === 'release' && args[1] === 'open') { calls.done = true; out = 'OPENED PR 101 Gateway' }
+    if (mine && args[0] === 'reviews') {
+      if (e.init?.stdin != null) calls.stdin[args[1] ?? ''] = e.init.stdin
+      const id = Number(args[args.indexOf('--id') + 1])
+      if (args[1] === 'list') out = JSON.stringify(REVIEWS)
+      if (args[1] === 'show') out = JSON.stringify(detail(id))
+      if (args[1] === 'pack') out = JSON.stringify({ key: `O-P-${id}-2`, iteration: 2, system: 'SYS', prompt: `PROMPT ${id}`, lines: { 'src/login.cs': [1, 2, 3, 4] },
+        truncated: false, model: 'sonnet', maxTokens: 4000, maxFindings: 12 })
+      if (args[1] === 'save') out = 'Saved 1 findings.'
+      if (args[1] === 'post') out = 'Posted 2 comments on PR 201.'
+      if (args[1] === 'vote') out = `Voted on PR ${id}: approved.`
+    }
     return { value: { exitCode: 0, stdout: out, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   }) as never)
   on('session.cwd', (() => ({ value: '/ws' })) as never)
@@ -63,6 +87,12 @@ function fake(on: (event: string, hook: (...a: never[]) => unknown) => void): Fa
   on('ui.status', (() => ({ value: undefined })) as never)
   on('ui.toast', (() => ({ value: undefined })) as never)
   on('prompt.fill', ((_$: unknown, e: { text: string }) => { calls.filled.push(e.text); return { isFilled: true } }) as never)
+  on('model.complete', ((_$: unknown, e: { prompt: string }) => {
+    calls.prompts.push(e.prompt)
+    return { value: { isAnswered: true, usage: { input_tokens: 900, output_tokens: 200 }, text:
+      '[{"file":"src/login.cs","line":3,"severity":"high","comment":"Returns before the token is checked.","suggestion":"if (user is null) throw;"},' +
+      '{"file":"src/login.cs","line":99,"severity":"low","comment":"A line the diff does not have."}]' } }
+  }) as never)
   return calls
 }
 
@@ -78,7 +108,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     }
     await $.command.run({ command: 'devops', args })
     const ui = await $.ui.mount({ plugin: 'devops', surface, component: 'Pane', props: PROPS, requestId: 'devops', viewport: { columns: 100, rows: 60 } })
-    for (let i = 0; i < 100 && !(await texts(ui)).includes('Needs you') && !(await texts(ui)).includes('scanned'); i++) await new Promise(r => setTimeout(r, 10))
+    for (let i = 0; i < 100 && !/Needs you|scanned|As Ann Lee/.test(await texts(ui)); i++) await new Promise(r => setTimeout(r, 10))
     return ui
   }
 
@@ -89,7 +119,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(calls[0]).toEqual(['status', '--json'])
     const t = await texts(ui)
     expect(t).toContain('Needs you')
-    const needs = (await ui.findAll({ type: 'Button' })).map((b: any) => b.props.label).filter((l: string) => l && !['Overview', '[Overview]', 'Release', 'Sync', 'Notes', 'Guard', 'Refresh'].includes(l))
+    const needs = (await ui.findAll({ type: 'Button' })).map((b: any) => b.props.label).filter((l: string) => l && !['Overview', '[Overview]', 'Release', 'Sync', 'Notes', 'Reviews', 'Guard', 'Refresh'].includes(l))
     expect(needs[0]).toContain('Resolve the conflicts in UserStore')
     expect(needs.some((l: string) => l.includes('Approve or turn down: Open 1 release PR'))).toBe(true)
     expect(needs.some((l: string) => l.includes('Create release/1.1.0 in Docs'))).toBe(true)
@@ -157,5 +187,79 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(t).toContain('Guard on')
     expect(t).toContain('main, release/*, team/*')
     expect(t).toContain('protected-branch')
+  })
+}
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  const mountReviews = async ($: any, calls: Fake) => {
+    await $.session.start({ cwd: '/ws', surface, isInteractive: true })
+    if (!calls.registered.includes('devops')) {
+      await new Promise(r => setTimeout(r, 100))
+      return null
+    }
+    await $.command.run({ command: 'devops', args: 'reviews' })
+    const ui = await $.ui.mount({ plugin: 'devops', surface, component: 'Pane', props: PROPS, requestId: 'devops', viewport: { columns: 100, rows: 60 } })
+    for (let i = 0; i < 100 && !(await texts(ui)).includes('As Ann Lee'); i++) await new Promise(r => setTimeout(r, 10))
+    return ui
+  }
+
+  test(`${surface}: the Reviews tab lists the PRs waiting on the person, and every active one on request`, async ($: any, on: any) => {
+    const calls = fake(on)
+    const ui = await mountReviews($, calls)
+    if (!ui) return
+    expect(calls).toContainEqual(['reviews', 'list', '--all', '--json'])
+    expect(await ui.find({ key: 'pr-P/201' })).toBeTruthy()
+    expect(await ui.find({ key: 'pr-P/202' })).toBe(undefined)
+    expect((await ui.find({ key: 'rv-waiting' }))?.props.label).toBe('[Waiting on me (1)]')
+    await ui.press({ key: 'rv-all' })
+    expect(await ui.find({ key: 'pr-P/202' })).toBeTruthy()
+    expect(await ui.find({ key: 'pr-P/203' })).toBeTruthy()
+  })
+
+  test(`${surface}: a quick review makes drafts only on lines the diff shows; nothing posts before Post`, async ($: any, on: any) => {
+    const calls = fake(on)
+    const ui = await mountReviews($, calls)
+    if (!ui) return
+    await ui.press({ key: 'pr-P/201' })
+    expect(calls).toContainEqual(['reviews', 'show', '--project', 'P', '--id', '201', '--json'])
+    expect(await texts(ui)).toContain('ADO 12345 Bug [Active] Login crash')
+    await ui.press({ key: 'quick-review' })
+    expect(calls).toContainEqual(['reviews', 'pack', '--project', 'P', '--id', '201'])
+    expect(calls.prompts).toEqual(['PROMPT 201'])
+    const t = await texts(ui)
+    expect(t).toContain('Returns before the token is checked.')
+    expect(t).not.toContain('A line the diff does not have.')
+    expect(JSON.parse(calls.stdin.save ?? '{}').findings.length).toBe(1)
+    expect(calls.some(c => c[1] === 'post')).toBe(false)
+    await ui.press({ key: 'post' })
+    expect(await texts(ui)).toContain('Post 1 comment on PR 201 as Ann Lee?')
+    expect(calls.some(c => c[1] === 'post')).toBe(false)
+    await ui.press({ key: 'post-no' })
+    if (surface !== 'terminal' || (await ui.find({ key: 'add-comment' }))) {
+      await ui.input({ key: 'add-comment', text: 'Looks right otherwise.' })
+    }
+    await ui.press({ key: 'post' })
+    await ui.press({ key: 'post-yes' })
+    const sent = JSON.parse(calls.stdin.post ?? '{}')
+    expect(sent.iteration).toBe(2)
+    expect(sent.drafts[0]).toEqual({ file: 'src/login.cs', line: 3, text: 'Returns before the token is checked.', suggestion: 'if (user is null) throw;' })
+    expect(sent.drafts.length).toBe((await ui.find({ key: 'add-comment' })) ? 2 : 1)
+  })
+
+  test(`${surface}: a vote runs only after its confirm, and the person's own PR offers only Reset`, async ($: any, on: any) => {
+    const calls = fake(on)
+    const ui = await mountReviews($, calls)
+    if (!ui) return
+    await ui.press({ key: 'pr-P/201' })
+    await ui.press({ key: 'vote-approve' })
+    expect(await texts(ui)).toContain('Approve PR 201 as Ann Lee?')
+    expect(calls.some(c => c[1] === 'vote')).toBe(false)
+    await ui.press({ key: 'vote-yes' })
+    expect(calls).toContainEqual(['reviews', 'vote', '--project', 'P', '--id', '201', '--vote', 'approve'])
+    await ui.press({ key: 'rv-all' })
+    await ui.press({ key: 'pr-P/202' })
+    expect(await texts(ui)).toContain('does not count the author')
+    expect(await ui.find({ key: 'vote-approve' })).toBe(undefined)
+    expect(await ui.find({ key: 'vote-reset' })).toBeTruthy()
   })
 }

@@ -22,6 +22,7 @@ import devops  # noqa: E402
 import devopslib as L  # noqa: E402
 import notes as N  # noqa: E402
 import prs as P  # noqa: E402
+import reviews as R  # noqa: E402
 
 HAVE_PWSH = bool(shutil.which("pwsh") or shutil.which("pwsh.exe"))
 
@@ -457,12 +458,125 @@ def check_notes_flow(t):
     assert code == 2 and "Create project wiki" in text
 
 
+def check_reviews(t):
+    ws, origins = make_ws(t)
+    gw = make_repo(ws, origins, "Gateway")
+    branch(gw, "team/1.1.0")
+    base = sh(["git", "rev-parse", "HEAD"], gw)
+    sh(["git", "switch", "-q", "-c", "dev/bo/fix"], gw)
+    commit(gw, "src/login.cs", "line1\nline2\nif (user == null) return;\nline4\n", "Fix login")
+    src = sh(["git", "rev-parse", "HEAD"], gw)
+    sh(["git", "push", "-q", "origin", "HEAD:dev/bo/fix"], gw)
+    sh(["git", "switch", "-q", "main"], gw)
+    repo = {"id": "r-Gateway", "name": "Gateway", "project": {"id": "p-1", "name": "Proj"}}
+    web = {"id": "r-Web", "name": "Web", "project": {"id": "p-1", "name": "Proj"}}
+    me = {"id": "me-1", "descriptor": "d-me", "providerDisplayName": "Ann Lee"}
+    bo = {"id": "bo-1", "displayName": "Bo"}
+
+    def pr(i, **kw):
+        base_pr = {"pullRequestId": i, "repository": repo, "sourceRefName": "refs/heads/dev/bo/fix", "targetRefName": "refs/heads/team/1.1.0",
+                   "title": f"PR {i}", "status": "active", "creationDate": f"2026-10-2{i % 10}T10:00:00Z", "createdBy": bo, "reviewers": [],
+                   "workItems": [], "iterations": [{"id": 2, "sourceRefCommit": {"commitId": src}, "commonRefCommit": {"commitId": base}}],
+                   "changes": [{"item": {"path": "/src/login.cs"}, "changeType": "add", "changeTrackingId": 7}]}
+        base_pr.update(kw)
+        return base_pr
+    leads = {"id": "g-leads", "displayName": "Leads", "isContainer": True, "isRequired": True, "vote": 0}
+    mine = {"id": "me-1", "displayName": "Ann Lee", "isRequired": False}
+    threads = [{"id": 1, "status": "active", "threadContext": {"filePath": "/src/login.cs", "rightFileStart": {"line": 3}},
+                "comments": [{"commentType": "text", "content": "Why null?", "author": {"displayName": "Cy"}}]},
+               {"id": 2, "comments": [{"commentType": "system", "content": "Ann voted"}]}]
+    policy = lambda creator: [{"status": "running", "configuration": {"isEnabled": True, "isBlocking": True,
+                                "type": {"displayName": "Minimum number of reviewers"}, "settings": {"creatorVoteCounts": creator}}}]
+    wp = world(t, {
+        "me": me,
+        "identities": {"me-1": {"descriptor": "d-me", "memberOf": ["d-leads"]}, "g-leads": {"descriptor": "d-leads"}, "g-other": {"descriptor": "d-other"}},
+        "items": {"12345": item(12345, "Bug", "Login crash", **{"Microsoft.VSTS.Common.AcceptanceCriteria": "<div>No crash when the <b>user</b> is null</div>"})},
+        "pullRequests": [
+            pr(201, reviewers=[leads], workItems=[12345], threads=threads),
+            pr(202, createdBy={"id": "me-1", "displayName": "Ann Lee"}),
+            pr(203, reviewers=[dict(leads, id="g-other", displayName="Other")]),
+            pr(204, reviewers=[dict(mine, vote=0)], isDraft=True),
+            pr(205, reviewers=[dict(mine, vote=10)]),
+            pr(206, repository=web, reviewers=[dict(mine, vote=0)], changes=[{"item": {"path": "/app.ts"}, "changeType": "edit"}],
+               iterations=[{"id": 1, "sourceRefCommit": {"commitId": "w2"}, "commonRefCommit": {"commitId": "w1"}}]),
+        ],
+        "policies": {"201": policy(True), "202": policy(False)},
+        "files": {"Web@w1:/app.ts": "a\nb\nc\n", "Web@w2:/app.ts": "a\nB\nc\n"},
+    })
+    w = json.loads(wp.read_text())
+    w["repositories"]["Proj/Web"] = web
+    wp.write_text(json.dumps(w))
+    code, text = run(ws, "reviews", "list", "--json")
+    data = json.loads(text)
+    assert code == 0 and [r["id"] for r in data["rows"]] == [201, 206], data       # through a group I am in, and directly
+    assert data["rows"][0]["role"] == "group Leads (required)" and data["me"] == "Ann Lee"
+    code, text = run(ws, "reviews", "list", "--all", "--json")
+    rows = {r["id"]: r for r in json.loads(text)["rows"]}
+    assert len(rows) == 6 and rows[202]["mine"] and rows[203]["role"] is None and rows[204]["draft"] and rows[205]["myVote"] == 10
+    assert L.read_json(L.state_dir(ws, "reviews", "list.json"))["rows"]
+    code, text = run(ws, "reviews", "show", "--project", "Proj", "--id", "201", "--json")
+    d = json.loads(text)
+    assert d["canVote"] and d["iteration"] == 2 and d["files"] == [{"path": "src/login.cs", "change": "add"}], d
+    assert [x["text"] for x in d["threads"]] == ["Why null?"] and d["workItems"][0]["criteria"] == "No crash when the user is null"
+    assert d["policies"][0]["name"] == "Minimum number of reviewers" and d["review"] is None
+    d202 = json.loads(run(ws, "reviews", "show", "--project", "Proj", "--id", "202", "--json")[1])
+    assert not d202["canVote"] and "does not count" in d202["voteNote"]
+    # the quick review's bundle: from the local clone, every right-side line numbered
+    code, text = run(ws, "reviews", "pack", "--project", "Proj", "--id", "201")
+    pk = json.loads(text)
+    assert pk["lines"] == {"src/login.cs": [1, 2, 3, 4]} and "    3 + if (user == null) return;" in pk["prompt"], pk
+    assert "Acceptance criteria: No crash" in pk["prompt"] and "At most 12" in pk["system"] and pk["model"] == "sonnet"
+    pk6 = json.loads(run(ws, "reviews", "pack", "--project", "Proj", "--id", "206")[1])       # no local clone: from ADO
+    assert pk6["lines"] == {"app.ts": [1, 2, 3]} and "    2 + B" in pk6["prompt"] and "      - b" in pk6["prompt"], pk6
+    found = R.parse_findings('Here: [{"file": "src/login.cs", "line": 3, "severity": "high", "comment": "Returns early",'
+                             ' "suggestion": "if (user is null) throw;"}, {"file": "src/login.cs", "line": 99, "severity": "low",'
+                             ' "comment": "made up"}, {"file": "x.cs", "line": 1, "comment": "not in the diff"}]', pk["lines"], 12)
+    assert [(f["line"], f["severity"]) for f in found] == [(3, "high")]
+    p = subprocess.run([sys.executable, str(HERE / "devops.py"), "--root", str(ws), "reviews", "save", "--key", pk["key"]],
+                       input=json.dumps({"findings": found, "model": "sonnet"}), capture_output=True, text=True)
+    assert p.returncode == 0, p.stderr
+    assert json.loads(run(ws, "reviews", "show", "--project", "Proj", "--id", "201", "--json")[1])["review"]["findings"] == found
+
+    def post(pr_id, drafts):
+        r = subprocess.run([sys.executable, str(HERE / "devops.py"), "--root", str(ws), "reviews", "post", "--project", "Proj",
+                            "--id", str(pr_id)], input=json.dumps({"iteration": 2, "drafts": drafts}), capture_output=True, text=True)
+        return r.returncode, r.stdout + r.stderr
+    w = json.loads(wp.read_text())
+    w["pullRequests"][0]["iterations"].append({"id": 3, "sourceRefCommit": {"commitId": src}, "commonRefCommit": {"commitId": base}})
+    wp.write_text(json.dumps(w))
+    code, text = post(201, [{"text": "Fine."}])                    # a push since the review: lines may have moved
+    assert code == 2 and "new push" in text, text
+    w["pullRequests"][0]["iterations"].pop()
+    wp.write_text(json.dumps(w))
+    code, text = post(201, [{"text": "See #12345 for why"}])
+    assert code == 2 and "nothing was posted" in text and "mention" in text, text
+    assert not [x for x in json.loads(wp.read_text())["writes"] if x["op"].startswith("post")]
+    code, text = post(201, [{"file": "src/login.cs", "line": 3, "text": "Returns early", "suggestion": "if (user is null) throw;"},
+                            {"text": "Looks right otherwise."}, {"reply": 1, "text": "Because the token can be empty."}])
+    assert code == 0 and "Posted 3 comments" in text, text
+    ws_ = [x for x in json.loads(wp.read_text())["writes"] if x["op"] in ("post-thread", "post-reply")]
+    first = ws_[0]["body"]
+    assert first["threadContext"]["filePath"] == "/src/login.cs" and first["threadContext"]["rightFileStart"]["line"] == 3
+    assert "```suggestion\nif (user is null) throw;\n```" in first["comments"][0]["content"]
+    assert first["pullRequestThreadContext"] == {"iterationContext": {"firstComparingIteration": 1, "secondComparingIteration": 2},
+                                                 "changeTrackingId": 7}, first
+    assert "threadContext" not in ws_[1]["body"] and ws_[2]["op"] == "post-reply" and ws_[2]["thread"] == 1
+    # votes: under my own id; refused where the policy does not count my vote on my own PR
+    code, text = run(ws, "reviews", "vote", "--project", "Proj", "--id", "201", "--vote", "approve")
+    assert code == 0 and "approved" in text, text
+    code, text = run(ws, "reviews", "vote", "--project", "Proj", "--id", "202", "--vote", "approve")
+    assert code == 2 and "does not count" in text, text
+    assert run(ws, "reviews", "vote", "--project", "Proj", "--id", "202", "--vote", "reset")[0] == 0
+    votes = [(x["pr"], x["reviewer"], x["vote"]) for x in json.loads(wp.read_text())["writes"] if x["op"] == "vote"]
+    assert votes == [(201, "me-1", 10), (202, "me-1", 0)], votes
+
+
 def main():
     check_lint()
     check_helpers()
     check_notes()
     print("pure functions: ok")
-    for name, fn in (("release", check_release), ("sync", check_sync), ("notes", check_notes_flow)):
+    for name, fn in (("release", check_release), ("sync", check_sync), ("notes", check_notes_flow), ("reviews", check_reviews)):
         if name in ("release", "sync") and not HAVE_PWSH:
             print(f"{name}: skipped (no pwsh)")
             continue

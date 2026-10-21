@@ -137,6 +137,53 @@ def request(method, url, body, headers):
                 or (field == "lastMergeCommit" and (x.get(field) or {}).get("commitId") == sha)]
         return done({"results": [{sha: hits}]})
 
+    # -- reviews: who I am, groups, iterations, changes, threads, votes, policies, file contents
+    if rest == "connectionData" and method == "GET":
+        return done({"authenticatedUser": world.get("me", {})})
+    if rest == "identities" and method == "GET":
+        ids = [i.lower() for i in q.get("identityIds", "").split(",") if i]
+        found = [dict(v, id=k) for k, v in world.get("identities", {}).items() if k.lower() in ids]
+        if q.get("queryMembership", "None") == "None":
+            found = [{k: v for k, v in f.items() if k != "memberOf"} for f in found]
+        return done({"value": found})
+    mm = re.match(r"^git/repositories/([^/]+)/pullrequests/(\d+)/(iterations|threads|reviewers)(?:/(\d+|[\w-]+))?(?:/(changes|comments))?$", rest, re.I)
+    if mm:
+        pr = next(x for x in prs if x["pullRequestId"] == int(mm.group(2)))
+        kind, sub_id, tail = mm.group(3).lower(), mm.group(4), mm.group(5)
+        if kind == "iterations" and method == "GET" and not sub_id:
+            return done({"value": pr.get("iterations", [{"id": 1, "sourceRefCommit": {"commitId": "s"}, "commonRefCommit": {"commitId": "c"}}])})
+        if kind == "iterations" and tail == "changes" and method == "GET":
+            return done({"changeEntries": pr.get("changes", [])})
+        if kind == "threads" and method == "GET" and not sub_id:
+            return done({"value": pr.get("threads", [])})
+        if kind == "threads" and method == "POST" and not sub_id:
+            t = dict(body, id=len(pr.setdefault("threads", [])) + 1)
+            pr["threads"].append(t)
+            writes.append({"op": "post-thread", "pr": pr["pullRequestId"], "body": body})
+            return done(t, save=True)
+        if kind == "threads" and tail == "comments" and method == "POST":
+            writes.append({"op": "post-reply", "pr": pr["pullRequestId"], "thread": int(sub_id), "body": body})
+            return done(dict(body, id=2), save=True)
+        if kind == "reviewers" and method == "PUT":
+            revs = pr.setdefault("reviewers", [])
+            r = next((x for x in revs if x["id"].lower() == sub_id.lower()), None)
+            if not r:
+                r = {"id": sub_id, "displayName": world.get("me", {}).get("providerDisplayName", sub_id), "isRequired": False}
+                revs.append(r)
+            r["vote"] = body["vote"]
+            writes.append({"op": "vote", "pr": pr["pullRequestId"], "reviewer": sub_id, "vote": body["vote"]})
+            return done(r, save=True)
+    if rest == "policy/evaluations" and method == "GET":
+        pid = int(q["artifactId"].rsplit("/", 1)[1])
+        return done({"value": world.get("policies", {}).get(str(pid), [])})
+    mm = re.match(r"^git/repositories/([^/]+)/items$", rest, re.I)
+    if mm and method == "GET":
+        key = f"{mm.group(1)}@{q.get('versionDescriptor.version')}:{q.get('path')}"
+        text = world.get("files", {}).get(key)
+        if text is None:
+            return None, {}
+        return done({"path": q.get("path"), "content": text})
+
     # -- work items
     if rest == "wit/workitemsbatch" and method == "POST":
         out = []

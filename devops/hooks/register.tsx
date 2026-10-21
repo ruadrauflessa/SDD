@@ -6,12 +6,16 @@
 // fill the prompt for the person to send.
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { DvPlan, DvStatus, DvView } from '../types'
+import type { DvDraft, DvPlan, DvReviewDetail, DvReviewList, DvReviewPack, DvReviewRow, DvStatus, DvView } from '../types'
 import {
   activeWord, ago, askText, asList, needs, page, parseArgs, readyPlans, releaseCounts, releaseRows, releaseTone,
   releaseWord, repoFacts, runArgs, statusText, syncTone, syncWord, versionsNewest, waitingPlans,
 } from './view/model'
 import type { Tone } from './view/model'
+import {
+  addDraft, draftsFrom, draftWhere, editDraft, findingsFrom, keptDrafts, postPayload, reviewCounts, reviewKey, reviewRows,
+  reviewTone, reviewWord, rowFacts, VOTES, voteWord,
+} from './view/reviews'
 
 const PANE = 'devops'
 const status = { plugin: 'devops', key: 'status' } as const
@@ -23,10 +27,15 @@ const open = { plugin: 'devops', key: 'open' } as const
 const versions = { plugin: 'devops', key: 'versions' } as const
 const version = { plugin: 'devops', key: 'version' } as const
 const confirm = { plugin: 'devops', key: 'confirm' } as const
+const reviews = { plugin: 'devops', key: 'reviews' } as const
+const reviewsAll = { plugin: 'devops', key: 'reviewsAll' } as const
+const review = { plugin: 'devops', key: 'review' } as const
+const drafts = { plugin: 'devops', key: 'drafts' } as const
+const reviewAsk = { plugin: 'devops', key: 'reviewAsk' } as const
 
 const TICK_MS = 60_000
 const COLORS: Record<Tone, string> = { urgent: '#c0503f', warn: '#c98a12', ok: '#3f9a63', dim: '#7b8794' }
-const TABS: Array<[DvView, string]> = [['overview', 'Overview'], ['release', 'Release'], ['sync', 'Sync'], ['notes', 'Notes'], ['guard', 'Guard']]
+const TABS: Array<[DvView, string]> = [['overview', 'Overview'], ['release', 'Release'], ['sync', 'Sync'], ['notes', 'Notes'], ['reviews', 'Reviews'], ['guard', 'Guard']]
 
 let python = 'python'  // module state: lost on reload, which is fine
 let timer: ReturnType<EngineInterface['clock']['every']> | null = null
@@ -34,12 +43,12 @@ let timer: ReturnType<EngineInterface['clock']['every']> | null = null
 type Ran = { code: number; out: string }
 
 /** Runs devops.py; a refusal (exit 1 or 2) is an answer, not a throw. Throws only when python cannot start. */
-async function run($: EngineInterface, args: string[], timeoutMs: number): Promise<Ran> {
+async function run($: EngineInterface, args: string[], timeoutMs: number, stdin?: string): Promise<Ran> {
   const cwd = await $.session.cwd()
   let why = 'could not run python'
   for (const exe of [python, 'python3', 'py']) {
     try {
-      const r = await $.process.run([exe, `${$.plugin.root}/scripts/devops.py`, ...args], { cwd, timeoutMs })
+      const r = await $.process.run([exe, `${$.plugin.root}/scripts/devops.py`, ...args], { cwd, timeoutMs, ...(stdin != null ? { stdin } : {}) })
       python = exe
       return { code: r.exitCode ?? 0, out: `${r.stdout}${r.stderr ? `\n${r.stderr}` : ''}`.trim() }
     } catch (err) {
@@ -92,6 +101,122 @@ async function loadVersions($: EngineInterface): Promise<void> {
   }
 }
 
+const tail = (r: Ran) => r.out.split('\n').filter(Boolean).slice(-3).join(' · ').slice(0, 400)
+const firstLine = (r: Ran) => r.out.split('\n')[0] ?? ''
+
+/** A Reviews-tab step: says what runs, and what failed. Returns false when another step is running. */
+async function reviewStep($: EngineInterface, label: string, work: () => Promise<void>): Promise<boolean> {
+  if ((await $.state.get(busy)).value) return false
+  await $.state.set(busy, label)
+  try {
+    await work()
+  } catch (err) {
+    await $.state.set(note, String(err instanceof Error ? err.message : err).slice(0, 400))
+  }
+  await $.state.set(busy, null)
+  return true
+}
+
+/** Every active PR of the workspace's projects (the tab filters to those waiting on the person). Reads ADO. */
+async function loadReviews($: EngineInterface): Promise<void> {
+  await reviewStep($, 'Reading the PRs from Azure DevOps', async () => {
+    const r = await run($, ['reviews', 'list', '--all', '--json'], 300_000)
+    if (r.code !== 0) {
+      await $.state.set(note, tail(r))
+      return
+    }
+    await $.state.set(reviews, JSON.parse(firstLine(r)) as DvReviewList)
+    await $.state.set(note, null)
+  })
+  await refresh($)
+}
+
+async function readReview($: EngineInterface, project: string, id: number): Promise<DvReviewDetail | null> {
+  const r = await run($, ['reviews', 'show', '--project', project, '--id', String(id), '--json'], 180_000)
+  if (r.code !== 0) {
+    await $.state.set(note, tail(r))
+    return null
+  }
+  return JSON.parse(firstLine(r)) as DvReviewDetail
+}
+
+/** Opens a PR (or closes it when it is the open one): its detail, and the drafts of a review saved for this push. */
+async function openReview($: EngineInterface, row: DvReviewRow): Promise<void> {
+  const cur = (await $.state.get(review)).value ?? null
+  await $.state.set(reviewAsk, null)
+  if (cur && reviewKey(cur) === reviewKey(row)) {
+    await $.state.set(review, null)
+    return
+  }
+  await reviewStep($, `Reading PR ${row.id}`, async () => {
+    const d = await readReview($, row.project, row.id)
+    if (!d) return
+    await $.state.set(review, d)
+    await $.state.set(drafts, draftsFrom(d.review?.findings ?? []))
+    await $.state.set(note, null)
+  })
+}
+
+/** The quick review: devops.py builds the prompt, one model call answers, and only findings on a line the diff shows
+ *  become drafts. The person's own drafts stay. Nothing is posted. */
+async function quickReview($: EngineInterface, d: DvReviewDetail): Promise<void> {
+  await reviewStep($, `Reviewing PR ${d.id} (one model call)`, async () => {
+    const r = await run($, ['reviews', 'pack', '--project', d.project, '--id', String(d.id)], 300_000)
+    if (r.code !== 0) {
+      await $.state.set(note, tail(r))
+      return
+    }
+    const pack = JSON.parse(firstLine(r)) as DvReviewPack
+    const m = await $.model.complete({ model: pack.model, system: pack.system, prompt: pack.prompt, maxTokens: pack.maxTokens, timeoutMs: 300_000 })
+    if (!m.isAnswered) {
+      await $.state.set(note, `The review call ended with ${m.reason}${'status' in m && m.status ? ` (HTTP ${m.status})` : ''}.`)
+      return
+    }
+    const got = findingsFrom(m.text, pack.lines, pack.maxFindings)
+    await run($, ['reviews', 'save', '--key', pack.key], 30_000, JSON.stringify({ findings: got.findings, model: pack.model }))
+    const own = ((await $.state.get(drafts)).value ?? []).filter(x => !x.file)
+    const fresh = draftsFrom(got.findings)
+    await $.state.set(drafts, [...fresh, ...own.map((x, i) => ({ ...x, n: fresh.length + i + 1 }))])
+    await $.state.set(review, { ...d, review: { findings: got.findings, model: pack.model, at: Math.floor(Date.now() / 1000) } })
+    await $.state.set(note, null)
+    $.ui.toast(`${got.findings.length} finding${got.findings.length === 1 ? '' : 's'}${got.dropped ? ` (${got.dropped} dropped: not on a line the diff shows)` : ''}${pack.truncated ? '; the diff was cut to fit' : ''}. Nothing is posted until you press Post.`)
+  })
+}
+
+/** Posts the kept drafts under the person's name, then reads the PR again. */
+async function postDrafts($: EngineInterface, d: DvReviewDetail, ds: DvDraft[]): Promise<void> {
+  await reviewStep($, `Posting to PR ${d.id}`, async () => {
+    const r = await run($, ['reviews', 'post', '--project', d.project, '--id', String(d.id)], 180_000, postPayload(ds, d.iteration))
+    await $.state.set(reviewAsk, null)
+    if (r.code !== 0) {
+      await $.state.set(note, tail(r))
+      return
+    }
+    $.ui.toast(tail(r))
+    await $.state.set(drafts, ds.filter(x => !x.keep))
+    const again = await readReview($, d.project, d.id)
+    if (again) await $.state.set(review, again)
+    await $.state.set(note, null)
+  })
+}
+
+/** The person's vote, under their name; then the list and the PR are read again. */
+async function castVote($: EngineInterface, d: DvReviewDetail, vote: string): Promise<void> {
+  const ok = await reviewStep($, `Voting on PR ${d.id}`, async () => {
+    const r = await run($, ['reviews', 'vote', '--project', d.project, '--id', String(d.id), '--vote', vote], 120_000)
+    await $.state.set(reviewAsk, null)
+    if (r.code !== 0) {
+      await $.state.set(note, tail(r))
+      return
+    }
+    $.ui.toast(tail(r))
+    const again = await readReview($, d.project, d.id)
+    if (again) await $.state.set(review, again)
+    await $.state.set(note, null)
+  })
+  if (ok) await loadReviews($)
+}
+
 function follow($: EngineInterface): void {
   if (!timer) timer = $.clock.every(TICK_MS, () => void refresh($))
 }
@@ -100,8 +225,8 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'devops',
-      description: 'Release prep, team-branch sync and release notes in a pane: what needs you, plans to approve, PRs, conflicts, the guard log',
-      argumentHint: '[overview|release [<version>]|sync|notes|guard|refresh]',
+      description: 'Release prep, team-branch sync, release notes and PR reviews in a pane: what needs you, plans to approve, PRs to review and vote on, conflicts, the guard log',
+      argumentHint: '[overview|release [<version>]|sync|notes|reviews|guard|refresh]',
     })
     void refresh($).catch(() => undefined)  // one read for the status line; files only
     return next(e)
@@ -116,11 +241,14 @@ export const register: Register = on => {
     follow($)
     await refresh($)
     if (a.view === 'release' && !(await $.state.get(versions)).value) await loadVersions($)
+    if (a.view === 'reviews' && !(await $.state.get(reviews)).value) await loadReviews($)
     return { text: 'devops opened.' }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button, Link } = $.ui.resolve(e)
+    const t = $.ui.resolve(e)
+    const { Box, Text, Button, Link } = t
+    const Input = 'Input' in t ? t.Input : undefined
     const s = (await $.state.get(status)).value ?? null
     const why = (await $.state.get(error)).value ?? null
     const said = (await $.state.get(note)).value ?? null
@@ -130,6 +258,11 @@ export const register: Register = on => {
     const vs = (await $.state.get(versions)).value ?? null
     const chosen = (await $.state.get(version)).value ?? null
     const asked = (await $.state.get(confirm)).value ?? null
+    const rvList = (await $.state.get(reviews)).value ?? null
+    const rvAll = (await $.state.get(reviewsAll)).value ?? false
+    const rv = (await $.state.get(review)).value ?? null
+    const ds = (await $.state.get(drafts)).value ?? []
+    const rvAsk = (await $.state.get(reviewAsk)).value ?? null
     const now = Math.floor(Date.now() / 1000)
     const color = (t: Tone) => COLORS[t]
 
@@ -137,6 +270,7 @@ export const register: Register = on => {
       await $.state.set(view, v)
       await $.state.set(open, null)
       if (v === 'release' && !vs) await loadVersions($)
+      if (v === 'reviews' && !rvList) await loadReviews($)
     }
     const toggle = (key: string) => () => $.state.set(open, opened === key ? null : key)
     const fill = (text: string) => () => $.prompt.fill({ text })
@@ -387,6 +521,112 @@ export const register: Register = on => {
           {s.notes.files.length > 0 && <Text bold>Files</Text>}
           {s.notes.files.slice(0, 6).map(f => <Text key={f.path} dimColor>  {f.name} · {ago(f.at, now)}</Text>)}
           <Box marginTop={1}><Button key="ask-notes2" label="Ask Claude for release notes" onPress={fill(askText('notes'))} /></Box>
+        </Box>
+      )
+    }
+
+    // ---- PR reviews: what waits on the person, a quick review, their comments and their vote
+    if (mode === 'reviews') {
+      const rows = reviewRows(rvList, rvAll)
+      const c = reviewCounts(rvList)
+      const sev: Record<string, string> = { high: COLORS.urgent, medium: COLORS.warn, low: COLORS.dim }
+      const kept = keptDrafts(ds)
+      const detail = (d: DvReviewDetail) => {
+        const ask = VOTES.find(v => v.key === rvAsk)
+        return (
+          <Box flexDirection="column" marginLeft={2} marginBottom={1}>
+            <Text dimColor wrap="wrap">{rowFacts(d)}</Text>
+            <Link href={d.url} label={`Open PR ${d.id} in Azure DevOps`} />
+            {d.policies.length > 0 && (
+              <Text wrap="wrap">{d.policies.map(p => `${p.status === 'approved' ? '✓' : p.status === 'rejected' ? '✗' : '…'} ${p.name}${p.blocking ? '' : ' (optional)'}`).join('   ')}</Text>
+            )}
+            {d.workItems.map(w => <Text key={`wi-${w.id}`} dimColor wrap="wrap">ADO {w.id} {w.type} [{w.state}] {w.title}</Text>)}
+            <Text dimColor>{d.files.length} files · {d.threads.length} comment threads · iteration {d.iteration}</Text>
+            {d.threads.slice(0, 5).map(th => (
+              <Text key={`th-${th.id}`} dimColor wrap="wrap">  {th.file ? `${th.file}:${th.line} ` : ''}{th.author}: {th.text}{th.replies ? ` (+${th.replies})` : ''} [{th.status}]</Text>
+            ))}
+            <Box gap={1} flexWrap="wrap" marginTop={1}>
+              <Button key="quick-review" label={d.review ? 'Review again' : 'Quick review'} onPress={() => quickReview($, d)} />
+              {d.review && <Text dimColor>{d.review.findings.length} findings from {d.review.model ?? 'the model'} on this push</Text>}
+            </Box>
+            {ds.map(x => (
+              <Box key={`draft-${x.n}`} flexDirection="column" marginTop={1}>
+                <Box gap={1}>
+                  <Text color={x.severity ? sev[x.severity] : COLORS.dim}>{x.severity ? `[${x.severity}]` : '[yours]'}</Text>
+                  <Text dimColor>{draftWhere(x)}</Text>
+                  <Button key={`keep-${x.n}`} label={x.keep ? 'Keep' : 'Dropped'} onPress={() => $.state.set(drafts, editDraft(ds, x.n, { keep: !x.keep }))} />
+                </Box>
+                <Text wrap="wrap" dimColor={!x.keep}>{x.text}</Text>
+                {x.suggestion && <Text dimColor wrap="wrap">  suggestion: {x.suggestion}</Text>}
+                {Input && x.keep && (
+                  <Input key={`edit-${x.n}`} placeholder="Rewrite this comment (Enter saves)" submitLabel="Save"
+                    onSubmit={v => { if (v.trim()) void $.state.set(drafts, editDraft(ds, x.n, { text: v.trim() })) }} />
+                )}
+              </Box>
+            ))}
+            {Input && (
+              <Box marginTop={1}>
+                <Input key="add-comment" placeholder="Add a comment on the whole PR (Enter adds it)" submitLabel="Add"
+                  onSubmit={v => void $.state.set(drafts, addDraft(ds, v))} />
+              </Box>
+            )}
+            {rvAsk === 'post' ? (
+              <Box flexDirection="column" marginTop={1}>
+                <Text bold>Post {kept.length} comment{kept.length === 1 ? '' : 's'} on PR {d.id} as {d.me}?</Text>
+                {kept.map(x => <Text key={`pp-${x.n}`} dimColor wrap="wrap">  {draftWhere(x)}: {x.text}</Text>)}
+                <Box gap={1}>
+                  <Button key="post-yes" label="Post" onPress={() => postDrafts($, d, ds)} />
+                  <Button key="post-no" label="Cancel" onPress={() => $.state.set(reviewAsk, null)} />
+                </Box>
+              </Box>
+            ) : kept.length > 0 && (
+              <Box marginTop={1}><Button key="post" label={`Post ${kept.length} comment${kept.length === 1 ? '' : 's'}…`} onPress={() => $.state.set(reviewAsk, 'post')} /></Box>
+            )}
+            <Box flexDirection="column" marginTop={1}>
+              <Text>Your vote: {voteWord(d.myVote)}</Text>
+              {!d.canVote && <Text color={COLORS.urgent} wrap="wrap">{d.voteNote}</Text>}
+              {d.canVote && d.voteNote && <Text dimColor wrap="wrap">{d.voteNote}</Text>}
+              {ask ? (
+                <Box gap={1}>
+                  <Text color={COLORS.warn}>{ask.label} PR {d.id} as {d.me}?</Text>
+                  <Button key="vote-yes" label="Vote" onPress={() => castVote($, d, ask.key)} />
+                  <Button key="vote-no" label="Cancel" onPress={() => $.state.set(reviewAsk, null)} />
+                </Box>
+              ) : (
+                <Box gap={1} flexWrap="wrap">
+                  {VOTES.filter(v => d.canVote || v.key === 'reset').map(v => (
+                    <Button key={`vote-${v.key}`} label={v.label} onPress={() => $.state.set(reviewAsk, v.key)} />
+                  ))}
+                </Box>
+              )}
+            </Box>
+          </Box>
+        )
+      }
+      return (
+        <Box flexDirection="column">
+          {header}
+          <Box gap={1} flexWrap="wrap">
+            <Button key="rv-waiting" label={rvAll ? `Waiting on me (${c.waiting})` : `[Waiting on me (${c.waiting})]`} onPress={() => $.state.set(reviewsAll, false)} />
+            <Button key="rv-all" label={rvAll ? `[All active (${c.active})]` : `All active (${c.active})`} onPress={() => $.state.set(reviewsAll, true)} />
+            <Button key="rv-refresh" label="Refresh list" onPress={() => loadReviews($)} />
+          </Box>
+          {rvList ? <Text dimColor>As {rvList.me || 'you'} · read {ago(rvList.generated, now)}</Text> : <Text dimColor>Not read yet: press Refresh list.</Text>}
+          {rvList && rows.length === 0 && <Text color={COLORS.ok}>{rvAll ? 'No active PRs in the workspace projects.' : 'No PR waits for your review.'}</Text>}
+          {rows.map(r => {
+            const key = reviewKey(r)
+            const tone = color(reviewTone(r))
+            return (
+              <Box key={`row-${key}`} flexDirection="column">
+                <Box gap={1}>
+                  <Text color={tone}>●</Text>
+                  <Box flexGrow={1} flexShrink={1} minWidth={0}><Button key={`pr-${key}`} label={`${r.repo} · ${r.title}`} onPress={() => openReview($, r)} /></Box>
+                  <Text color={tone}>{reviewWord(r)}</Text>
+                </Box>
+                {rv && reviewKey(rv) === key && detail(rv)}
+              </Box>
+            )
+          })}
         </Box>
       )
     }

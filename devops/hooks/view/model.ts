@@ -145,6 +145,8 @@ export function needs(s: DvStatus | null | undefined): Need[] {
       }
     }
   }
+  const rv = s.reviews?.waiting ?? 0
+  if (rv) out.push({ key: 'reviews', tone: 'warn', view: 'reviews', text: `${rv} PR${rv === 1 ? ' waits' : 's wait'} for your review` })
   const snap = asList(s.sync.snapshot?.entries)
   if (snap.length) out.push({ key: 'snapshot', tone: 'warn', view: 'sync', text: `${snap.length} repo${snap.length === 1 ? '' : 's'} stashed by the sync snapshot: restore when the hop is done` })
   return out
@@ -162,6 +164,8 @@ export function statusText(s: DvStatus | null | undefined): string | undefined {
   if (conf) bits.push(`${conf} sync conflict${conf === 1 ? '' : 's'}`)
   const w = waitingPlans(s).length
   if (w) bits.push(`${w} to approve`)
+  const rv = s.reviews?.waiting ?? 0
+  if (rv) bits.push(`${rv} to review`)
   const rel = s.release[0]
   if (rel) {
     const c = releaseCounts(rel)
@@ -175,7 +179,7 @@ export function statusText(s: DvStatus | null | undefined): string | undefined {
 export function parseArgs(raw: string): { view: DvView | null; version: string | null; refresh: boolean } {
   const words = raw.trim().split(/\s+/).filter(Boolean)
   const first = (words[0] ?? '').toLowerCase()
-  const views: DvView[] = ['overview', 'release', 'sync', 'notes', 'guard']
+  const views: DvView[] = ['overview', 'release', 'sync', 'notes', 'reviews', 'guard']
   if (first === 'refresh') return { view: null, version: null, refresh: true }
   if ((views as string[]).includes(first)) {
     const v = first === 'release' && words[1] && /^[\w.-]+$/.test(words[1]) ? words[1] : null

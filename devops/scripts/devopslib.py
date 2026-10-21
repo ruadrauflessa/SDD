@@ -40,6 +40,12 @@ DEFAULTS = {
     "clusterGapHours": 2,
     "syncFeatureTitle": "Branch Synchronizations",
     "syncWorkItemType": "Tech Story",
+    "reviews": {
+        "model": "sonnet",          # the quick review's model call, made by the /devops pane on a press
+        "maxTokens": 4000,
+        "maxDiffChars": 60000,      # the diff bundle sent to the model; larger PRs are cut, and say so
+        "maxFindings": 12,
+    },
     "guard": {
         "enabled": True,
         "protectedBranches": ["main", "master", "develop", "release/*", "team/*"],
@@ -288,10 +294,12 @@ class Ado:
         self._auth = "Bearer " + r.stdout.strip()
         return self._auth
 
-    def url(self, api, project=None, **query):
-        q = {"api-version": "7.1", **{k: v for k, v in query.items() if v is not None}}
+    def url(self, api, project=None, host=None, version="7.1", **query):
+        """host: None for dev.azure.com, "vssps" for identities. version: a preview API names its own."""
+        q = {"api-version": version, **{k: v for k, v in query.items() if v is not None}}
         proj = f"/{urllib.parse.quote(project)}" if project else ""
-        return f"{self.base}{proj}/_apis/{api}?{urllib.parse.urlencode(q, safe='$/')}"
+        base = f"https://vssps.dev.azure.com/{urllib.parse.quote(self.org)}" if host == "vssps" else self.base
+        return f"{base}{proj}/_apis/{api}?{urllib.parse.urlencode(q, safe='$/')}"
 
     def call(self, method, url, body=None, content_type="application/json", headers=None, want_headers=False):
         import fakeado  # only answers when DEVOPS_FAKE_ADO is set
@@ -388,6 +396,62 @@ class Ado:
     def wiql(self, project, query):
         r = self.call("POST", self.url("wit/wiql", project), {"query": query})
         return [w["id"] for w in (r or {}).get("workItems", [])]
+
+    # -- reviews: who I am, my groups, a PR's iterations, files, threads, policies, and my vote
+    def me(self):
+        """{id, descriptor, name} of the signed-in user."""
+        u = (self.call("GET", self.url("connectionData", version="7.1-preview")) or {}).get("authenticatedUser") or {}
+        return {"id": u.get("id"), "descriptor": u.get("descriptor"),
+                "name": u.get("providerDisplayName") or u.get("customDisplayName") or ""}
+
+    def identities(self, ids, membership="None"):
+        if not ids:
+            return []
+        r = self.call("GET", self.url("identities", host="vssps", identityIds=",".join(ids), queryMembership=membership))
+        return (r or {}).get("value", [])
+
+    def pr_iterations(self, project, repo, pr_id):
+        r = self.call("GET", self.url(f"git/repositories/{urllib.parse.quote(repo)}/pullRequests/{int(pr_id)}/iterations", project))
+        return (r or {}).get("value", [])
+
+    def pr_changes(self, project, repo, pr_id, iteration):
+        out, skip = [], 0
+        while True:
+            r = self.call("GET", self.url(f"git/repositories/{urllib.parse.quote(repo)}/pullRequests/{int(pr_id)}/iterations/"
+                                          f"{int(iteration)}/changes", project, **{"$top": 100, "$skip": skip})) or {}
+            page = r.get("changeEntries", [])
+            out += page
+            if not r.get("nextSkip"):
+                return out
+            skip = r["nextSkip"]
+
+    def pr_threads(self, project, repo, pr_id):
+        r = self.call("GET", self.url(f"git/repositories/{urllib.parse.quote(repo)}/pullRequests/{int(pr_id)}/threads", project))
+        return (r or {}).get("value", [])
+
+    def post_thread(self, project, repo, pr_id, body):
+        return self.call("POST", self.url(f"git/repositories/{urllib.parse.quote(repo)}/pullRequests/{int(pr_id)}/threads", project), body)
+
+    def post_reply(self, project, repo, pr_id, thread_id, text):
+        return self.call("POST", self.url(f"git/repositories/{urllib.parse.quote(repo)}/pullRequests/{int(pr_id)}/threads/"
+                                          f"{int(thread_id)}/comments", project), {"content": text, "parentCommentId": 1, "commentType": 1})
+
+    def vote(self, project, repo, pr_id, reviewer_id, vote):
+        return self.call("PUT", self.url(f"git/repositories/{urllib.parse.quote(repo)}/pullRequests/{int(pr_id)}/reviewers/"
+                                         f"{reviewer_id}", project), {"vote": int(vote)})
+
+    def policy_evaluations(self, project, project_id, pr_id):
+        art = f"vstfs:///CodeReview/CodeReviewId/{project_id}/{int(pr_id)}"
+        r = self.call("GET", self.url("policy/evaluations", project, version="7.1-preview.1", artifactId=art))
+        return (r or {}).get("value", [])
+
+    def file_at(self, project, repo, path, commit):
+        """A file's text at a commit, or None when it is not there (added or deleted on the other side)."""
+        data, _ = self.call("GET", self.url(f"git/repositories/{urllib.parse.quote(repo)}/items", project, path=path,
+                                            includeContent="true", **{"versionDescriptor.version": commit,
+                                                                      "versionDescriptor.versionType": "commit"}),
+                            want_headers=True)
+        return (data or {}).get("content") if data else None
 
     # -- wiki
     def wikis(self, project):

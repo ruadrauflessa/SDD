@@ -41,9 +41,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--org", default="dnceng-public", help="any organization; the route table is the same service")
     a = ap.parse_args()
-    req = urllib.request.Request(f"https://dev.azure.com/{a.org}/_apis/", method="OPTIONS")
-    with urllib.request.urlopen(req, timeout=60) as r:
-        routes = json.loads(r.read())["value"]
+    routes = {}
+    for host in ("dev.azure.com", "vssps.dev.azure.com"):  # identities live on the vssps host
+        req = urllib.request.Request(f"https://{host}/{a.org}/_apis/", method="OPTIONS")
+        with urllib.request.urlopen(req, timeout=60) as r:
+            routes[host] = json.loads(r.read())["value"]
     fd, log = tempfile.mkstemp(suffix=".jsonl")
     os.close(fd)
     try:
@@ -55,19 +57,21 @@ def main():
         calls = [json.loads(x) for x in Path(log).read_text(encoding="utf-8").splitlines() if x.strip()]
     finally:
         os.unlink(log)
-    compiled = [(r, route_rx(r)) for r in routes]
+    compiled = {h: [(r, route_rx(r)) for r in rs] for h, rs in routes.items()}
     seen = {}
     for c in calls:
         u = urllib.parse.urlsplit(c["url"])
         tail = urllib.parse.unquote(u.path).split("/", 2)[2]
-        seen.setdefault((c["method"], re.sub(r"/\d+", "/{id}", tail)), (tail, dict(urllib.parse.parse_qsl(u.query)).get("api-version")))
+        seen.setdefault((c["method"], u.netloc, re.sub(r"/\d+", "/{id}", tail)),
+                        (tail, dict(urllib.parse.parse_qsl(u.query)).get("api-version")))
+    num = lambda v: float(str(v).split("-")[0])  # 7.1-preview.1 -> 7.1
     bad = 0
-    for (method, shape), (tail, ver) in sorted(seen.items(), key=lambda kv: kv[0][1]):
-        good = [r for r, x in compiled if x.match(tail) and float(r["maxVersion"]) >= float(ver)]
+    for (method, host, shape), (tail, ver) in sorted(seen.items(), key=lambda kv: kv[0][2]):
+        good = [r for r, x in compiled[host] if x.match(tail) and num(r["maxVersion"]) >= num(ver) and r["area"] != "Fallback"]
         bad += not good
         name = f"{good[0]['area']}/{good[0]['resourceName']}" if good else ""
-        print(f"{'OK     ' if good else 'MISSING'} {method:5} {shape:62} {name}")
-    print(f"{len(seen)} distinct calls, {len(routes)} ADO routes: "
+        print(f"{'OK     ' if good else 'MISSING'} {method:5} {('vssps ' if host.startswith('vssps') else '') + shape:66} {name}")
+    print(f"{len(seen)} distinct calls, {sum(len(r) for r in routes.values())} ADO routes: "
           + ("every call is a route ADO serves" if not bad else f"{bad} with no route"))
     return 1 if bad else 0
 

@@ -1,6 +1,6 @@
 {
   "name": "devops",
   "version": "0.2.0",
-  "description": "Azure DevOps release and verification skills: prepare a release, sync team branches, write release notes; scripts do the mechanics, guards protect branches, work and what goes out, and the /devops pane shows what needs you.",
+  "description": "Azure DevOps release and verification skills: prepare a release, sync team branches, write release notes, review and vote on PRs; scripts do the mechanics, guards protect branches, work and what goes out, and the /devops pane shows what needs you.",
   "types": "./types/index.d.ts"
 }

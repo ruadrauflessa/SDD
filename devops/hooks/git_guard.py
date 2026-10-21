@@ -13,6 +13,8 @@ Refuses:
   - az: locking or unlocking a branch, completing or approving a PR, changing a branch policy, opening
     a PR or writing a wiki page that no approved devops plan holds
   - running `devops.py approve` or writing the approvals file: only the user approves
+  - running `devops.py reviews post|vote|save`: review comments and votes go out under the user's name,
+    from the /devops pane only
 
 Settings in .claude/devops.json under "guard"; "enabled": false turns every rule off.
 """
@@ -304,8 +306,15 @@ WRITERS = re.compile(r">>?|\b(tee|out-file|add-content|set-content|sc|ac)\b", re
 def check_self_approval(command, progs):
     for prog, args, _ in progs:
         if prog.startswith("python") or prog in ("py", "uv"):
-            if any(re.split(r"[\\/]", a)[-1].lower() == "devops.py" for a in args) and "approve" in args:
-                return "approval", "only the user approves a plan: they answer Yes to your AskUserQuestion, or press Approve in the /devops pane."
+            at = next((i for i, a in enumerate(args) if re.split(r"[\\/]", a)[-1].lower() == "devops.py"), None)
+            if at is not None:
+                words = [a for a in args[at + 1:] if not a.startswith("-")]
+                if words[:1] == ["approve"]:
+                    return "approval", "only the user approves a plan: they answer Yes to your AskUserQuestion, or press Approve in the /devops pane."
+                if words[:1] == ["reviews"] and words[1:2] and words[1] in ("post", "vote", "save"):
+                    return "approval", ("review comments and votes go out under the user's own name, so only they post or vote: "
+                                        "from the Reviews tab of the /devops pane. You may read a PR (reviews list, show, pack) "
+                                        "and say what you would comment.")
     if APPROVALS.search(command) and WRITERS.search(command):
         return "approval", "the approvals file is written by the devops hook and the pane only."
     return None

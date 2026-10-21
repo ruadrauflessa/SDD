@@ -30,6 +30,13 @@ ADO output. Every outward write (a PR, a wiki page) goes through a plan the user
     notes publish --run ID
 
 
+    reviews list [--all] [--json]            PRs waiting on you (or every active one) in the workspace's projects
+    reviews show --project P --id N [--json] one PR: policies, votes, work items, files, threads, may you vote
+    reviews pack --project P --id N          the quick review's prompt and the lines a finding may name (the pane)
+    reviews save --key K                     the quick review's findings, from stdin (the pane)
+    reviews post --project P --id N          the person's comments, from stdin (the pane; the agent may not run it)
+    reviews vote --project P --id N --vote approve|suggest|wait|reject|reset   (the pane; the agent may not run it)
+
 Exit 0 = done, 1 = something blocks (conflicts, lint, a failed check), 2 = refused or an error.
 """
 import argparse
@@ -46,6 +53,7 @@ sys.path.insert(0, str(HERE))
 import devopslib as L  # noqa: E402
 import notes as N  # noqa: E402
 import prs as P  # noqa: E402
+import reviews as R  # noqa: E402
 
 PLUGIN = HERE.parent
 SCAN_RELEASE = PLUGIN / "skills" / "release-prep" / "scripts" / "Scan-ReleasePrep.ps1"
@@ -153,6 +161,15 @@ def plan_view(root, p):
             "lines": [item_line(p.get("kind"), it) for it in p.get("items", [])]}
 
 
+def reviews_summary(root):
+    """From the last `reviews list` (the pane reads ADO for it on a press): how many PRs wait on the user."""
+    d = L.read_json(L.state_dir(root, "reviews", "list.json"))
+    if not d:
+        return None
+    rows = d.get("rows", [])
+    return {"generated": d.get("generated", 0), "waiting": sum(1 for r in rows if r.get("waiting")), "active": len(rows)}
+
+
 def cmd_status(a):
     root, cfg = ctx(a)
     rel = []
@@ -202,6 +219,7 @@ def cmd_status(a):
         "notes": {"files": [{"path": str(p), "name": p.name, "at": int(p.stat().st_mtime)} for p in files[:10]], "runs": runs[:10]},
         "plans": sorted([plan_view(root, p) for p in L.plans(root)], key=lambda p: p["created"], reverse=True)[:20],
         "guard": {"recent": L.read_jsonl(L.state_dir(root, "guard.jsonl"))[-20:][::-1]},
+        "reviews": reviews_summary(root),
     }
     if a.json:
         print(json.dumps(data, ensure_ascii=False))
@@ -1201,6 +1219,207 @@ def cmd_notes_publish(a):
     return 0
 
 
+# ================================================================ PR reviews (the /devops pane's Reviews tab)
+
+def workspace_projects(root, cfg):
+    """{(org, project): {ado repo name, lower: local clone}} for the ADO projects the workspace repos live in."""
+    out = {}
+    for d in L.discover_repos(root, cfg).values():
+        c = L.repo_coords(d)
+        if c:
+            out.setdefault((c[0], c[1]), {})[c[2].lower()] = d
+    if not out:
+        raise L.Refused("no Azure DevOps origin in the workspace repos: the Reviews tab lists the PRs of their projects")
+    return out
+
+
+def project_org(root, cfg, project):
+    hit = [o for (o, p) in workspace_projects(root, cfg) if p.lower() == project.lower()]
+    if not hit:
+        raise L.Refused(f"{project} is not a project of the workspace repos")
+    return hit[0]
+
+
+def my_groups(ado, me, reviewer_ids):
+    """The ids, among these reviewer groups, of the ones the user is in (two identity reads)."""
+    if not reviewer_ids or not me.get("id"):
+        return set()
+    mine = ado.identities([me["id"]], "ExpandedUp")
+    member_of = {d.lower() for d in ((mine[0].get("memberOf") or []) if mine else [])}
+    groups = ado.identities(sorted(reviewer_ids))
+    return {g["id"].lower() for g in groups if (g.get("descriptor") or "").lower() in member_of}
+
+
+def cmd_reviews_list(a):
+    root, cfg = ctx(a)
+    rows, who = [], {}
+    for (org, proj) in sorted(workspace_projects(root, cfg)):
+        ado = L.Ado(org)
+        if org not in who:
+            who[org] = ado.me()
+        me = who[org]
+        prs_ = ado.pull_requests(proj, status="active")
+        groups = {r["id"] for pr in prs_ for r in pr.get("reviewers") or [] if r.get("isContainer")}
+        mine = my_groups(ado, me, groups)
+        for pr in prs_:
+            rows.append(R.pr_row(org, proj, pr, me.get("id"), mine,
+                                 L.web_pr_url(org, proj, pr["repository"]["name"], pr["pullRequestId"])))
+    rows.sort(key=lambda r: (not r["waiting"], r["created"]))
+    data = {"generated": int(time.time()), "me": ", ".join(sorted({m.get("name", "") for m in who.values()})), "rows": rows}
+    L.write_json(L.state_dir(root, "reviews", "list.json"), data)
+    shown = rows if a.all else [r for r in rows if r["waiting"]]
+    if a.json:
+        print(json.dumps(dict(data, rows=shown), ensure_ascii=False))
+        return 0
+    out(f"{len(shown)} PR{'s' if len(shown) != 1 else ''} {'active' if a.all else 'waiting on you'} ({len(rows)} active in "
+        f"{len(workspace_projects(root, cfg))} project{'s' if len(workspace_projects(root, cfg)) != 1 else ''})")
+    for r in shown:
+        out(f"  PR {r['id']} {r['repo']}: {short(r['title'], 60)} · {r['author']} · {r['role'] or 'not a reviewer'} · {R.vote_word(r['myVote'])}")
+    return 0
+
+
+def pr_detail(root, cfg, project, pr_id):
+    org = project_org(root, cfg, project)
+    ado = L.Ado(org)
+    me = ado.me()
+    pr = ado.pull_request(project, pr_id)
+    repo = pr["repository"]["name"]
+    its = ado.pr_iterations(project, repo, pr_id)
+    it = its[-1] if its else {}
+    changes = ado.pr_changes(project, repo, pr_id, it["id"]) if it else []
+    files = [{"path": (c.get("item") or {}).get("path", "").lstrip("/"), "change": c.get("changeType", "")}
+             for c in changes if not (c.get("item") or {}).get("isFolder")]
+    ids = ado.pr_work_items(project, repo, pr_id)
+    wis = [{"id": int(w["id"]), "type": w["fields"].get("System.WorkItemType", ""), "title": w["fields"].get("System.Title", ""),
+            "state": w["fields"].get("System.State", ""),
+            "criteria": R.strip_html(w["fields"].get("Microsoft.VSTS.Common.AcceptanceCriteria", ""))[:1500]}
+           for w in (ado.work_items(ids, ["System.Title", "System.WorkItemType", "System.State",
+                                          "Microsoft.VSTS.Common.AcceptanceCriteria"]) if ids else [])]
+    policies = R.policy_rows(ado.policy_evaluations(project, pr["repository"]["project"]["id"], pr_id))
+    groups = {r["id"] for r in pr.get("reviewers") or [] if r.get("isContainer")}
+    row = R.pr_row(org, project, pr, me.get("id"), my_groups(ado, me, groups), L.web_pr_url(org, project, repo, pr_id))
+    ok, why = R.can_vote(pr, me.get("id"), policies)
+    key = R.key_of(org, project, pr_id, it.get("id", 0))
+    return dict(row, description=pr.get("description", ""), iteration=it.get("id", 0),
+                commits={"source": (it.get("sourceRefCommit") or {}).get("commitId"),
+                         "common": (it.get("commonRefCommit") or {}).get("commitId")},
+                files=files, workItems=wis, threads=R.thread_rows(ado.pr_threads(project, repo, pr_id)),
+                policies=[{k: v for k, v in p.items() if k != "settings"} for p in policies],
+                canVote=ok, voteNote=why, me=me.get("name", ""), key=key,
+                review=L.read_json(L.state_dir(root, "reviews", f"{key}.json")))
+
+
+def cmd_reviews_show(a):
+    root, cfg = ctx(a)
+    d = pr_detail(root, cfg, a.project, a.id)
+    if a.json:
+        print(json.dumps(d, ensure_ascii=False))
+        return 0
+    out(f"PR {d['id']} {d['repo']}: {d['title']} · {d['author']} · {d['source']} -> {d['target']}")
+    out("  policies: " + (", ".join(f"{p['name']} {p['status']}" for p in d["policies"]) or "none"))
+    out("  votes: " + (", ".join(f"{v['name']} {R.vote_word(v['vote'])}" for v in d["votes"]) or "none"))
+    out(f"  you: {d['role'] or 'not a reviewer'}, {R.vote_word(d['myVote'])}" + ("" if d["canVote"] else f" · may not vote: {d['voteNote']}"))
+    wis = ", ".join("ADO %s" % w["id"] for w in d["workItems"]) or "none"
+    out(f"  {len(d['files'])} files · {len(d['threads'])} threads · work items {wis}")
+    return 0
+
+
+def pr_diff(root, cfg, d):
+    """The PR's diff (common base -> source of the latest iteration): from the local clone when it has the
+    commits, else from ADO's file contents."""
+    clone = workspace_projects(root, cfg).get((d["org"], d["project"]), {}).get(d["repo"].lower())
+    src, base = d["commits"]["source"], d["commits"]["common"]
+    if clone and src and base:
+        L.git_rc(["fetch", "--quiet", "origin", d["source"], d["target"]], clone)
+        if all(L.git_rc(["cat-file", "-e", f"{c}^{{commit}}"], clone)[0] == 0 for c in (src, base)):
+            return L.git(["diff", "-U3", "--no-color", "--no-ext-diff", base, src], clone, check=False)
+    ado = L.Ado(d["org"])
+    parts = []
+    for f in d["files"][:80]:
+        old = None if f["change"].startswith("add") else ado.file_at(d["project"], d["repo"], "/" + f["path"], base)
+        new = None if f["change"].startswith("delete") else ado.file_at(d["project"], d["repo"], "/" + f["path"], src)
+        parts.append(R.unified(f["path"], old, new))
+    return "\n".join(parts)
+
+
+def cmd_reviews_pack(a):
+    """What the pane's quick review sends to the model, and the lines a finding may name."""
+    root, cfg = ctx(a)
+    d = pr_detail(root, cfg, a.project, a.id)
+    rc = cfg["reviews"]
+    bundle, lines, cut = R.number_diff(pr_diff(root, cfg, d), int(rc["maxDiffChars"]))
+    print(json.dumps({"key": d["key"], "iteration": d["iteration"], "system": R.SYSTEM % int(rc["maxFindings"]),
+                      "prompt": R.prompt(d, bundle, cut), "lines": lines, "truncated": cut, "model": rc["model"],
+                      "maxTokens": int(rc["maxTokens"]), "maxFindings": int(rc["maxFindings"])}, ensure_ascii=False))
+    return 0
+
+
+def cmd_reviews_save(a):
+    """The quick review's findings for one PR iteration (stdin JSON), so reopening the PR shows them again."""
+    root, _ = ctx(a)
+    if not re.fullmatch(r"[\w.-]+", a.key):
+        L.die("bad key")
+    data = json.loads(sys.stdin.read() or "{}")
+    data["at"] = int(time.time())
+    L.write_json(L.state_dir(root, "reviews", f"{a.key}.json"), data)
+    out(f"Saved {len(data.get('findings', []))} findings.")
+    return 0
+
+
+def cmd_reviews_post(a):
+    """Posts the person's comments (stdin JSON {"iteration": n, "drafts": [...]}) under their own name."""
+    root, cfg = ctx(a)
+    org = project_org(root, cfg, a.project)
+    data = json.loads(sys.stdin.read() or "{}")
+    drafts = [x for x in data.get("drafts", []) if str(x.get("text", "")).strip()]
+    if not drafts:
+        L.die("nothing to post")
+    bad = []
+    for i, x in enumerate(drafts, 1):
+        problems = L.lint_outbound(x["text"] + "\n" + str(x.get("suggestion") or ""), "pr")
+        bad += [f"comment {i}: {p}" for p in problems if "4000" not in p]
+    if bad:
+        raise L.Refused("nothing was posted: " + "; ".join(bad))
+    ado = L.Ado(org)
+    pr = ado.pull_request(a.project, a.id)
+    repo = pr["repository"]["name"]
+    its = ado.pr_iterations(a.project, repo, a.id)
+    iteration = its[-1]["id"] if its else None
+    tracking = {}
+    if iteration and any(x.get("file") for x in drafts):
+        tracking = {(c.get("item") or {}).get("path", "").lstrip("/"): c.get("changeTrackingId")
+                    for c in ado.pr_changes(a.project, repo, a.id, iteration)}
+    if data.get("iteration") and iteration and int(data["iteration"]) != int(iteration):
+        raise L.Refused(f"PR {a.id} has a new push (iteration {iteration}, the review read {data['iteration']}): "
+                        "its line numbers may have moved. Open the PR again and review the new code. Nothing was posted.")
+    done = 0
+    for x in drafts:
+        if x.get("reply"):
+            ado.post_reply(a.project, repo, a.id, x["reply"], x["text"].strip())
+        else:
+            ado.post_thread(a.project, repo, a.id, R.thread_body(x, iteration, tracking))
+        done += 1
+    out(f"Posted {done} comment{'s' if done != 1 else ''} on PR {a.id}.")
+    return 0
+
+
+def cmd_reviews_vote(a):
+    """The person's vote on a PR, under their own name; refused where the PR's policy does not count it."""
+    root, cfg = ctx(a)
+    org = project_org(root, cfg, a.project)
+    ado = L.Ado(org)
+    me = ado.me()
+    pr = ado.pull_request(a.project, a.id)
+    if a.vote != "reset":
+        policies = R.policy_rows(ado.policy_evaluations(a.project, pr["repository"]["project"]["id"], a.id))
+        ok, why = R.can_vote(pr, me.get("id"), policies)
+        if not ok:
+            raise L.Refused(why)
+    ado.vote(a.project, pr["repository"]["name"], a.id, me["id"], R.VOTES[a.vote])
+    out(f"Voted on PR {a.id}: {R.vote_word(R.VOTES[a.vote])}.")
+    return 0
+
+
 # ================================================================ main
 
 def main(argv=None):
@@ -1313,6 +1532,27 @@ def main(argv=None):
     s.add_argument("--run", required=True)
     s.set_defaults(fn=cmd_notes_publish)
 
+
+    rv = sub.add_parser("reviews").add_subparsers(dest="sub", required=True)
+    s = rv.add_parser("list")
+    s.add_argument("--all", action="store_true", help="every active PR, not only those waiting on you")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(fn=cmd_reviews_list)
+    for name, fn in (("show", cmd_reviews_show), ("pack", cmd_reviews_pack), ("post", cmd_reviews_post)):
+        s = rv.add_parser(name)
+        s.add_argument("--project", required=True)
+        s.add_argument("--id", type=int, required=True)
+        if name == "show":
+            s.add_argument("--json", action="store_true")
+        s.set_defaults(fn=fn)
+    s = rv.add_parser("save")
+    s.add_argument("--key", required=True)
+    s.set_defaults(fn=cmd_reviews_save)
+    s = rv.add_parser("vote")
+    s.add_argument("--project", required=True)
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--vote", required=True, choices=sorted(R.VOTES))
+    s.set_defaults(fn=cmd_reviews_vote)
 
     a = ap.parse_args(argv)
     try:
