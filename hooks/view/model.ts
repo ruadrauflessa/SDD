@@ -417,6 +417,21 @@ export function railSlice(input: { mark: Mark; prevMark: Mark | null; hasNext: b
 
 /** The command that puts `path` on the computer's clipboard: PowerShell on Windows, pbcopy (or wl-copy, xclip) elsewhere.
  *  A path in single quotes, each quote of its own escaped, so a folder with a quote or a space copies as it is. */
+/** The Pythons to try, the one that worked last first. `py` comes before `python3`: on Windows, `python` and `python3`
+ *  may be the Microsoft Store's stand-ins, and `py` is the launcher the python.org installer puts on the PATH. */
+export function pythonCandidates(last: string): string[] {
+  return [...new Set([last, 'python', 'py', 'python3'])]
+}
+
+/** True when what ran is Windows' Microsoft Store stand-in for Python (an App execution alias), not a Python:
+ *  it exits 9009 and says "Python was not found". Another candidate is worth a try. */
+export function isPythonStub(r: { exitCode: number; stdout: string; stderr: string }): boolean {
+  return r.exitCode === 9009 || /Python was not found|App execution aliases/i.test(`${r.stderr}\n${r.stdout}`.slice(0, 2000))
+}
+
+/** What the view says when no candidate is a real Python. The start page knows it by its first words. */
+export const NO_PYTHON = 'No Python found. sdd runs its scripts with Python 3.9 or newer: install it from python.org (tick "Add python.exe to PATH"), then restart the Claude app. On Windows, if "python" opens the Microsoft Store, turn off the python.exe and python3.exe App execution aliases (Settings > Apps > Advanced app settings).'
+
 export function clipboardArgv(path: string): string[] {
   if (/^[A-Za-z]:[\\/]/.test(path)) {
     const native = path.replace(/\//g, '\\')

@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { SddItem, SddSnapshot } from '../types'
-import { contextTone, moneyText, spendTokens, tokenText, tokensLine, spendLine, spendHead, spendTotal, agentRows, itemOptions, itemSuggestions, startPage, gateChips, MARK_WORD, railSlice, stageWord, flowAlt, RAIL, railBarColor, clipboardArgv, defaultStage, stepStage, shortStamp, flowTag, spinnerNote, yourTurn, questionBadge, answerMessage, answersFor, approveAnswers, approveFor, approveMessage, fileLinks, flowFinished, fileTarget, gateStory, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, phaseKey, refLink, stageRows, stageSummary } from './view/model'
+import { contextTone, moneyText, spendTokens, tokenText, tokensLine, spendLine, spendHead, spendTotal, agentRows, itemOptions, itemSuggestions, startPage, gateChips, MARK_WORD, railSlice, stageWord, flowAlt, RAIL, railBarColor, clipboardArgv, isPythonStub, pythonCandidates, defaultStage, stepStage, shortStamp, flowTag, spinnerNote, yourTurn, questionBadge, answerMessage, answersFor, approveAnswers, approveFor, approveMessage, fileLinks, flowFinished, fileTarget, gateStory, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, phaseKey, refLink, stageRows, stageSummary } from './view/model'
 import type { SddLiveState } from '../types'
 import { historyArgs, historyRefs, agoText, cleanupNote, conflictNote, counts, groupByItem, joinWorktrees, lineFacts, pathKey, sortLines, lineTone, lineWord, ageShort, lineKey, linePath, type WtLine } from './view/worktrees'
 
@@ -513,4 +513,15 @@ test('a worktree row: colour, word and age say it in a glance', () => {
 test('a worktree row has a key and a folder of its own', () => {
   expect(lineKey(wl(null))).toBe('7:R')
   expect(linePath(wl(null))).toBe('/ws/f/7/src/R')
+})
+
+test('python: the Store stand-in is not a Python, and py is tried before python3', () => {
+  expect(pythonCandidates('python')).toEqual(['python', 'py', 'python3'])
+  expect(pythonCandidates('py')).toEqual(['py', 'python', 'python3'])
+  const stub = 'Python was not found; run without arguments to install from the Microsoft Store, or disable this shortcut from Settings > Apps > Advanced app settings > App execution aliases.'
+  expect(isPythonStub({ exitCode: 9009, stdout: '', stderr: stub })).toBe(true)
+  expect(isPythonStub({ exitCode: 1, stdout: '', stderr: stub })).toBe(true)
+  expect(isPythonStub({ exitCode: 9009, stdout: '', stderr: '' })).toBe(true)
+  expect(isPythonStub({ exitCode: 1, stdout: '', stderr: 'no .claude/sdd.json at or above this folder' })).toBe(false)
+  expect(isPythonStub({ exitCode: 0, stdout: '{"items":[]}', stderr: '' })).toBe(false)
 })
