@@ -289,6 +289,45 @@ def main():
         rows, _ = anchors.parse("## Affected components\n| Component | Change | Graph node |\n|---|---|---|\n"
                                 "| `A/b.py` | **Modified** (rename) | `a_b`, `a_b_c` |\n")
         assert rows == [{"line": 4, "component": "A/b.py", "change": "modified", "nodes": ["a_b", "a_b_c"]}], rows
+
+        # graph-focus: the code graph with the item's design, or its changes, lit (graphify's files are faked)
+        gdir = env_dir / "graph"
+        gdir.mkdir(exist_ok=True)
+        node = lambda i, label, f, line: {"id": i, "label": label, "source_file": f, "source_location": f"L{line}"}
+        (gdir / "graph.json").write_text(json.dumps({"nodes": [
+            node("calc", "calc.py", "Repo/calc.py", 1), node("add", "add()", "Repo/calc.py", 1), node("sub", "sub()", "Repo/calc.py", 10),
+            node("newfn", "newfn()", "Repo/new.py", 1), node("far", "far()", "Repo/far.py", 1)],
+            "links": [{"source": "add", "target": "far", "relation": "calls"}]}), encoding="utf-8")
+        (gdir / "graph.html").write_text("<html><body><script>const nodesDS = 1</script></body></html>", encoding="utf-8")
+        (spec / "design.md").write_text("# Design\n\nAdd `sub()` next to it. Touch `src/Repo/calc.py`.\n", encoding="utf-8")
+        rec = env.read_env(env_dir)
+        rec["progress"] = {"flow": "bug", "phase": "Phase 8 — Apply the fix", "status": "active"}
+        env.write_env(env_dir, rec)
+        (wt / "calc.py").write_text(FIXED + "# a line the work added\n")           # uncommitted, below the committed fix
+        (wt / "new.py").write_text("def newfn():\n    pass\n")                      # a new file
+        r = env_py(root, "graph-focus", "--id", "5", "--json")
+        got = json.loads(r.stdout)
+        assert got["ok"] and got["mode"] == "implementation" and got["stage"].startswith("Phase 8"), got
+        focus = json.loads((gdir / "focus.json").read_text(encoding="utf-8"))
+        assert focus["files"] == ["Repo/calc.py", "Repo/new.py"], focus
+        page = (gdir / "graph-focus.html").read_text(encoding="utf-8")
+        assert 'id="sdd-graph-focus"' in page and page.index("sdd-graph-focus") < page.rindex("</body>")
+        injected = json.loads(page.split("var F = ")[1].split(";\n  if (typeof nodesDS")[0].replace("<\\/", "</"))
+        assert sorted(injected["primary"]) == ["add", "newfn"], injected                    # the function the lines are in, and the new file
+        assert "sub" in injected["planned"] and "far" in injected["neighbors"], injected    # named in design.md, not changed
+        r = env_py(root, "graph-focus", "--id", "5", "--mode", "design", "--json")
+        got = json.loads(r.stdout)
+        assert got["mode"] == "design" and got["primary"] >= 2 and got["planned"] == 0, got
+        rec["progress"] = {"flow": "bug", "phase": "Phase 4 — Reproduce and locate", "status": "active"}
+        env.write_env(env_dir, rec)
+        assert json.loads(env_py(root, "graph-focus", "--id", "5", "--json").stdout)["mode"] == "none"   # a stage with nothing to light
+        assert 'sdd-graph-focus' not in (gdir / "graph-focus.html").read_text(encoding="utf-8")
+        (gdir / "graph.json").unlink()
+        os.environ["PATH"] = no_graphify
+        r = env_py(root, "graph-focus", "--id", "5", "--json", check=False)
+        got = json.loads(r.stdout)                                                   # no graph, and nothing here can build one
+        assert r.returncode == 1 and got["ok"] is False and "graphify is not on PATH" in got["error"], (r.stdout, r.stderr)
+        os.environ["PATH"] = with_graphify
     print("ok")
 
 

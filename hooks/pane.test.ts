@@ -11,7 +11,7 @@ const SPEC = {
   label: 'Spec flow', prGates: ['Requirements agreed'],
   stages: [
     { key: 'Specify', label: 'Specify', needs: [], passes: ['Claimed'] },
-    { key: 'Design', label: 'Design', needs: ['Claimed'], passes: ['Design agreed'], stop: true },
+    { key: 'Design', label: 'Design', needs: ['Claimed'], passes: ['Design agreed'], stop: true, lens: 'design' },
     { key: 'Review', label: 'Review', needs: ['Design agreed'], passes: ['PR approved'], stop: true },
   ],
 }
@@ -39,7 +39,7 @@ const AGENTS = [
 type Cost = { id: number; stage: string; usd: number; session: string; turns: number; input: number; output: number; cacheRead: number; cacheWrite: number }
 type Row = { usd: number; turns: number; input: number; output: number; cacheRead: number; cacheWrite: number }
 type Fake = { registered: string[]; usd: number | null; costs: Cost[]; costFails: boolean; toasts: string[]
-  ran: string[]; opened: string[]; runs: string[][]; finishFirst?: boolean; surfaces: string[]; sid: string; spend: Record<string, Row>; spendOther: Record<string, Row> }
+  ran: string[]; opened: string[]; runs: string[][]; finishFirst?: boolean; noAutoOpen?: boolean; graphOk?: boolean; surfaces: string[]; sid: string; spend: Record<string, Row>; spendOther: Record<string, Row> }
 
 function fake(on: (event: any, hook: (...a: never[]) => unknown) => void, agents = AGENTS): Fake {
   const f: Fake = { registered: [], usd: 1, costs: [], costFails: false, toasts: [], ran: [], opened: [], runs: [], sid: 's1', surfaces: ['desktop'], spend: {}, spendOther: {} }
@@ -59,9 +59,12 @@ function fake(on: (event: any, hook: (...a: never[]) => unknown) => void, agents
         cacheRead: was.cacheRead + c.cacheRead, cacheWrite: was.cacheWrite + c.cacheWrite }
       return done(0, `${c.id}: ${c.stage}`)
     }
+    if (e.argv.includes('graph-focus')) return done(f.graphOk === false ? 1 : 0, JSON.stringify(f.graphOk === false
+      ? { ok: false, error: 'no code graph: graphify not on PATH' }
+      : { ok: true, path: '/ws/.claude/worktrees/92012-author/graph/graph-focus.html', mode: 'design', primary: 3, planned: 0, opened: true }))
     const all = (SNAP as any).items.map((i: any) => ({ ...i, spend: i.id === 92012 ? f.spend : f.spendOther }))
     const snap = f.finishFirst ? { ...(SNAP as any), items: all.filter((i: any) => i.id !== 92012), done: all.filter((i: any) => i.id === 92012) } : { ...(SNAP as any), items: all }
-    return done(0, JSON.stringify(snap))
+    return done(0, JSON.stringify(f.noAutoOpen ? { ...snap, autoOpen: false } : snap))
   }) as never)
   on('tool.call' as never, (() => ({ result: 'ok' })) as never)  // a Bash run: the plugin only watches it
   on('session.cwd' as never, (() => ({ value: '/ws' })) as never)
@@ -103,6 +106,29 @@ const mountPane = async ($: any, f: Fake, surface: 'terminal' | 'desktop', colum
   for (let i = 0; i < 100 && !(await texts(ui)).includes('Author tags'); i++) await new Promise(r => setTimeout(r, 10))
   return ui
 }
+
+test('desktop: with no work item the pane is a start page: what to start, and the open items to pick up', async ($: any, on: any) => {
+  const f = fake(on)
+  await $.session.start({ cwd: '/ws', surface: 'terminal', isInteractive: true })
+  if (!f.registered.includes('sdd-view')) {
+    await new Promise(r => setTimeout(r, 100))
+    return
+  }
+  await $.command.run({ command: 'sdd-view', args: '' })
+  const ui = await $.ui.mount({ plugin: 'sdd', surface: 'desktop', component: 'Pane', props: { title: 'sdd', isFocused: true, bodyColumns: 100, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} } as never,
+    requestId: 'sdd-view', viewport: { columns: 100, rows: 40 } })
+  for (let i = 0; i < 100 && !(await texts(ui)).includes('Start something'); i++) await new Promise(r => setTimeout(r, 10))
+  const t = await texts(ui)
+  expect(t).toContain('This chat is not working on a work item yet.')
+  expect(t).toContain('Start something')
+  expect(t).toContain('Open in this workspace (2)')
+  const labels = (await ui.findAll({ type: 'Button' })).map((b: any) => b.props?.label ?? '')
+  expect(labels).toEqual(expect.arrayContaining(['Work an item', 'Take the next item', 'Pull the specs', 'Triage bugs', 'Help', '● 92100 Second thing · Design · waiting on you', '▸ 92012 Author tags · Design · active']))
+  // a press on an open item shows it
+  await ui.press({ key: 'start-open-92012' })
+  for (let i = 0; i < 100 && (await texts(ui)).includes('Start something'); i++) await new Promise(r => setTimeout(r, 10))
+  expect(await texts(ui)).not.toContain('Start something')
+})
 
 for (const surface of ['desktop'] as const) {
   test(`${surface}: the pane lists the session's agents, the working one first, without the plugin prefix`, async ($: any, on: any) => {
@@ -525,6 +551,52 @@ async function bandCheck($: any, f: Fake) {
   expect(tag.text).toBe('[spec\u00a0·\u00a0full]')                                      // no plain space to wrap at
 }
 
+test('desktop: the Code graph button builds and opens the graph with the design lit, and says why when it cannot', async ($: any, on: any) => {
+  const f = fake(on)
+  const ui = await mountPane($, f, 'desktop')
+  if (!ui) return
+  expect(await texts(ui)).toContain('with the nodes design.md and tasks.md name lit')
+  await ui.press({ key: 'graph-open' })
+  await until(async () => f.toasts.some(t => t.includes('Code graph opened')))
+  expect(f.toasts.join('\n')).toContain('Code graph opened: 3 nodes named in the design.')
+  const run = f.runs.find(r => r.includes('graph-focus'))!
+  expect(run.slice(-6)).toEqual(['graph-focus', '--id', '92012', '--refresh', '--open', '--json'])
+  f.graphOk = false
+  await ui.press({ key: 'graph-open' })
+  await until(async () => f.toasts.some(t => t.includes('No code graph')))
+  expect(f.toasts.join('\n')).toContain('No code graph: graphify not on PATH')
+})
+
+test('a Desktop session start in an sdd workspace opens the start page by itself, once', async ($: any, on: any) => {
+  const f = fake(on)
+  await $.session.start({ cwd: '/ws', surface: 'terminal', isInteractive: true })
+  if (!f.registered.includes('sdd-view')) { await new Promise(r => setTimeout(r, 100)); return }
+  await until(async () => f.opened.includes('sdd-view'))
+  expect(f.opened.filter(id => id === 'sdd-view')).toHaveLength(1)
+  // a reload runs the session start again: the page is not opened a second time
+  await $.session.start({ cwd: '/ws', surface: 'terminal', isInteractive: true })
+  await new Promise(r => setTimeout(r, 150))
+  expect(f.opened.filter(id => id === 'sdd-view')).toHaveLength(1)
+})
+
+test('view.autoOpen false in sdd.json keeps the view shut at the start of a session', async ($: any, on: any) => {
+  const f = fake(on)
+  f.noAutoOpen = true
+  await $.session.start({ cwd: '/ws', surface: 'terminal', isInteractive: true })
+  if (!f.registered.includes('sdd-view')) { await new Promise(r => setTimeout(r, 100)); return }
+  await until(async () => f.runs.length > 0)
+  await new Promise(r => setTimeout(r, 200))
+  expect(f.opened).not.toContain('sdd-view')
+})
+
+test('no Desktop app attached: nothing opens at the start', async ($: any, on: any) => {
+  const f = fake(on)
+  f.surfaces = ['terminal']
+  await $.session.start({ cwd: '/ws', surface: 'terminal', isInteractive: true })
+  await new Promise(r => setTimeout(r, 200))
+  expect(f.opened).toEqual([])
+})
+
 const mountBand = ($: any, columns = 100) => $.ui.mount({ plugin: 'sdd', surface: 'desktop', component: 'AbovePrompt',
   props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: columns, scroll: { offset: 0, bodyRows: 3 }, view: {} } as never, requestId: 'band', viewport: { columns, rows: 40 } })
 
@@ -532,6 +604,8 @@ test('the launcher: with no item running the band still offers the panels, and e
   const f = fake(on, [])
   await $.session.start({ cwd: '/ws', surface: 'terminal', isInteractive: true })
   if (!f.registered.includes('sdd-view')) { await new Promise(r => setTimeout(r, 100)); return }
+  await until(async () => f.opened.includes('sdd-view'))   // the session start opened the start page by itself
+  f.opened.length = 0
   const ui = await mountBand($)          // this chat has taken no item up
   expect(await texts(ui)).toContain('Open a panel')
   await ui.press({ key: 'band-worktrees' })

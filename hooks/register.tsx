@@ -7,7 +7,7 @@ import { update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { BugAnalysis, BugCategory, BugChange, BugCondition, BugSettings, BugSettingsDraft, BugDetail, BugEvidence, BugFilter, BugIndex, BugRecord, BugsConfig, SddAsk, SddColors, SddLiveState, SddDoc, SddItem, SddQuestion, SddSnapshot, SddStage } from '../types'
-import { GLYPH, agentRows, contextTone, moneyText, spendHead, SPEND_ICON, spendTokens, spendTotal, tokensLine, answerMessage, answersFor, approveAnswers, approveFor, approveMessage,decidedGates, fileLinks, defaultStage, flowFinished, railSlice, railBarColor, clipboardArgv, stageWord, shortStamp, flowTag, MARK_WORD, idFromArgs, idFromScript, itemOptions, itemSuggestions, pendingGate, reviewLinks, stamp, fileTarget, gateStory, phaseKey, phaseLabel, refLink, stageDocs, stageHistory, stageRows, stageSummary, spinnerNote, statusWord, when, yourTurn } from './view/model'
+import { GLYPH, agentRows, contextTone, moneyText, spendHead, SPEND_ICON, spendTokens, spendTotal, tokensLine, answerMessage, answersFor, approveAnswers, approveFor, approveMessage,decidedGates, fileLinks, defaultStage, flowFinished, railSlice, railBarColor, clipboardArgv, stageWord, shortStamp, flowTag, MARK_WORD, idFromArgs, idFromScript, itemOptions, itemSuggestions, startPage, pendingGate, reviewLinks, stamp, fileTarget, gateStory, phaseKey, phaseLabel, refLink, stageDocs, stageHistory, stageRows, stageSummary, spinnerNote, statusWord, when, yourTurn } from './view/model'
 import type { AgentInfoLike, AgentTone, Mark, StageRow } from './view/model'
 import { ageShort, agoText, cleanupNote, conflictNote, counts, groupByItem, historyArgs, joinWorktrees, lineFacts, lineKey, linePath, lineTone, lineWord, sortLines } from './view/worktrees'
 import { ANALYSIS_SYSTEM, F, FIELD_NAME, NO_FILTER, UNASSIGNED, ago, analysisKey, analysisNote, analysisPrompt, bugsConfig, assigneeOptions, categorize, chipCounts, clipboardArgvFor, commentProblem, countText, currentValue, filterItems, isMine,
@@ -28,6 +28,7 @@ const place = { plugin: 'sdd', key: 'workspace' } as const
 const feedback = { plugin: 'sdd', key: 'feedback' } as const
 const gate = { plugin: 'sdd', key: 'gate' } as const
 const autoOpened = { plugin: 'sdd', key: 'opened' } as const
+const startOpened = { plugin: 'sdd', key: 'startOpened' } as const
 const mine = { plugin: 'sdd', key: 'mine' } as const
 const home = { plugin: 'sdd', key: 'home' } as const
 const asked = { plugin: 'sdd', key: 'asked' } as const
@@ -69,6 +70,7 @@ let isOpen = false
 let isWorkspace = false
 // Cost and context, from session.measure. The cost is charged to the stage the item was in when the turn began.
 let desktopReady = false  // a Desktop app is attached: until then the mod does nothing
+let openAtStart = true    // the `openAtStart` option (/config): open the view when a Desktop session starts in an sdd workspace
 let sessionId = ''
 /** Why the last finished turn charged nothing, for the pane to say when an item shows no cost; null = it was recorded. */
 let costWhy: string | null = null
@@ -185,6 +187,41 @@ async function openIn($: EngineInterface, app: 'files' | 'code', path: string): 
   } catch (err) {
     $.ui.toast(`Could not open ${app === 'code' ? 'VS Code' : 'the folder'}: ${String(err)}`)
   }
+}
+
+/** The code graph page of a work item, with the nodes of its design or its changes lit (`env.py graph-focus`): the script builds the
+ *  graph when there is none, rebuilds it so the changes are in it, writes `graph/graph-focus.html` and opens it in the browser. It
+ *  changes nothing else. Says what it did, or why not. */
+async function openCodeGraph($: EngineInterface, id: number): Promise<void> {
+  $.ui.toast('Building the code graph…')
+  const cwd = (await $.state.get(place)).value || (await $.session.cwd())
+  let why = 'could not run python'
+  for (const exe of [python, 'python3', 'py']) {
+    try {
+      const r = await $.process.run([exe, `${$.plugin.root}/scripts/env.py`, 'graph-focus', '--id', String(id), '--refresh', '--open', '--json'], { cwd, timeoutMs: 180000 })
+      python = exe
+      const last = r.stdout.trim().split('\n').pop() ?? ''
+      let got: { ok?: boolean; error?: string; mode?: string; primary?: number; planned?: number; opened?: boolean; path?: string } = {}
+      try {
+        got = JSON.parse(last)
+      } catch {
+        why = (r.stderr || r.stdout).trim().split('\n').pop() || `env.py graph-focus exited ${r.exitCode}`
+        break
+      }
+      if (!got.ok) {
+        why = (got.error ?? 'the graph could not be built').replace(/^no code graph:\s*/i, '')
+        break
+      }
+      const lit = got.mode === 'design' ? `${got.primary} nodes named in the design`
+        : got.mode === 'implementation' ? `${got.primary} nodes changed${got.planned ? `, ${got.planned} named in the design and not changed yet` : ''}`
+        : 'nothing to light at this stage'
+      $.ui.toast(got.opened ? `Code graph opened: ${lit}.` : `Code graph written to ${got.path} (no browser opened): ${lit}.`)
+      return
+    } catch (err) {
+      why = `could not run python: ${String(err)}`
+    }
+  }
+  $.ui.toast(`No code graph: ${why}`)
 }
 
 /** Copies a path to the clipboard (the mod kit has no clipboard call, so the computer's own tool does it) and says so. */
@@ -335,6 +372,20 @@ async function baseline($: EngineInterface): Promise<void> {
   }
 }
 
+/** The view opens by itself when a Desktop session starts in an sdd workspace, once per session: as the start page when this
+ *  chat has no work item. Not when the `openAtStart` option is off (/config), when the workspace's `view.autoOpen` is false, or when
+ *  no sdd workspace was found from here (the read failed: there is nothing to show but a setup page, and not in every project). */
+async function openAtSessionStart($: EngineInterface): Promise<void> {
+  if (!openAtStart) return
+  const s = (await $.state.get(snap)).value ?? null
+  if (!s || s.autoOpen === false) return
+  if ((await $.state.get(startOpened)).value) return
+  await $.state.set(startOpened, true)
+  const own = (await $.state.get(mine)).value ?? null
+  if (own != null) return                                       // this chat took an item up already: its own auto-open ran
+  await openPane($, null)
+}
+
 /** The sdd view is for the Claude Desktop app. This sets it up once a Desktop app is attached to the session (at the start,
  *  or when it attaches; never from a draw, which may not write state): the commands, the first read of the work items, the cost baseline and the
  *  timers. Anywhere else (a terminal, the VS Code extension, a phone, `claude -p`) it does nothing, and every hook passes
@@ -371,7 +422,7 @@ async function setupDesktop($: EngineInterface, isAttach = false): Promise<boole
     await $.state.set(error, v.why)
   }
   // background reads: if the session ends under one, there is nobody to tell
-  void sync().catch(() => undefined)
+  void sync().then(() => openAtSessionStart($)).catch(() => undefined)
   await baseline($)
   $.clock.every(30_000, () => {
     if (isOpen || isWorkspace) void sync().catch(() => undefined)
@@ -667,7 +718,8 @@ async function openBugsPage($: EngineInterface, args = ''): Promise<string> {
   return w ? 'sdd bugs opened.' : 'sdd bugs opened (no workspace: see the pane).'
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  openAtStart = options?.openAtStart !== false  // a change in /config reloads the module with the new value
   // ---------------------------------------------------------------- the Worktrees page (/sdd-worktrees)
   // It lives in this file: older engines follow `$` into a function of the same file only.
 
@@ -1287,10 +1339,35 @@ export const register: Register = on => {
     }
 
     if (!index || !cfg) {
+      const q = cfg?.query
+      const list = (v: readonly string[] | undefined, none: string) => (v && v.length ? v.join(', ') : none)
       return (
         <Box flexDirection="column" width={cols} gap={1}>
           {drawHeader()}
-          <Text dimColor wrap="wrap">The bug manager reads the bugs and issues Sync pulls from ADO into the spec folder. Sync needs PowerShell and an az login.</Text>
+          <Box flexDirection="column" gap={1} borderStyle="round" borderColor={C.line} paddingX={1}>
+            <Text bold>{busy === 'sync' ? 'Syncing from ADO…' : 'Nothing to triage yet'}</Text>
+            <Text wrap="wrap">Sync copies the bugs and issues of your ADO projects into your spec folder. Nothing is changed in ADO, and it costs no tokens. It needs PowerShell and an az login.</Text>
+            {cfg && (
+              <Box flexDirection="column">
+                <Text bold>What it will pull</Text>
+                <Text wrap="wrap">{`Types: ${list(cfg.types, 'Bug, Issue')}`}</Text>
+                <Text wrap="wrap">{`Projects: ${list(q?.projects, 'the ones in ado.projects of sdd.json')}`}</Text>
+                <Text wrap="wrap">{`Areas: ${list(q?.areaPaths, 'every area')}`}</Text>
+                <Text wrap="wrap">{`Leaves out: ${list(q?.excludeStates, 'nothing')}`}</Text>
+              </Box>
+            )}
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Button key="bugs-sync-start" variant="primary" label="↻ Sync from ADO" onPress={sync} />
+              {cfg && <Button key="bugs-config-start" label="⚙ Change what it pulls" onPress={toggleSettings} />}
+            </Box>
+          </Box>
+          <Box flexDirection="column" borderStyle="round" borderColor={C.line} paddingX={1}>
+            <Text bold>Then you can</Text>
+            <Text wrap="wrap">· sort them into categories: quick wins, high severity, in progress, ready for deployment, a branch per version</Text>
+            <Text wrap="wrap">· filter by person, state, type or the dev team, and search by words</Text>
+            <Text wrap="wrap">· change a state, severity, tag or owner on many at once, and save it to ADO as one batch</Text>
+            <Text wrap="wrap">· find the probable cause of a bug, and copy the /sdd command to fix it in a new chat</Text>
+          </Box>
         </Box>
       )
     }
@@ -1383,7 +1460,7 @@ export const register: Register = on => {
           <Button key="pend-revert" label="Revert all" onPress={() => edit('revert-all')} />
         </Box>
         {editing === 'revert-all' && (
-          <Box flexDirection="row" gap={1} alignItems="center">
+          <Box flexDirection="row" gap={1} alignItems="center" marginTop={1}>
             <Text color={C.revoked}>{`Drop all ${pending.length} staged changes? Nothing was sent to ADO.`}</Text>
             <Button key="pend-revert-yes" label="Yes, revert all" onPress={() => void (async () => {
               await bugsStage($, () => [])
@@ -1425,18 +1502,20 @@ export const register: Register = on => {
 
     // ---- the items ticked for one change to all of them
     const bulk = picked.length > 0 && Select && (
-      <Box flexDirection="column" borderStyle="round" borderColor={C.gate} paddingX={1}>
+      <Box flexDirection="column" borderStyle="round" borderColor={C.gate} paddingX={1} gap={1}>
         <Box flexDirection="row" gap={1} alignItems="center">
           <Box flexGrow={1}><Text bold color={C.gate}>{`☑ ${picked.length} picked: change them all at once`}</Text></Box>
           <Button key="bulk-clear" label="Clear picks" onPress={() => void $.state.set(bugsPickedS, [])} />
         </Box>
-        <Box flexDirection="row" gap={2} flexWrap="wrap">
+        <Box flexDirection="row" gap={2}>
           <Select key="bulk-state" label="State" value="*" options={[{ value: '*', label: '—' }, ...opt(allStates)]}
             onSelect={v => { if (v !== '*') stageAll(F.state, v) }} />
           <Select key="bulk-severity" label="Severity" value="*" options={[{ value: '*', label: '—' }, ...opt(cfg.severities ?? [])]}
             onSelect={v => { if (v !== '*') stageAll(F.severity, v) }} />
           <Select key="bulk-priority" label="Priority" value="*" options={[{ value: '*', label: '—' }, ...opt((cfg.priorities ?? []).map(String))]}
             onSelect={v => { if (v !== '*') stageAll(F.priority, v) }} />
+        </Box>
+        <Box flexDirection="row" gap={2}>
           <Select key="bulk-assign" label="Assign" value="*"
             options={[{ value: '*', label: '—' }, { value: '-', label: 'Nobody' }, ...team.map(p => ({ value: p.email, label: p.email === index.me?.email ? `${p.name} (me)` : p.name }))]}
             onSelect={v => { if (v !== '*') stageAll(F.assigned, v === '-' ? '' : v) }} />
@@ -1606,7 +1685,7 @@ export const register: Register = on => {
             </Box>
           )}
 
-          <Box flexDirection="column">
+          <Box flexDirection="column" gap={1}>
             <Text bold>Tags</Text>
             <Box flexDirection="row" gap={1} flexWrap="wrap" alignItems="center">
               {item.tags.length === 0 && <Text dimColor>No tags.</Text>}
@@ -1619,7 +1698,7 @@ export const register: Register = on => {
               ))}
             </Box>
             {Input && (
-              <Box flexDirection="row" gap={1} marginTop={1}>
+              <Box flexDirection="row" gap={1}>
                 <Box flexGrow={1}><Input key={`tag-in-${id}-${mine.filter(c => c.kind === 'tagAdd').length}`} placeholder={`Add a tag (${tagOptions(index!.items).slice(0, 4).join(', ') || 'e.g. Quick Win'})`} submitLabel="add tag" onSubmit={v => tag(id, 'tagAdd', v)} /></Box>
               </Box>
             )}
@@ -1635,7 +1714,7 @@ export const register: Register = on => {
 
           {mine.length > 0 && (
             <Box flexDirection="column" borderStyle="round" borderColor={C.now} paddingX={1}>
-              <Box flexDirection="row" gap={1} alignItems="center">
+              <Box flexDirection="row" gap={1} alignItems="center" marginBottom={1}>
                 <Box flexGrow={1}><Text bold color={C.now}>{`✎ ${mine.length} staged on this item, not saved to ADO yet`}</Text></Box>
                 <Button key={`item-save-${id}`} variant="primary" label="Save this item" onPress={() => save(id)} />
                 <Button key={`item-undo-${id}`} label="↶ Revert item" onPress={() => void bugsStage($, p => revertItem(p, id))} />
@@ -1680,7 +1759,7 @@ export const register: Register = on => {
             ))}
           </Box>
 
-          <Box flexDirection="column" borderStyle="round" borderColor={C.gate} paddingX={1}>
+          <Box flexDirection="column" borderStyle="round" borderColor={C.gate} paddingX={1} gap={1}>
             <Box flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
               <Box flexGrow={1}><Text bold color={C.gate}>🔎 Probable cause</Text></Box>
               <Button key={`ev-${id}`} label="Evidence only (no tokens)" onPress={() => findEvidence(id)} />
@@ -1695,7 +1774,7 @@ export const register: Register = on => {
               </Box>
             )}
             {ev && (
-              <Box flexDirection="column" marginTop={1}>
+              <Box flexDirection="column">
                 <Text dimColor wrap="wrap">{`Searched ${ev.repos.join(', ') || 'no repos'} for ${ev.terms.join(', ') || 'nothing'} (${ev.seconds}s)`}</Text>
                 {ev.hits.length === 0 && <Text dimColor>No match in the repos.</Text>}
                 {ev.hits.slice(0, 6).map((hit, n) => (
@@ -2010,13 +2089,21 @@ export const register: Register = on => {
       // a refresh the person asked for says so, since an item that did not change looks the same
       if (isAsked) $.ui.toast(v.out ? `Refreshed ${stamp(new Date().toISOString())}` : `Refresh failed: ${v.why ?? 'no answer from env.py'}`)
     }
+    // what a press on the start page does: the prompt gets the command, the person sends it
+    const fill = (text: string) => void $.prompt.fill({ text })
     if (!s) {
       return (
-        <Box flexDirection="column" width={cols}>
-          <Text bold>sdd view</Text>
-          <Text dimColor>{why ?? 'Reading the work items…'}</Text>
-          <Text dimColor>The view reads .claude/sdd.json at or above the session folder.</Text>
-          <Button key="retry" label="Try again" hotkey="r" onPress={() => void sync(id, true)} />
+        <Box flexDirection="column" width={cols} gap={1}>
+          <Box flexDirection="row" gap={1} alignItems="center">
+            <Box flexGrow={1}><Text bold>sdd view</Text></Box>
+            <Button key="retry" label="↻ Try again" hotkey="r" onPress={() => void sync(id, true)} />
+          </Box>
+          {why ? <Text color={C.now} wrap="wrap">{why}</Text> : <Text dimColor wrap="wrap">Reading the work items…</Text>}
+          <Text dimColor wrap="wrap">The view reads .claude/sdd.json at or above the session folder. Is this a new workspace? Set it up once, and the view fills in.</Text>
+          <Box flexDirection="row" gap={1}>
+            <Button key="start-init" variant="primary" label="Set up this workspace" onPress={() => fill('/sdd init')} />
+            <Button key="start-help" label="Help" onPress={() => fill('/sdd:help')} />
+          </Box>
         </Box>
       )
     }
@@ -2041,17 +2128,60 @@ export const register: Register = on => {
       ? <Select key="pick-item" label="Work item" options={options} value={id != null ? String(id) : undefined} onSelect={pick} />
       : null
 
-    // ---- no work item for this chat yet
+    // ---- no work item for this chat yet: a page to start from
     if (!item) {
+      const start = startPage(s, 6, Math.max(30, Math.min(90, (cols ?? 100) - 12)))
       return (
         <Box flexDirection="column" width={cols} gap={1}>
-          <Box flexDirection="row" gap={1}>
+          <Box flexDirection="row" gap={1} alignItems="center">
             <Box flexGrow={1}><Text bold>sdd view</Text></Box>
             <Button key="refresh" label="↻" hotkey="r" onPress={() => void sync(id, true)} />
           </Box>
           <Text wrap="wrap">{id != null ? `Work item ${id} is not in this workspace.` : 'This chat is not working on a work item yet.'}</Text>
-          <Text dimColor wrap="wrap">Start one with /sdd &lt;id&gt;, or open one with /sdd-view &lt;id&gt;.</Text>
-          {picker(false)}
+          <Text dimColor wrap="wrap">This view shows one work item at a time: its stages, what you approved at each gate, what it cost, and the buttons to answer, approve or send it back.</Text>
+
+          <Box flexDirection="column" gap={1} borderStyle="round" borderColor={C.line} paddingX={1}>
+            <Text bold>Start something</Text>
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Button key="start-id" variant="primary" label="Work an item" onPress={() => fill('/sdd ')} />
+              <Text dimColor wrap="wrap">Type its id after /sdd. A bug or issue starts the bug flow; a story or feature, the spec flow.</Text>
+            </Box>
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Button key="start-next" label="Take the next item" onPress={() => fill('/sdd next ')} />
+              <Text dimColor wrap="wrap">Give an epic or feature id and your team version; sdd ranks what is free.</Text>
+            </Box>
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Button key="start-sync" label="Pull the specs" onPress={() => fill('/sdd sync ')} />
+              <Text dimColor wrap="wrap">Copy an epic and everything under it from ADO. It costs no tokens.</Text>
+            </Box>
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Button key="start-bugs" label="Triage bugs" onPress={() => void openBugsPage($)} />
+              <Text dimColor wrap="wrap">Sort every bug and issue, change many at once, and start a fix from a row.</Text>
+            </Box>
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Button key="start-help" label="Help" onPress={() => fill('/sdd:help')} />
+              <Text dimColor wrap="wrap">A first-time walk-through and every command.</Text>
+            </Box>
+          </Box>
+
+          {start.open.length > 0
+            ? (
+              <Box flexDirection="column" gap={1} borderStyle="round" borderColor={C.line} paddingX={1}>
+                <Text bold>{`Open in this workspace (${start.open.length + start.more})`}</Text>
+                {start.open.map(o => (
+                  <Button key={`start-open-${o.id}`} plain label={`${o.waiting ? '● ' : '▸ '}${o.line}`} onPress={() => pick(String(o.id))} />
+                ))}
+                {start.more > 0 && <Text dimColor>{`and ${start.more} more: pick one from the Work item list.`}</Text>}
+              </Box>
+            )
+            : <Text dimColor wrap="wrap">Nothing is in progress in this workspace.</Text>}
+          {start.recent.length > 0 && (
+            <Box flexDirection="column">
+              <Text dimColor>Finished lately</Text>
+              {start.recent.map((r, n) => <Text key={`start-done-${n}`} dimColor wrap="truncate-end">{`✓ ${r}`}</Text>)}
+            </Box>
+          )}
+          {start.more > 0 && picker(false)}
         </Box>
       )
     }
@@ -2261,6 +2391,23 @@ export const register: Register = on => {
             })}
           </Box>
         )}
+
+        {canOpen && Object.keys(item.repos ?? {}).length > 0 && (() => {
+          const lens = flow?.stages.find(st => st.key === phaseKey(flow, item.progress?.phase))?.lens
+          return (
+            <Box flexDirection="row" gap={1} alignItems="center" borderStyle="round" borderColor={C.line} paddingX={1}>
+              <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
+                <Text bold wrap="wrap">Code graph</Text>
+                <Text dimColor wrap="wrap">
+                  {lens === 'design' ? 'The map of the code, with the nodes design.md and tasks.md name lit.'
+                    : lens === 'implementation' ? 'The map of the code, with what the work changed lit, and what the design named and the work has not touched yet.'
+                    : 'The map of the code. At the Design stage and after, it lights the nodes of the design and of the changes.'}
+                </Text>
+              </Box>
+              <Button key="graph-open" label="🕸 Open code graph" onPress={() => void openCodeGraph($, item.id)} />
+            </Box>
+          )
+        })()}
 
         {Object.keys(item.repos ?? {}).length > 0 && (
           <Box flexDirection="column">

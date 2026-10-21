@@ -284,11 +284,12 @@
     <h2>Panels in the Claude Desktop app</h2>
     <p>The panels are a mod of the Claude Desktop app. They draw from files the scripts write. They never pass a gate on their own: a button only posts your own answer. In a terminal, the VS Code extension or on a phone they do nothing. The band above the prompt always has three buttons, <b>Bugs</b>, <b>Worktrees</b> and <b>repowatch</b>, plus <b>sdd view</b>. With no item running it reads "Open a panel".</p>
     <h3>The sdd view <code>/sdd-view [id]</code></h3>
-    <p>Opens by itself the first time a chat takes up a work item (turn it off with <code>"view": { "autoOpen": false }</code>). <code>/sdd-view &lt;id&gt;</code> opens another item.</p>
+    <p>With no item to show it is a <b>start page</b>: buttons that put <code>/sdd </code>, <code>/sdd next </code>, <code>/sdd sync </code> or <code>/sdd:help</code> in the prompt, one for the bug manager, your open work items to pick up (the ones waiting on you first) and the last finished ones. It opens by itself in the Desktop app at the start of every session in an sdd workspace (on by default; the <b>Open the sdd view when a Desktop session starts</b> row in <code>/config</code> turns it off for you), and again the first time a chat takes up a work item. <code>"view": { "autoOpen": false }</code> in <code>.claude/sdd.json</code> turns both off for that workspace. <code>/sdd-view &lt;id&gt;</code> opens another item.</p>
     <ul>
       <li><b>Header:</b> the flow tag (<code>[Spec flow] [short path]</code>, <code>[path not chosen]</code>, or <code>[Bug flow]</code>), the money spent on the item and the token split.</li>
       <li><b>Stage rail:</b> one vertical rail of the flow's stages, each with its state in a word and its cost. Press a stage to open it: the latest note, the cost split, its <b>Stage log</b>, <b>gates</b> (what you were asked, what you answered, what was revoked), its documents, and a <b>Give feedback</b> box. One stage is open at a time. The pane opens on the stage the item is at and follows it as it moves.</li>
       <li><b>Buttons that talk for you:</b> <b>Approve</b> at the Requirements, Design, Decompose and Verify stops; <b>Approved / Merged / Rejected</b> at the review stage (spec: Review, bug: Phase 15); answers to a question after its dialog closed; the feedback box. Each posts a message as you (<code>sdd approve for &lt;id&gt;, stage &lt;stage&gt;</code>, <code>sdd review for &lt;id&gt;: …</code>, <code>sdd answer for …</code>, <code>sdd feedback for …</code>) and the flow treats it as your own answer. The flow checks that the item still waits at that stage first.</li>
+      <li><b>🕸 Open code graph:</b> under the stages, once the item has worktrees. It rebuilds the graph (graphify, no tokens) and opens it in your browser with the item's nodes lit. At <b>Design</b> and <b>Decompose</b> they are the nodes <code>design.md</code> and <code>tasks.md</code> name (a path, or a symbol in backticks). From <b>Implement</b> on (bug flow: Phase 7 on) they are the nodes the work changed, in gold, and what the design named but the work has not touched yet, in blue. The rest of their files and their neighbours are fainter; everything else is dimmed. A panel on the page lists the lit nodes (press one to centre it), switches the lighting off, or hides the rest. Needs graphify; the page loads vis-network from the internet.</li>
       <li><b>Worktrees:</b> open a worktree in File Explorer or VS Code from its box; the spanner (🔧) opens it in repowatch, on that one worktree.</li>
       <li><b>Work item</b> dropdown: switch to another open item. After <code>/sdd </code> the prompt box offers your open items by id or a word of the title.</li>
       <li><b>Agents:</b> the session's sub-agents and what each is doing.</li>
@@ -305,6 +306,7 @@
     <h3>Get the list</h3>
     <ul>
       <li><b>↻ Sync from ADO</b> pulls the bugs and issues into <code>&lt;spec folder&gt;/.bugs/</code> (<code>index.json</code> and <code>items/&lt;id&gt;.json</code> with repro steps, description and comments). What it pulls is set by <code>bugs.query</code> (projects, states left out, area and iteration paths, a WIQL clause, a top limit).</li>
+      <li>Before the first Sync the pane says what Sync will pull, with a <b>Sync from ADO</b> button and <b>Change what it pulls</b> (the Config panel).</li>
       <li>The header says how many items you see, the org and projects, when it synced and who you are in ADO (<code>bugs.me</code> if <code>git config user.email</code> is not it).</li>
     </ul>
     <h3>Find the ones that matter</h3>
@@ -445,7 +447,7 @@ A strip of faux wood-grain paper holding three pasted labels: "session.start", "
       <tr><td><code>branchTemplate</code></td><td>Default <code>dev/{developer}/{version}/{type}/{id}-{slug}</code>.</td></tr>
       <tr><td><code>doneStates</code></td><td>The ADO states that count as done for <code>/sdd done</code> (default Resolved, Closed, Done).</td></tr>
       <tr><td><code>embeddings</code></td><td>Meaning search: provider <code>ollama</code>, its url, and the model.</td></tr>
-      <tr><td><code>view</code></td><td><code>autoOpen</code>, and <code>colors</code>: <code>done</code>, <code>now</code> (waiting on you), <code>work</code>, <code>revoked</code>, <code>gate</code>, <code>dim</code>, <code>line</code>, <code>hoverText</code>, each a CSS colour. The view picks a change up on its next refresh.</td></tr>
+      <tr><td><code>view</code></td><td><code>autoOpen</code> (<code>false</code> keeps the view shut in this workspace; the per-person switch is the <b>Open the sdd view when a Desktop session starts</b> row in <code>/config</code>), and <code>colors</code>: <code>done</code>, <code>now</code> (waiting on you), <code>work</code>, <code>revoked</code>, <code>gate</code>, <code>dim</code>, <code>line</code>, <code>hoverText</code>, each a CSS colour. The view picks a change up on its next refresh.</td></tr>
       <tr><td><code>agents.models</code></td><td>The model of <code>investigator</code> and <code>skeptic</code>: <code>sonnet</code>, <code>opus</code> or <code>haiku</code>.</td></tr>
       <tr><td><code>agentRequest</code></td><td><code>types</code> (the hand-over types) and <code>create</code> (the type made per flow: <code>bug</code> → Bug, <code>spec</code> → Tech Story).</td></tr>
       <tr><td><code>next</code></td><td><code>weights</code> (priority, severity, complexity), <code>complexity</code> (<code>complex-first</code>), <code>types</code> (the order of groups), <code>inProgress</code> and <code>pastDev</code> (what makes an item not free).</td></tr>
@@ -496,6 +498,7 @@ A strip of faux wood-grain paper holding three pasted labels: "session.start", "
     <h3>Check on it, finish or stop</h3>
     <table>
       <tr><td><code>/sdd status &lt;id&gt;</code></td><td>Where it stands: ADO state, the step reached, tasks done, PRs.</td></tr>
+      <tr><td><code>/sdd graph &lt;id&gt;</code></td><td>The item's code graph in your browser, with the nodes of its design or of what the work changed lit. The same as <b>🕸 Open code graph</b> in the sdd view.</td></tr>
       <tr><td><code>/sdd &lt;id&gt; feedback &lt;stage&gt;: &lt;text&gt;</code></td><td>Back to a done or waiting stage with your feedback.</td></tr>
       <tr><td><code>/sdd done &lt;id&gt;</code></td><td>After the PRs merge and the work item is closed out. Shows what goes, then asks.</td></tr>
       <tr><td><code>/sdd abandon &lt;id&gt;</code></td><td>Stop an item and clean up what it created. Asks before anything outward-facing.</td></tr>

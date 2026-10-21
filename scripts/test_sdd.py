@@ -472,6 +472,7 @@ def main():
         assert env.view_item(root, cfg, got, qdir, False)["graphUse"] == use
         os.chdir(Path(__file__).parent)
     stage_docs()
+    graph_focus()
     short_path()
     config_upgrade()
     output_style()
@@ -639,6 +640,34 @@ def short_path():
     assert "Design agreed" in env.stage_needs("spec", {"path": "short"}, "Implement")
     assert env.flow_path("spec", {}) is None and env.flow_path("bug", {}) is None
     assert env.flow_path("spec", {"gates": {"Design agreed": "t"}}) == "full"      # started before paths existed
+
+
+def graph_focus():
+    import graphfocus as gf
+    refs = gf.refs_from_text("Change `Billing/Totals.cs:40-52`, `Round()` and `Totals.Round` in `src/Repo/a b/x.ts`. Run `python x.py`, `42`, `foo bar`.")
+    assert refs["files"] == [("Billing/Totals.cs", 40, 52), ("src/Repo/a b/x.ts", None, None)], refs
+    assert refs["symbols"] == ["round"], refs                                    # a dotted name is its last part; a command is neither
+    diff = "--- a/f.py\n+++ b/f.py\n@@ -3,0 +4,2 @@\n@@ -9 +12 @@\n--- /dev/null\n+++ b/new.py\n@@ -0,0 +1,5 @@\n--- a/gone.py\n+++ /dev/null\n"
+    assert gf.changed_from_diff(diff, "R") == {"R/f.py": [(4, 5), (12, 12)], "R/new.py": [(1, 5)]}
+    node = lambda i, label, f, line: {"id": i, "label": label, "source_file": f, "source_location": f"L{line}"}
+    g = {"nodes": [node("f", "f.py", "R/f.py", 1), node("a", "alpha()", "R/f.py", 3), node("b", "beta()", "R/f.py", 20), node("g", "g.py", "R/g.py", 1),
+                   node("c", ".run()", "R/g.py", 4)], "links": [{"source": "a", "target": "c"}]}
+    got = gf.focus(g, "implementation", gf.refs_from_text("`beta()` and `R/g.py`"), {"R/f.py": [(4, 5)]})
+    assert got["primary"] == ["a"] and sorted(got["planned"]) == ["b", "g"], got          # alpha changed; beta and g.py named, not changed
+    assert got["secondary"] == ["f"] and got["neighbors"] == ["c"] and got["files"] == ["R/f.py"], got
+    got = gf.focus(g, "design", gf.refs_from_text("`beta`"), None)
+    assert got["primary"] == ["b"] and got["secondary"] == ["f", "a"] and got["planned"] == [], got
+    many = {"nodes": [node(f"n{i}", "get()", f"R/m{i}.py", 1) for i in range(9)]}
+    got = gf.focus(many, "design", gf.refs_from_text("`get()` and `R/m2.py`"), None)
+    assert got["primary"] == ["n2"], got                                         # a name in a file the design names is that file's
+    got = gf.focus(many, "design", gf.refs_from_text("`get()`"), None)
+    assert got["primary"] == [] and got["skipped"] == ["get"], got               # a name that matches too many places is left out
+    assert gf.focus(g, "none", None, None)["primary"] == []
+    html = gf.render("<html><body><p>x</p></body></html>", {**gf.focus(g, "design", gf.refs_from_text("`beta`"), None), "labels": {"b": "</script><b>"}})
+    assert html.count("</script>") == 1 and html.index('id="sdd-graph-focus"') < html.index("</body>"), html   # a label cannot close the tag
+    assert gf.render("<html></html>", gf.focus(g, "none", None, None)) == "<html></html>"
+    assert env.stage_lens("spec", "Design (reading)") == "design" and env.stage_lens("spec", "Implement (task 2/4)") == "implementation"
+    assert env.stage_lens("bug", "Phase 8 — Apply the fix") == "implementation" and env.stage_lens("bug", "Phase 5") is None
 
 
 def stage_docs():

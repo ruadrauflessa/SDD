@@ -18,6 +18,7 @@ description: 'Entry point for the spec-driven development workflows on Azure Dev
 | `/sdd impact <id>` | `sdd:impact` | Blast radius of one item over the synced specs, with gap questions |
 | `/sdd impact all [<scope id>]` | `sdd:impact` | The same over the whole synced spec, or one epic/feature — deduplicated pairs, **token-cost warning first** |
 | `/sdd harness <operation>` | `sdd:harness` | Create, onboard, audit or maintain the Claude Code harness — CLAUDE.md files, allowlists, hooks — of a repo or workspace |
+| `/sdd graph <id>` | this skill | Open the item's code graph in the browser with the nodes of its design (Design, Decompose) or of what the work changed (Implement onwards) lit |
 | `/sdd status <id>` | this skill | Where the item stands: ADO state, recorded progress, spec files and tasks, repos, live PRs, and a one-line verdict |
 | `/sdd done <id>` | this skill | Clean up once every PR is merged and the close-out is written to ADO — refuses and explains otherwise |
 | `/sdd abandon <id>` | the item's flow skill | Stop the item and clean up what the flow created — refuses and explains if it cannot |
@@ -151,6 +152,20 @@ plain words. The verdict is one of: not started · in progress at <phase> · wai
 · blocked · PRs merged, run `/sdd done` · closed out, run `/sdd done` · completed (only once the
 folder is removed) · abandoned. If it is waiting or in progress,
 end with: "Resume with `/sdd <id>`."
+
+## `/sdd graph <id>` — the code graph, lit for this item
+
+```
+python ${CLAUDE_PLUGIN_ROOT}/scripts/env.py graph-focus --id <id> --refresh --open
+```
+
+It rebuilds `graph/` from `src/` (graphify; no tokens), writes `graph/graph-focus.html` and opens it in the browser. The stage
+decides what is lit (`lens` in `scripts/flows.json`): at **Design** and **Decompose** the nodes `design.md` and `tasks.md` name (a
+path or a symbol in backticks); from **Implement** on (bug flow: Phase 7 on) the nodes the work changed, with what the design named and the
+work has not touched yet in a second colour. Earlier stages show the plain graph. `--mode design|implementation|none` forces one.
+Relay the printed line: how many nodes are lit, and any name too common to place. No graph and no graphify? Say so and give the
+install line from `env.py doctor` (`pip install --user graphifyy`). Read-only except for the files in `graph/`. The page loads
+vis-network from unpkg, so it needs the internet.
 
 ## State guards — never run an operation out of turn
 

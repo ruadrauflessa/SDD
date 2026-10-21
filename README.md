@@ -41,13 +41,14 @@ Optional: pandoc, Ollama (meaning search).
 | `/sdd <id>` on an Ai Agent Request | Reports on the hand-over (what is done, what is left, the items it names) and asks spec or bug. The work goes to the open item it belongs to, or to a new Tech Story or Bug linked to the request; then that flow runs |
 | `/sdd <id> short` / `full` | A spec item on the short path (one stop approves design and tasks together) or the full one; without it, the flow asks |
 | `/sdd:help` (or `/sdd:sdd`, `/sdd help`) | One help page: a first-time walk-through (init, sync, impact, a first bug and spec item) and every command |
+| `/sdd graph <id>` | Opens the item's code graph in the browser with the nodes of its design (Design, Decompose) or of what the work changed (Implement onwards) lit; the sdd view has the same as **🕸 Open code graph** |
 | `/sdd status <id>` | Where the item stands |
 | `/sdd <id> feedback <stage>: <text>` | Back to a done or waiting stage with your feedback |
 | `/sdd-view [id]` | Opens the sdd view for this chat's work item (or the one given) |
 | `/sdd-bugs [mine]` | The bug manager (Claude Desktop app): triage the bugs and issues of your ADO projects in a pane. See below |
 | `/sdd-worktrees` | Lists every work item that still has worktrees, with each worktree's live state (needs the repowatch plugin, which installs with sdd). Read-only. Each work item is a header; each worktree under it is one line (a colour dot, `repo · branch`, a state word, its age). Press a line to open its facts, 📋 copy folder and a **History** button that asks repowatch to draw that branch against its base. Clean-up is in `/repowatch worktrees` |
 
-The sdd view opens by itself the first time a chat takes up a work item. In it:
+The sdd view opens by itself in the Claude Desktop app: at the start of every session in an sdd workspace (the **Open the sdd view when a Desktop session starts** row in `/config`, on by default; `"view": { "autoOpen": false }` in `.claude/sdd.json` keeps it shut for that workspace), and the first time a chat takes up a work item. With no item to show it is a start page: buttons that put `/sdd `, `/sdd next `, `/sdd sync ` or `/sdd:help` in the prompt, one for the bug manager, the workspace's open items to pick up (the ones waiting on you first) and the last finished ones. In it:
 
 - the header tags the flow and, for the spec flow, the path: `[Spec flow] [short path]`, or
   `[path not chosen]` while the flow still has to ask (`[Bug flow]` for a bug);
@@ -56,6 +57,7 @@ The sdd view opens by itself the first time a chat takes up a work item. In it:
 - the band above the prompt shows the same tag (`[spec · short]`) for as long as the chat's work item
   is in progress, and turns amber when it waits on you;
 - the same band is a launcher: **sdd view**, **Worktrees** and **repowatch** buttons are always there (with no item running it reads "Open a panel"), so a panel opens without a command;
+- **🕸 Open code graph** (under the stages, once the item has worktrees) rebuilds the graph and opens it in the browser with the item's nodes lit: the ones `design.md` and `tasks.md` name at Design and Decompose; from Implement on (bug flow: Phase 7 on) the ones the work changed, with what the design named and the work has not touched yet in a second colour, the rest of their files and their neighbours fainter and everything else dimmed. A panel on the page lists them (press one to centre it) and switches the lighting off, or hides the rest. The page loads vis-network from unpkg, so it needs the internet; needs graphify (`pip install --user graphifyy`);
 - the review stage (spec: Review, bug: Phase 15) has **Approved**, **Merged** and **Rejected**;
 - a worktree opens in File Explorer or VS Code from its box. The spanner (🔧) opens it in repowatch, on that one worktree (needs repowatch 0.1.1 or newer; older ones just open their normal pane).
 - the pane lists the flow's stages as one vertical rail: a small picture of the node and the rail for each stage, joined
@@ -85,6 +87,7 @@ A pane in the Claude Desktop app for triaging bugs and issues; the **Bugs** butt
 It costs no tokens to use: PowerShell scripts (`scripts/bugs/*.ps1`) do the ADO and git work, and the pane
 reads the files they write. Only **Find probable cause** calls a model, once, with a short prompt.
 
+- Before the first Sync the pane says what Sync will pull (types, projects, areas, states left out), has its own **Sync from ADO** and **Change what it pulls** buttons, and lists what the bug manager does once it has the list.
 - **⚙ Config**, beside Sync, opens the settings panel, so nobody has to dig around in the JSON files. Its sections
   are the dev team and its area paths (`.claude/developers.json`), what Sync pulls, the categories (name, icon,
   colour, rules, alternatives, order), the state, severity and priority pickers, the probable-cause model, and your

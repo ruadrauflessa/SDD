@@ -437,6 +437,18 @@ test('desktop: not synced yet says so, and Sync runs the script and shows the li
   const ui = await mount($, w)
   if (!ui) return
   expect(await texts(ui)).toContain('Not synced yet. Press Sync')
+  // the page says what Sync will pull and what comes after, and has a Sync button of its own
+  const start = await texts(ui)
+  expect(start).toContain('Nothing to triage yet')
+  expect(start).toContain('What it will pull')
+  expect(start).toContain('Types: Bug, Issue')
+  expect(start).toContain('Projects: the ones in ado.projects of sdd.json')
+  expect(start).toContain('Then you can')
+  expect(await labels(ui)).toEqual(expect.arrayContaining(['↻ Sync from ADO', '⚙ Change what it pulls']))
+  await ui.press({ key: 'bugs-config-start' })
+  await settle(ui, /⚙ Settings/)
+  await ui.press({ key: 'bugs-config' })
+  await settle(ui, /Nothing to triage yet/)
   await ui.press({ key: 'bugs-sync' })
   await settle(ui, /3 items/)
   const run = w.runs.find(r => r.some(a => a.endsWith('Sync-Bugs.ps1')))!
