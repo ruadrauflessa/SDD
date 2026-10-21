@@ -13,7 +13,7 @@ a git worktree per work item, an ADO spec mirror, impact analysis and visual pag
 ```
 
 The same marketplace also has **devops**: release and branch skills for Azure DevOps repos
-(`release-prep`, `sync-team-branches`, `release-notes`, `pre-pr-verify`). Install it on its own:
+(`release-prep`, `sync-team-branches`, `release-notes`). Install it on its own:
 
 ```
 /plugin install devops@sdd
@@ -177,7 +177,7 @@ values already set are kept. `skills/workspace/SKILL.md` lists every key.
 
 | Path | What |
 | --- | --- |
-| `skills/` | `sdd` (entry; `references/flow-rules.md` holds the rules both flows share), `spec` (outline + `modes/`), `bug` (outline + `phases/`), `next` (what to take next), `request` (Ai Agent Request triage), `sync`, `impact`, `harness`, `visual`, `workspace` |
+| `skills/` | `sdd` (entry; `references/flow-rules.md` holds the rules both flows share), `spec` (outline + `modes/`), `bug` (outline + `phases/`), `next` (what to take next), `request` (Ai Agent Request triage), `pre-pr-verify` (the stack from a bug's worktrees for your manual test), `sync`, `impact`, `harness`, `visual`, `workspace` |
 | `agents/` | `investigator` (read-only code search) and `skeptic` (independent review of a root cause, a test or a design), used by the bug and spec flows; models from `agents.models` |
 | `scripts/` | `env.py` (work item folders, state guards, progress, config upgrades), `spec.py` (ADO mirror, impact, rev-tested writes: claim, handover, sprint, comment, route; an Ai Agent Request's report), `adowrite.py` (those writes), `proof.py` (recorded test runs that gates need), `nextpick.py` (the next-item rules), `metrics.py` (`.index/metrics.json`: every item's decision facts and what the last sync changed), `flows.json` (the stages of each flow) |
 | `hooks/` | `hooks.json`, `question_guard.py` (links before every question), `agent_guard.py` (keeps the sdd agents read-only: no git writes, no `env.py` / `spec.py` runs), `edit_guard.py` (no edits in the main checkout during a flow), `graph_use.py` (code is explored from its graph first), `spec_use.py` (specs are searched by meaning first while Ollama is on), `register.tsx` + `view/` (the sdd view) |

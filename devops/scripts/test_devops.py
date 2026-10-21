@@ -457,33 +457,12 @@ def check_notes_flow(t):
     assert code == 2 and "Create project wiki" in text
 
 
-def check_env(t):
-    ws, origins = make_ws(t)
-    gw = make_repo(ws, origins, "Gateway")
-    wt = ws / ".claude" / "worktrees" / "80459-close-icon" / "src" / "Gateway"
-    sh(["git", "worktree", "add", "-q", "-b", "dev/x/80459", str(wt), "origin/main"], gw)
-    commit(wt, "src/x.cs", "x\n", "Fix")
-    (ws / ".claude" / "worktrees" / "80459-close-icon" / "workitem.json").write_text(json.dumps({"repos": [{"name": "Gateway", "base": "main"}]}))
-    (ws / "scripts").mkdir()
-    (ws / "scripts" / "run-stack.ps1").write_text("param(\n  [string[]]$Only,\n  [string]$Worktree,\n  [switch]$Status,\n  [switch]$Stop\n)\nWrite-Host 'mainapi   Main API   7097   UP   (pid 1)  worktree: 80459-close-icon'\n")
-    code, text = run(ws, "env", "find", "--id", "80459")
-    assert code == 0 and "Gateway (sdd)" in text and "src/x.cs" in text and "Only, Status, Stop, Worktree" in text, text
-    assert ".claude/scripts is NOT ignored" in text
-    if HAVE_PWSH:
-        code, text = run(ws, "env", "gate", "--id", "80459")
-        assert code == 0 and "Gate D: PASS" in text, text
-        (ws / "scripts" / "run-stack.ps1").write_text("param([switch]$Status)\nWrite-Host 'mainapi   Main API   7097   UP   (pid 1)'\n")
-        code, text = run(ws, "env", "gate", "--id", "80459")
-        assert code == 1 and "NO TAG for Gateway" in text, text
-    sh(["git", "worktree", "remove", "--force", str(wt)], gw)
-
-
 def main():
     check_lint()
     check_helpers()
     check_notes()
     print("pure functions: ok")
-    for name, fn in (("release", check_release), ("sync", check_sync), ("notes", check_notes_flow), ("env", check_env)):
+    for name, fn in (("release", check_release), ("sync", check_sync), ("notes", check_notes_flow)):
         if name in ("release", "sync") and not HAVE_PWSH:
             print(f"{name}: skipped (no pwsh)")
             continue

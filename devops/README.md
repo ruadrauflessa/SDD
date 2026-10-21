@@ -1,7 +1,7 @@
 # devops
 
-Release and branch work on Azure DevOps repos: prepare a release, sync team branches, write release notes,
-start the stack for manual testing. Standalone (same marketplace as sdd and repowatch; it needs neither).
+Release and branch work on Azure DevOps repos: prepare a release, sync team branches, write release notes.
+Standalone (same marketplace as sdd and repowatch; it needs neither).
 
 ```
 /plugin install devops --marketplace ruadrauflessa/SDD
@@ -19,22 +19,20 @@ MCP tools (`references/mcp-fallback.md`), and the guards still hold. For a publi
 | `release-prep` | "prep the release", "prepare release 1.1.0" | one scan, one plan, your Yes, one PR per repo, hand-off to the notes |
 | `sync-team-branches` | "sync team branches", "merge team/1.1.0 into team/1.2.0" | the version chain, a dry-run per hop, PRs for clean repos, a `sync/*` branch you resolve for conflicts, a report |
 | `release-notes` | "generate release notes" | five questions at once, then a file in `documents/release-notes/` and a wiki page after your Yes |
-| `pre-pr-verify` | "start the environment" | the stack from the bug's worktrees, proven to answer from them, and a short test brief |
 
 ## Why it is cheap on tokens
 
 The mechanics live in `scripts/devops.py`; the skills keep only the judgement. The agent reads a short
 summary, not raw git and ADO output:
 
-- The four skills went from 143k to 18k characters, and their descriptions, which load into every session,
-  from 7.3k to 1.8k.
+- The three skills went from 128k to 13.5k characters, and their descriptions, which load into every session,
+  from 5.9k to 1.4k.
 - `release scan` replaces the git scan, three rounds of MCP calls and the plan the agent used to write; `release
   open` makes the PRs, links the work items and reads the links back.
 - `notes render` writes the file and the wiki page from the template (badges, links, priority groups, the
   file counter), so the agent writes only one sentence per bug fix.
 - `sync start | verify | finish | plan | open` do the conflict branch (`--no-track`), the four checks after
   a resolution, the push, the sanitized PR text and the single work-item link.
-- `env find` and `env gate` find the worktrees, the run script and its flags, and prove Gate D.
 
 ## What it never lets through
 
@@ -55,7 +53,7 @@ Two hook sets, on in every session (turn off with `"guard": {"enabled": false}` 
   post onto the work item), the 4000-character PR limit, and old `AB#<id>` on a sync PR. A wiki page must be
   the rendered one, unchanged.
 - **Devops' own files**: plans, approvals and scans under `.claude/devops/` are written by the script only;
-  a generated launcher goes in `.claude/scripts/`, not the shared `scripts/`; a published release-notes
+  a published release-notes
   file is not edited.
 
 Each refusal is logged to `.claude/devops/guard.jsonl` and shown in the pane.

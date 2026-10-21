@@ -4,11 +4,8 @@ Refuses an edit of:
   - devops' own state under .claude/devops/ (plans, approvals, scans, the sync in progress): devops.py
     writes it; a hand edit would change what the user approved. A run's texts.json is the one exception.
   - a file that still has a merge conflict in a devops sync: the user resolves every hunk
-  - a new launcher in the workspace's scripts/ (scripts/run-*.ps1): it is shared and tracked; a generated
-    launcher goes in .claude/scripts/
   - a release-notes file that was already published to the wiki: render a new run instead
 """
-import re
 import sys
 from pathlib import Path
 
@@ -24,9 +21,6 @@ def check(root, cfg, p):
             return None
         return "state", (f"{p} is devops state, written only by devops.py. Changing it by hand would change what the user "
                          "approved. Run the devops.py command that makes it (scan, plan, render) again.")
-    if p.parent == root / "scripts" and re.fullmatch(r"run-.*\.ps1", p.name, re.I) and not p.exists():
-        return "launcher", (f"scripts/ is tracked and shared with the team; a generated launcher is machine-specific. "
-                            f"Write it to {root / '.claude' / 'scripts' / p.name} instead (check .claude/scripts is ignored first).")
     folder = p.parent if p.parent.exists() else None
     if folder:
         e = G.active_sync(root, folder)

@@ -4,7 +4,7 @@
 start and where it will live, then wait.
 
 Write it to **`.claude/scripts/run-stack.ps1`**, never to `scripts/` (tracked and shared; the guard
-refuses a new `scripts/run-*.ps1`). `devops.py env find` says whether `.claude/scripts` is ignored. If
+refuses a new `scripts/run-*.ps1`). `env.py stack` says whether `.claude/scripts` is ignored. If
 not, add it first: `printf '.claude/scripts/\n' >> .git/info/exclude`.
 
 ## What to derive, and where from
@@ -29,7 +29,7 @@ not, add it first: `printf '.claude/scripts/\n' >> .git/info/exclude`.
 | `-Status` | list each service, its port, UP or not, and `worktree: <folder name>` for a binary from a worktree |
 | `-Stop` | stop everything it started |
 
-The worktree tag in `-Status` is what `devops.py env gate` reads (Gate D). Without it the build that
+The worktree tag in `-Status` is what `env.py stack-gate` reads (Gate D). Without it the build that
 answers cannot be proven, so the skill cannot hand over.
 
 Worktree layouts under `<workspace>\.claude\worktrees\`: sdd `{id}-{slug}\src\{Repo}` (its

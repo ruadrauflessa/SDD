@@ -64,6 +64,15 @@ def main():
         expect(2, root / "RepoA" / "src" / "a.cs", "flow started in an earlier turn")
         transcript(tp, flow=False)
         expect(0, root / "RepoA" / "src" / "a.cs", "no sdd flow in this session")
+        # a generated launcher: never a new file in the shared scripts/, flow or not (pre-pr-verify runs on its own)
+        err = expect(2, root / "scripts" / "run-stack.ps1", "a new launcher in scripts/", tool="Write")
+        if ".claude" not in err:
+            fails.append(f"no .claude/scripts hint in: {err}")
+        (root / "scripts").mkdir()
+        (root / "scripts" / "run-lumina.ps1").write_text("param()")
+        expect(0, root / "scripts" / "run-lumina.ps1", "an existing launcher may change")
+        expect(0, root / "scripts" / "build.ps1", "another new script")
+        expect(0, root / ".claude" / "scripts" / "run-stack.ps1", "a launcher in .claude/scripts", tool="Write")
     print("\n".join(fails) or "ok")
     return 1 if fails else 0
 

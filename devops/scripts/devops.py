@@ -29,8 +29,6 @@ ADO output. Every outward write (a PR, a wiki page) goes through a plan the user
     notes render --run ID --scope S --priority M --env E [--texts F]
     notes publish --run ID
 
-    env find --id N                          worktrees, run script, workspace facts for pre-pr-verify
-    env gate --id N [--script P]             Gate D: is the worktree build the one answering?
 
 Exit 0 = done, 1 = something blocks (conflicts, lint, a failed check), 2 = refused or an error.
 """
@@ -1203,112 +1201,6 @@ def cmd_notes_publish(a):
     return 0
 
 
-# ================================================================ pre-PR verify
-
-FACTS_HEAD = "## Claude skills — workspace facts"
-
-
-def worktrees_for(root, wid):
-    base = root / ".claude" / "worktrees"
-    out_ = []
-    if not base.is_dir():
-        return out_
-    for d in sorted(base.iterdir()):
-        if d.is_dir() and re.match(rf"^{wid}-", d.name) and (d / "src").is_dir():
-            wi = L.read_json(d / "workitem.json", {}) or {}
-            bases = {r.get("name"): r.get("base") for r in wi.get("repos", []) if isinstance(r, dict)}
-            for r in sorted((d / "src").iterdir()):
-                if r.is_dir():
-                    out_.append({"layout": "sdd", "repo": r.name, "path": str(r), "name": d.name, "base": bases.get(r.name)})
-        elif d.is_dir():
-            for w in sorted(d.iterdir()):
-                if w.is_dir() and re.match(rf"^{wid}_", w.name):
-                    out_.append({"layout": "old", "repo": d.name, "path": str(w), "name": w.name, "base": None})
-    return out_
-
-
-def run_script(root):
-    facts = facts_section(root)
-    m = re.search(r"`([^`]*run[^`]*\.ps1)`", facts or "")
-    for cand in ([root / m.group(1)] if m else []) + sorted((root / "scripts").glob("run-*.ps1")) + [root / ".claude" / "scripts" / "run-stack.ps1"]:
-        if cand.is_file():
-            return cand
-    return None
-
-
-def facts_section(root):
-    try:
-        text = (root / "CLAUDE.md").read_text(encoding="utf-8")
-    except OSError:
-        return None
-    if FACTS_HEAD not in text:
-        return None
-    tail = text.split(FACTS_HEAD, 1)[1]
-    m = re.search(r"\n## ", tail)
-    return (FACTS_HEAD + (tail[:m.start()] if m else tail)).strip()
-
-
-def ps_params(script):
-    try:
-        text = Path(script).read_text(encoding="utf-8-sig", errors="replace")
-    except OSError:
-        return []
-    m = re.search(r"param\s*\((.*?)\)\s*\n\s*(?:\$|Set-|function|#|\[|\w)", text, re.S | re.I)
-    return sorted(set(re.findall(r"\$(\w+)", m.group(1)))) if m else []
-
-
-def cmd_env_find(a):
-    root, _ = ctx(a)
-    wts = worktrees_for(root, a.id)
-    if not wts:
-        out(f"No worktree for {a.id} under {root / '.claude' / 'worktrees'}. Check the id, or `git worktree list` in the repo.")
-        return 1
-    for w in wts:
-        p = Path(w["path"])
-        branch = L.git(["rev-parse", "--abbrev-ref", "HEAD"], p, check=False)
-        base = w["base"] and f"origin/{w['base']}"
-        stat = L.git(["diff", "--shortstat", f"{base}...HEAD"], p, check=False) if base else ""
-        files = L.git(["diff", "--name-only", f"{base}...HEAD"], p, check=False).splitlines() if base else []
-        ui = (p / "package.json").is_file()
-        npm = " · UI: node_modules missing, run npm install" if ui and not (p / "node_modules").is_dir() else (" · UI" if ui else "")
-        out(f"  {w['repo']} ({w['layout']}): {p} · {branch}" + (f" · {stat}" if stat else "") + npm)
-        for f in files[:15]:
-            out(f"      {f}")
-    rs = run_script(root)
-    if rs:
-        out(f"Run script: {rs} · parameters: {', '.join(ps_params(rs)) or '?'}")
-    else:
-        out("Run script: none found (facts, scripts/run-*.ps1, .claude/scripts/run-stack.ps1). Ask before building one.")
-    if L.is_repo(root):
-        ign = L.git_rc(["check-ignore", "-q", ".claude/scripts/x"], root)[0] == 0
-        out(f".claude/scripts is {'ignored' if ign else 'NOT ignored: add it to .git/info/exclude before writing a launcher'}")
-    facts = facts_section(root)
-    out(facts if facts else "No workspace facts section in CLAUDE.md yet.")
-    return 0
-
-
-def cmd_env_gate(a):
-    root, _ = ctx(a)
-    wts = [w for w in worktrees_for(root, a.id) if not (Path(w["path"]) / "package.json").is_file()]
-    script = Path(a.script) if a.script else run_script(root)
-    if not script:
-        L.die("no run script found: pass --script")
-    rc, so, se = L.run_ps(script, ["-Status"], root)
-    lines = [ln for ln in so.splitlines() if ln.strip()]
-    tagged = [ln for ln in lines if "worktree:" in ln.lower()]
-    missing = [w for w in wts if not any(w["name"].lower() in ln.lower() and re.search(r"\bUP\b", ln) for ln in tagged)]
-    for ln in tagged:
-        out(f"  tagged: {ln.strip()}")
-    if missing:
-        for w in missing:
-            out(f"  NO TAG for {w['repo']} ({w['name']}): the main checkout may be answering. Check -Stop freed the port, "
-                "read that service's error log, check the -Only keys.")
-        out("Gate D: FAIL. Do not hand over.")
-        return 1
-    out("Gate D: PASS. Every redirected .NET service answers from its worktree. (A UI has no tag: check the start-up header.)")
-    return 0
-
-
 # ================================================================ main
 
 def main(argv=None):
@@ -1421,14 +1313,6 @@ def main(argv=None):
     s.add_argument("--run", required=True)
     s.set_defaults(fn=cmd_notes_publish)
 
-    en = sub.add_parser("env").add_subparsers(dest="sub", required=True)
-    s = en.add_parser("find")
-    s.add_argument("--id", required=True)
-    s.set_defaults(fn=cmd_env_find)
-    s = en.add_parser("gate")
-    s.add_argument("--id", required=True)
-    s.add_argument("--script")
-    s.set_defaults(fn=cmd_env_gate)
 
     a = ap.parse_args(argv)
     try:

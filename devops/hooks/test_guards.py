@@ -220,11 +220,7 @@ def check_self_approval(ws):
 def check_edits(ws, repo):
     expect(edit(ws, L.state_dir(ws, "plans", "abc.json")), 2, "devops state")
     expect(edit(ws, L.state_dir(ws, "notes", "r1", "texts.json")), 0)
-    expect(edit(ws, ws / "scripts" / "run-stack.ps1"), 2, ".claude")
-    expect(edit(ws, ws / ".claude" / "scripts" / "run-stack.ps1"), 0)
-    (ws / "scripts").mkdir()
-    (ws / "scripts" / "run-old.ps1").write_text("x")
-    expect(edit(ws, ws / "scripts" / "run-old.ps1"), 0)                   # an existing one may change
+    expect(edit(ws, ws / "scripts" / "run-stack.ps1"), 0)                 # sdd's edit guard holds launchers
     notes = ws / "documents" / "release-notes"
     notes.mkdir(parents=True)
     f = notes / "release-notes-20261021-1.md"

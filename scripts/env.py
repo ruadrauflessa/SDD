@@ -36,6 +36,8 @@ Commands (run from anywhere inside the workspace):
     revert-check --id N --gate G [--repo R] --fix PATH [--fix PATH ...] -- COMMAND
                                              the test fails with the fix files at base, passes with them
     verify --id N                            run every tasks.md Verify command; proof for Ready to PR
+    stack  --id N                            pre-pr-verify: worktrees (both layouts), run script and its flags, facts
+    stack-gate --id N [--script P]           pre-pr-verify Gate D: a running service is tagged with this item's worktree
     path   --id N --set full|short --confirmed WORDS
                                              the way through the spec flow the user chose
     cost   --id N --stage S --usd X [--input N --output N --cache-read N --cache-write N] [--model M] [--session ID]
@@ -1721,6 +1723,127 @@ def cmd_reopen(a):
     print(f"{a.id}: back to {flow} / {key} / active" + (f"; revoked {', '.join(revoke)}" if revoke else ""))
 
 
+FACTS_HEAD = "## Claude skills — workspace facts"
+
+
+def stack_worktrees(root, cfg, wid):
+    """[(repo, worktree dir, folder name, base)] of a work item: the sdd folder ({id}-{slug}/src/{Repo}) and the
+    old ado-bug-fix layout ({Repo}/{id}_{slug}) under the worktree root."""
+    out = []
+    env_dir = find_env(root, cfg, wid)
+    if env_dir:
+        for name, (d, base) in sorted(repo_dirs(env_dir, read_env(env_dir)).items()):
+            out.append((name, d, env_dir.name, base))
+    base_dir = wt_root(root, cfg)
+    if base_dir.is_dir():
+        for repo in sorted(base_dir.iterdir()):
+            if repo.is_dir() and not repo.name.startswith("."):
+                for w in sorted(repo.iterdir()):
+                    if w.is_dir() and re.match(rf"^{int(wid)}_", w.name):
+                        out.append((repo.name, w, w.name, None))
+    return out
+
+
+def facts_section(root):
+    """The workspace CLAUDE.md's facts section (Phase 14 writes it), or None."""
+    try:
+        text = (root / "CLAUDE.md").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    if FACTS_HEAD not in text:
+        return None
+    tail = text.split(FACTS_HEAD, 1)[1]
+    m = re.search(r"\n## ", tail)
+    return (FACTS_HEAD + (tail[:m.start()] if m else tail)).strip()
+
+
+def run_script(root):
+    """The run-stack script: the one the facts name, else scripts/run-*.ps1, else .claude/scripts/run-stack.ps1."""
+    m = re.search(r"`([^`]*run[^`]*\.ps1)", facts_section(root) or "")
+    named = [root / m.group(1).split()[0].lstrip("./")] if m else []
+    for cand in named + sorted((root / "scripts").glob("run-*.ps1")) + [root / ".claude" / "scripts" / "run-stack.ps1"]:
+        if cand.is_file():
+            return cand
+    return None
+
+
+def ps_params(script):
+    """The names in a PowerShell script's param( ... ) block: its real flags."""
+    try:
+        text = Path(script).read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return []
+    m = re.search(r"\bparam\s*\(", text, re.I)
+    if not m:
+        return []
+    depth, i = 1, m.end()
+    while i < len(text) and depth:
+        depth += {"(": 1, ")": -1}.get(text[i], 0)
+        i += 1
+    return sorted(set(re.findall(r"\$(\w+)", text[m.end():i])), key=str.lower)
+
+
+def cmd_stack(a):
+    """What pre-pr-verify needs before it starts anything: the worktrees, the run script, the facts."""
+    root = require_root()
+    cfg = load_config(root)
+    wts = stack_worktrees(root, cfg, a.id)
+    if not wts:
+        die(f"no worktree for {a.id} under {wt_root(root, cfg)} (neither {a.id}-<slug>/src/<Repo> nor <Repo>/{a.id}_<slug>)")
+    for repo, d, folder, base in wts:
+        branch = git(["rev-parse", "--abbrev-ref", "HEAD"], d, check=False)
+        rng = f"origin/{base}...HEAD" if base else None
+        stat = git(["diff", "--shortstat", rng], d, check=False) if rng else ""
+        files = [f for f in git(["diff", "--name-only", rng], d, check=False).splitlines() if f] if rng else []
+        ui = (d / "package.json").is_file()
+        npm = " · UI: node_modules missing, run npm install first" if ui and not (d / "node_modules").is_dir() else (" · UI" if ui else "")
+        print(f"  {repo} ({folder}): {d} · {branch}" + (f" · {stat}" if stat else "") + npm)
+        for f in files[:15]:
+            print(f"      {f}")
+        if len(files) > 15:
+            print(f"      … {len(files) - 15} more")
+    rs = run_script(root)
+    print(f"Run script: {rs} · parameters: {', '.join(ps_params(rs)) or '?'}" if rs else
+          "Run script: none found (the facts, scripts/run-*.ps1, .claude/scripts/run-stack.ps1). Ask before building one.")
+    if (root / ".git").exists():
+        ignored = subprocess.run(["git", "check-ignore", "-q", ".claude/scripts/x"], cwd=str(root)).returncode == 0
+        print(".claude/scripts is " + ("ignored" if ignored else "NOT ignored: add it to .git/info/exclude before writing a launcher"))
+    print(facts_section(root) or "No workspace facts in CLAUDE.md yet.")
+
+
+def cmd_stack_gate(a):
+    """Gate D: the run script's -Status shows a running service tagged with this work item's worktree."""
+    root = require_root()
+    cfg = load_config(root)
+    wts = [w for w in stack_worktrees(root, cfg, a.id) if not (w[1] / "package.json").is_file()]
+    script = Path(a.script) if a.script else run_script(root)
+    if not script or not script.is_file():
+        die("no run script found: pass --script")
+    ps = shutil.which("pwsh") or shutil.which("powershell")
+    if not ps:
+        die("PowerShell not found: the run script needs it")
+    r = subprocess.run([ps, "-NoProfile", "-NonInteractive", "-File", str(script), "-Status"], cwd=str(root),
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", env={**os.environ, "NO_COLOR": "1"})
+    lines = [ln.rstrip() for ln in (r.stdout or "").splitlines() if ln.strip()]
+    up = [ln for ln in lines if re.search(r"\bUP\b", ln)]
+    names = {folder.lower() for _, _, folder, _ in wts} | {str(a.id)}
+    mine = [ln for ln in up if "worktree:" in ln.lower() and any(n in ln.lower() for n in names)]
+    for ln in mine:
+        print(f"  from the worktree: {ln.strip()}")
+    for ln in up:
+        if ln not in mine:
+            print(f"  from the main checkout: {ln.strip()}")
+    if not wts:
+        print("No .NET worktree to prove (a UI only): confirm from the start-up header that it started from the worktree path.")
+        return
+    if not mine:
+        print("Gate D: FAIL. No running service carries this item's worktree tag: the main checkout is answering. "
+              "Check -Stop freed the port, read the service's error log for a bind failure, check the -Only keys cover "
+              f"{', '.join(sorted({w[0] for w in wts}))}. Do not hand over.")
+        sys.exit(1)
+    print("Gate D: PASS. The worktree build answers. Check each service of the changed repos is in the first list.")
+
+
 def cmd_remove(a):
     root = require_root()
     cfg = load_config(root)
@@ -1871,6 +1994,11 @@ def main():
     s.add_argument("--turns", type=int, default=1, help="1 counts a turn (default); 0 for a further line of the same turn")
     s.add_argument("--model", default="", help="the model that answered, for the record")
     s.add_argument("--session", default="", help="the chat's session id, for the record")
+    s = sp.add_parser("stack", help="pre-pr-verify: the item's worktrees, the run script and its flags, the workspace facts")
+    s.add_argument("--id", type=int, required=True)
+    s = sp.add_parser("stack-gate", help="pre-pr-verify Gate D: a running service answers from this item's worktree")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--script", help="the run script, when it is not the one stack finds")
     s = sp.add_parser("remove")
     s.add_argument("--id", type=int, required=True)
     s.add_argument("--abandon", action="store_true")
@@ -1879,7 +2007,7 @@ def main():
     {"init": cmd_init, "help": cmd_help, "doctor": cmd_doctor, "progress": cmd_progress, "refs": cmd_refs, "can": cmd_can, "type": cmd_type, "new": cmd_new, "status": cmd_status, "view": cmd_view, "reopen": cmd_reopen, "graph": cmd_graph, "graph-focus": cmd_graph_focus,
      "pr": cmd_pr, "remove": cmd_remove, "upgrade-config": cmd_upgrade_config, "run": cmd_run,
      "revert-check": cmd_revert_check, "verify": cmd_verify, "path": cmd_path, "cost": cmd_cost,
-     "anchors": cmd_anchors}[a.cmd](a)
+     "anchors": cmd_anchors, "stack": cmd_stack, "stack-gate": cmd_stack_gate}[a.cmd](a)
 
 
 if __name__ == "__main__":

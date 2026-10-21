@@ -185,13 +185,12 @@ export function parseArgs(raw: string): { view: DvView | null; version: string |
 }
 
 /** The prompt a button fills for the person to send: the skill does the judgement, devops.py the mechanics. */
-export function askText(what: 'release' | 'sync' | 'notes' | 'verify' | 'resolve', arg?: string): string {
+export function askText(what: 'release' | 'sync' | 'notes' | 'verify', arg?: string): string {
   switch (what) {
     case 'release': return `/devops:release-prep ${arg ? `prepare release ${arg}` : ''}`.trim()
     case 'sync': return '/devops:sync-team-branches sync the team branches'
     case 'notes': return '/devops:release-notes generate the release notes'
     case 'verify': return `I resolved the conflicts in ${arg}. Run devops.py sync verify --repo ${arg}, and if it passes, finish the sync.`
-    case 'resolve': return `/devops:pre-pr-verify start the environment${arg ? ` for ${arg}` : ''}`
   }
 }
 

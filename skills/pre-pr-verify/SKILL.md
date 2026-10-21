@@ -10,7 +10,8 @@ description: >-
 # Start the environment for manual verification
 
 The user tests. You give them an environment they can trust: the right code, **proven** to be the
-right code. Below, `devops.py` means `python "${CLAUDE_PLUGIN_ROOT}/scripts/devops.py"`.
+right code. Below, `env.py` means `python "${CLAUDE_PLUGIN_ROOT}/scripts/env.py"`, run from the workspace.
+It is the answer to the bug flow's Phase 11 gate ("start the environment"), and works for any work item's worktrees.
 
 ## Non-negotiables
 
@@ -25,7 +26,7 @@ right code. Below, `devops.py` means `python "${CLAUDE_PLUGIN_ROOT}/scripts/devo
 
 ## Steps
 
-1. **Find everything**: `devops.py env find --id <id>`. It lists each worktree (both layouts), its
+1. **Find everything**: `env.py stack --id <id>`. It lists each worktree (both layouts), its
    branch and changed files, a UI worktree missing `node_modules`, the run script and its real
    parameters, whether `.claude/scripts` is ignored, and the workspace facts from `CLAUDE.md`
    (`## Claude skills — workspace facts`): a starting point, not the truth. No run script: read
@@ -40,7 +41,7 @@ right code. Below, `devops.py` means `python "${CLAUDE_PLUGIN_ROOT}/scripts/devo
 4. **Launch.** `<run-script> -Stop` first (old services hold the ports), then
    `<run-script> -Worktree <id> -Database <db> -Only <keys>`. No `-NoBuild` on the first run. Read the
    header: it names each redirected repo and the services it affects.
-5. **Gate D**: `devops.py env gate --id <id>`. FAIL: do not hand over. Check `-Stop` freed the port,
+5. **Gate D**: `env.py stack-gate --id <id>`. FAIL: do not hand over. Check `-Stop` freed the port,
    read that service's error log for a bind failure, check the `-Only` keys cover the repo. A UI has no
    tag: confirm from the start-up header that Vite started from the worktree path.
 6. **Brief, then stop:**
@@ -70,18 +71,18 @@ right code. Below, `devops.py` means `python "${CLAUDE_PLUGIN_ROOT}/scripts/devo
 
 ## On the verdict
 
-| They say | You do |
-| --- | --- |
-| verified | Back to the calling flow's PR step. One line in the PR's verification comment: the user tested the worktree build by hand and it passed. Write a work item as `ADO 80459`, never `#80459`. |
-| something's wrong | Back to the calling flow: the cause step if the symptom stays, the side-effect step if a new one appeared. Re-run the automated gates, then offer this again. |
-| can't reach the screen | Usually a missing dependency or the wrong database: your problem, not the fix's. Fix and re-brief. |
+Back to the bug flow's Phase 11 table (`${CLAUDE_PLUGIN_ROOT}/skills/bug/phases/11-manual-verification.md`):
+**verified** goes on to Phase 12 (one line in the PR's verification comment: the user tested the worktree
+build by hand and it passed; a work item is `ADO 80459`, never `#80459`); a problem goes back to Phase 5
+or 8, then Phase 9, then this gate again. **Can't reach the screen** is usually a missing dependency or
+the wrong database: your problem, not the fix's. Fix the environment and brief again.
 
 Teardown only when the user says they are finished: `<run-script> -Stop`, then `<run-script> -Only
 <keys>`, and `-Status` shows no worktree tag. Leave the worktree on disk.
 
 ## Record what you had to work out
 
-New durable facts go in the workspace `CLAUDE.md` under `## Claude skills — workspace facts` (add to
-it; never a second heading): the run script and its flags, the repo → key map, the dependency graph,
+New durable facts go in the workspace `CLAUDE.md` under `## Claude skills — workspace facts` (the bug flow's
+Phase 14 owns that heading: add to it, never a second one): the run script and its flags, the repo → key map, the dependency graph,
 the database default and its VPN check, the UI URL and the log path. Never one bug's ids or paths,
 never secrets, never anything you did not verify. Ask before the first write; stamp the date.

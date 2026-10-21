@@ -213,7 +213,7 @@
       <tr><td>8 Apply the fix</td><td>The smallest change that fixes the cause.</td></tr>
       <tr><td>9 Verify</td><td>Red to green, a <b>revert check</b> (the test fails again with the fix taken out, byte for byte restored), a repeat run for flakiness, and the full suite. Each run is recorded against the current code; any later edit voids it.</td></tr>
       <tr><td>10 Commit and push</td><td>A clean commit in the worktree, pushed by the script.</td></tr>
-      <tr><td>11 Manual verification <b>(stop)</b></td><td>You check the fix yourself, or choose to skip (it is recorded).</td></tr>
+      <tr><td>11 Manual verification <b>(stop)</b></td><td>You check the fix yourself, or choose to skip (it is recorded). Say "start the environment" and <code>pre-pr-verify</code> brings the stack up from the fix's worktrees, proves that build is the one answering, and tells you what to test.</td></tr>
       <tr><td>12 Pull request</td><td><code>env.py pr</code> pushes, opens the PR against its base, and links the work items. The description holds only the change; the report, verification, design notes and out-of-scope go in PR comments. The item moves to the current sprint.</td></tr>
       <tr><td>13 Write back to ADO</td><td>Root Cause Details and Resolution (required for an Issue, also filled on a Bug), then the QA hand-over: <code>Resolved</code> and <code>Dev Completed</code>.</td></tr>
       <tr><td>14 Record learnings</td><td>Structural facts about the workspace (test projects, run scripts, traps) go in the workspace <code>CLAUDE.md</code>. Never <code>team/*</code> versions or anything about one bug.</td></tr>
@@ -513,7 +513,7 @@ A strip of faux wood-grain paper holding three pasted labels: "session.start", "
     <h3>Visual pages and the skills behind the commands</h3>
     <table>
       <tr><td><code>/sdd:visual &lt;mode&gt; [args]</code></td><td>Build a visual page: <code>diagram</code>, <code>plan</code>, <code>slides</code> (<code>--pptx</code>), <code>diff-review</code>, <code>plan-review</code>, <code>recap</code>, <code>fact-check</code>, <code>bug</code>, <code>design</code>, <code>tasks</code>, <code>requirements</code>, <code>impact</code>, <code>review</code>. <code>--quick</code> or <code>--full</code> picks the renderer.</td></tr>
-      <tr><td><code>/sdd:sync</code>, <code>/sdd:impact</code>, <code>/sdd:next</code>, <code>/sdd:bug</code>, <code>/sdd:spec</code>, <code>/sdd:request</code>, <code>/sdd:harness</code></td><td>The skills behind <code>/sdd</code>. Use <code>/sdd …</code>: it routes and checks the state first.</td></tr>
+      <tr><td><code>/sdd:sync</code>, <code>/sdd:impact</code>, <code>/sdd:next</code>, <code>/sdd:bug</code>, <code>/sdd:spec</code>, <code>/sdd:request</code>, <code>/sdd:harness</code>, <code>/sdd:pre-pr-verify</code></td><td>The skills behind <code>/sdd</code>. Use <code>/sdd …</code>: it routes and checks the state first.</td></tr>
     </table>
     <h3>Messages the buttons send</h3>
     <p>The panel buttons post these as your own message; you can type them too. <code>sdd approve for &lt;id&gt;, stage &lt;stage&gt;</code> (the go-ahead at a spec stop), <code>sdd review for &lt;id&gt;: approved</code> / <code>merged</code> / <code>rejected: why</code>, <code>sdd answer for &lt;id&gt;, stage &lt;stage&gt;: "&lt;question&gt;" = "&lt;answer&gt;"</code> and <code>sdd feedback for &lt;id&gt;, stage &lt;stage&gt;: &lt;text&gt;</code>. Each refuses, and says why, when the item does not wait at that stage.</p>
