@@ -30,7 +30,7 @@ the user's view; this file is for working on the plugin itself.
 | `agents/` | `investigator` and `skeptic`, the read-only sub-agents |
 | `evals/` | `claude plugin eval` cases; `_fixtures/workspace.py` builds each case's workspace |
 | `repowatch/` | A second, standalone plugin (sdd depends on it, same marketplace): tracks many git repos and worktrees. `scripts/repowatch.py` does the git mechanics and writes `.claude/repowatch/state.json`; `hooks/register.tsx` draws the pane and status line from it, and runs a clean-up only after `plan`, a confirm and `apply` (which re-checks). Has its own `plugin.json` and version |
-| `devops/` | A third, standalone plugin (same marketplace, no code, skills only): `release-prep`, `sync-team-branches`, `release-notes`, `pre-pr-verify`. Their PowerShell scripts run as `${CLAUDE_PLUGIN_ROOT}/skills/<skill>/scripts/...`. Has its own `plugin.json` and version. `devops/references/writing-style.md` is its own copy of the house writing style (`skills/bug/references/writing-style.md` is sdd's), so devops works without sdd; keep the ten rules and the word swaps in step |
+| `devops/` | A third, standalone plugin (same marketplace; needs neither sdd nor repowatch): `release-prep`, `sync-team-branches`, `release-notes`, `pre-pr-verify`. The skills are outlines; `scripts/devops.py` does the mechanics (it wraps the skills' PowerShell scans, `${CLAUDE_PLUGIN_ROOT}/skills/<skill>/scripts/...`, and reads and writes ADO over REST with an `az` token): `devopslib.py` (config `.claude/devops.json`, git, the ADO client, plans and approvals, the outbound lint), `notes.py` (the release-notes file and wiki page), `prs.py` (PR texts), `fakeado.py` (offline ADO: `DEVOPS_FAKE_ADO`). `hooks/` holds the guards (`git_guard.py` branches, working tree, az; `edit_guard.py`; `outbound_guard.py` the ADO MCP writes; `approval_hook.py` records the user's Yes to a `(plan <token>)` question) and the `/devops` pane (`register.tsx`, pure helpers in `view/model.ts`). State lives in `<workspace>/.claude/devops/`. Has its own `plugin.json` and version. `devops/references/writing-style.md` is its own copy of the house writing style (`skills/bug/references/writing-style.md` is sdd's), so devops works without sdd; keep the ten rules and the word swaps in step |
 | `assets/output-styles/ELI5.md` | The output style installed globally (kept outside `output-styles/` on purpose) |
 
 ## Checks to run
@@ -48,8 +48,12 @@ python hooks/test_edit_guard.py
 python hooks/test_graph_use.py
 python hooks/test_spec_use.py
 python repowatch/scripts/test_repowatch.py   # needs git; real repos in temp folders
+python devops/scripts/test_devops.py # needs git; the scan commands need pwsh (skipped without it); offline ADO
+python devops/hooks/test_guards.py   # needs git; every guard rule through the hook's stdin/exit code
 claude plugin test repowatch         # also mounts and presses the pane (hooks/pane.test.ts)
 claude plugin validate repowatch
+claude plugin test devops            # the /devops pane (hooks/pane.test.ts mounts and presses it) and view/model.ts
+claude plugin validate devops
 claude plugin test .                 # the view (model tests and hooks/pane.test.ts, which mounts the pane) and the Worktrees page; it also finds repowatch's tests, whose pane tests stand down (the plugin under test is sdd)
 claude plugin validate .             # the author warning is expected
 uv run --no-project --python 3.9 python scripts/test_sdd.py   # and the other python tests: the oldest Python the users run
@@ -93,6 +97,11 @@ to trust the plugin directory, and each case is a paid agent run. A full TypeScr
 - **repowatch deletes nothing on a remote except a stale `sync/<x>-<y>` branch.** `remote_delete_refusal` in
   `repowatch/scripts/repowatch.py` refuses every other deleting `git push` (and `--mirror`, `--prune`), and
   `test_remote_deletes` pins it. A new action must not route around `git()` for pushes.
+- **devops writes nothing outward without the user's approved plan.** A release or sync PR and a `/Release Notes` wiki page
+  go out only from a plan (`devopslib.save_plan`, token = hash of its items) that the user approved: their Yes to the printed
+  `(plan <token>)` question (`hooks/approval_hook.py`) or Approve in the pane. The agent cannot approve (`git_guard.py`), and
+  `outbound_guard.py` holds the ADO MCP tools to the same plans. A developer's own PR is not devops': only the secrets check
+  applies there. A new outward write goes through a plan too, and its text through `lint_outbound`.
 - **The view must load on the engine the Desktop app ships, not only the newest.** The Desktop app runs its own, older
   Claude Code (2.1.295 when this was written). On it, a mod that passes `$` or `on` into a function from another file, or
   calls a mods API method the engine lacks (`$.ui.view` is 2.1.300+), is refused whole, and nothing of it shows. Keep `$`

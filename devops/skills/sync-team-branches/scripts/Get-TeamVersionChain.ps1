@@ -170,7 +170,7 @@ function Get-LockedBranchNames {
     param([string]$RepoPath, [string]$BranchPrefix)
     if ($SkipLockCheck -or -not (Test-AzCliReady)) { return @() }
 
-    $originUrl = ((Invoke-Git $RepoPath @('remote', 'get-url', 'origin')).Lines -join '').Trim()
+    $originUrl = ((Invoke-Git $RepoPath @('config', '--get', 'remote.origin.url')).Lines -join '').Trim()
     $coords = Get-AzureDevOpsCoordinates $originUrl
     if (-not $coords) { return @() }  # not Azure DevOps-hosted (or an unrecognized URL shape) — no lock concept here
 

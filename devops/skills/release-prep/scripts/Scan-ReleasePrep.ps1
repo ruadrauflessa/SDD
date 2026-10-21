@@ -83,6 +83,8 @@ function Test-GitRepo {
 function Get-CandidateRepos {
     param([string]$RootPath, [string]$ReposDirName, [string[]]$Explicit)
     if ($Explicit) {
+        # `pwsh -File` passes `-Repos a,b` as the one string "a,b": split it so both ways behave the same.
+        $Explicit = @($Explicit -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
         return $Explicit | ForEach-Object {
             $p = if ([System.IO.Path]::IsPathRooted($_)) { $_ } else { Join-Path $RootPath $_ }
             if (Test-Path -LiteralPath $p) { (Resolve-Path -LiteralPath $p).Path }
@@ -201,7 +203,7 @@ $results = foreach ($repoPath in $repoPaths) {
         BranchesUrl = $null; MissingSourceBranch = $false; MissingTargetBranch = $false
     }
 
-    $remote = Invoke-Git $repoPath @('remote', 'get-url', 'origin')
+    $remote = Invoke-Git $repoPath @('config', '--get', 'remote.origin.url')
     if ($remote.Code -eq 0) {
         $row.RemoteUrl = $remote.Text.Trim()
         $ado = ConvertTo-AdoCoordinates $row.RemoteUrl
