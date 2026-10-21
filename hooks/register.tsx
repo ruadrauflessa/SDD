@@ -12,7 +12,7 @@ import type { AgentInfoLike, AgentTone, Mark, StageRow } from './view/model'
 import { ageShort, agoText, cleanupNote, conflictNote, counts, groupByItem, historyArgs, joinWorktrees, lineFacts, lineKey, linePath, lineTone, lineWord, sortLines } from './view/worktrees'
 import { ANALYSIS_SYSTEM, F, FIELD_NAME, NO_FILTER, UNASSIGNED, ago, analysisKey, analysisNote, analysisPrompt, bugsConfig, assigneeOptions, categorize, chipCounts, clipboardArgvFor, commentProblem, countText, currentValue, filterItems, isMine,
   itemLinks, keepMine, parseJson, parseTeam, pathOptions, pendingByItem, people, powershellCandidates, revertChange, revertItem, scriptAnswer, scriptArgv, sddState,
-  saveSummary, sddCommand, severityColor, visibleIndex, shortName, sortItems, stageChange, stateOptions, tagOptions, typeIcon, withPending } from './view/bugs'
+  saveSummary, sddCommand, severityColor, branchText, versionTags, visibleIndex, shortName, sortItems, stageChange, stateOptions, tagOptions, typeIcon, withPending } from './view/bugs'
 import { CATEGORY_TEXT_FIELDS, SECTIONS, addAlternative, addCategory, addToField, applyToDevelopers, applyToSdd, changeCount, conditionOf, conditionRows, describeCategory, fieldKey, fieldsOf,
   filesToWrite, freeKeys, getAt, isDirty, moveCategory, needsSync, removeAlternative, removeCategory, removeConditionKey, removeFromField, resetSection, revertDraft, sectionDirty,
   seedFor, setCategoryText, setConditionKey, setField, settingsProblems, startDraft, updateCategory, valueText, withCondition } from './view/settings'
@@ -1373,6 +1373,7 @@ export const register: Register = (on, options) => {
     // the items as they will be once the staged changes are saved, so the categories and their counts move as you stage
     const shownItems = index.items.map(i => withPending(i, pending, team))
     const cats = categorize(shownItems, cfg.categories ?? [], index.me, now)
+    const versionColor = cfg.categories?.find(c => c?.id === 'version')?.color  // the Branch column takes the Team branch chips' colour
     const list = sortItems(filterItems(shownItems, filter, cats, index.me, cfg.doneStates ?? [], devTeam), filter.sort)
     const size = Math.max(8, (e.viewport?.rows ?? 40) - 16)
     const start = from < list.length ? from : 0
@@ -1550,6 +1551,7 @@ export const register: Register = (on, options) => {
               <Box width={7} flexShrink={0}><Text dimColor>Id</Text></Box>
               <Box flexGrow={1} flexShrink={1} minWidth={0}><Text dimColor wrap="truncate-end">{`Title · ${list.length} shown · ● severity 1 red, 2 orange, 3 amber`}</Text></Box>
               <Text dimColor>State</Text>
+              <Box width={9} flexShrink={0}><Text dimColor>Branch</Text></Box>
               <Box width={12} flexShrink={0}><Text dimColor>Assigned</Text></Box>
               <Box width={3} flexShrink={0}><Text dimColor>Pri</Text></Box>
               <Box width={4} flexShrink={0}><Text dimColor>Age</Text></Box>
@@ -1586,6 +1588,7 @@ export const register: Register = (on, options) => {
             </Box>
             {mine.length > 0 && <Text bold color={bad ? C.revoked : C.now}>{`${bad ? '⚠' : '✎'}${mine.length}`}</Text>}
             <Text color={stateColor(item.state)}>{item.state}</Text>
+            <Box width={9} flexShrink={0}><Text color={versionColor} wrap="truncate-end">{branchText(versionTags(item, cfg?.categories))}</Text></Box>
             <Box width={12} flexShrink={0}><Text dimColor={!isMine(item, index!.me)} color={isMine(item, index!.me) ? C.work : undefined} wrap="truncate-end">{shortName(item.assigned)}</Text></Box>
             <Box width={3} flexShrink={0}><Text dimColor>{item.priority != null ? `P${item.priority}` : ''}</Text></Box>
             <Box width={4} flexShrink={0}><Text dimColor>{ago(item.changed, now)}</Text></Box>

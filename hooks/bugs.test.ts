@@ -2,9 +2,9 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { BugCategory, BugIndex, BugRecord, BugsConfig, SddSnapshot } from '../types'
-import { F, NO_FILTER, UNASSIGNED, analysisKey, assigneeKey, assigneeOptions, analysisPrompt, ago, bugsConfig, categorize, changeLabel, commentProblem, conditionHolds, currentValue,
+import { F, NO_FILTER, UNASSIGNED, VERSION_TAG, analysisKey, assigneeKey, assigneeOptions, analysisPrompt, ago, bugsConfig, categorize, changeLabel, commentProblem, conditionHolds, currentValue,
   filterItems, chipCounts, clipboardArgvFor, countText, saveSummary, sddCommand, inTeamArea, isMine, isTeam, parseTeam, visibleIndex, visibleItems, itemLinks, keepMine, leaf, pathOptions, pendingByItem, people, powershellCandidates, revertChange, revertItem,
-  scriptAnswer, scriptArgv, sddState, severityRank, shortName, sortItems, stageChange, stateOptions, tagOptions, withPending } from './view/bugs'
+  scriptAnswer, scriptArgv, branchText, versionTags, sddState, severityRank, shortName, sortItems, stageChange, stateOptions, tagOptions, withPending } from './view/bugs'
 
 const DEFAULTS = {
   folder: '.bugs', types: ['Bug', 'Issue'],
@@ -78,6 +78,19 @@ test('the default categories sort the list, and a team version becomes one categ
   expect(by['version:1.1.0']).toEqual([1, 3])
   expect(categorize(ITEMS, [{ id: 'bad', label: 'B', eachTag: '(' } as BugCategory], ME).length).toBe(0)
   expect(categorize(ITEMS, [{ id: 'team', label: 'Team', eachField: 'type' } as BugCategory], ME).map(c => c.label)).toEqual(['Team Issue', 'Team Bug'])
+})
+
+test('the Branch column: the version tags, highest first, and nothing without one', () => {
+  const cats = DEFAULTS.categories
+  expect(versionTags(rec(1, { tags: ['Quick Win', '1.1.4', '1.1.11', '1.2.0'] }), cats)).toEqual(['1.2.0', '1.1.11', '1.1.4'])
+  expect(versionTags(rec(2, { tags: ['Quick Win', 'v2', '1'] }), cats)).toEqual([])     // not a version: no column text
+  expect(versionTags(rec(3, { tags: ['R-7'] }), [{ id: 'version', label: 'Release {value}', eachTag: '^R-\\d+$' } as BugCategory])).toEqual(['R-7'])
+  expect(versionTags(rec(4, { tags: ['0.3.0'] }), [])).toEqual(['0.3.0'])                // no version category: the default pattern
+  expect(versionTags(rec(5, { tags: ['0.3.0'] }), [{ id: 'version', label: 'B', eachTag: '(' } as BugCategory])).toEqual(['0.3.0'])
+  expect(VERSION_TAG).toBe(DEFAULTS.categories.find(c => c.id === 'version')!.eachTag)
+  expect(branchText(['1.2.0', '1.1.11', '1.1.4'])).toBe('1.2.0 +2')
+  expect(branchText(['1.2.0'])).toBe('1.2.0')
+  expect(branchText([])).toBe('')
 })
 
 test('the Assigned to filter: one person, or nobody, and the people to choose from', () => {

@@ -136,6 +136,8 @@ test('desktop: the list shows the synced items, the categories and the filters',
   const t = await texts(ui)
   expect(t).toContain('3 items · Org / Proj')
   expect(t).toContain('you are me@x.co')
+  expect(t).toContain('Branch')
+  expect(t).toContain('1.1.0')            // 701's team version, in its row; 702 and 703 have no version tag
   const b = await labels(ui)
   expect(b).toContain('▸ Totals lose cents')
   expect(b).toContain('▸ Login hangs')
