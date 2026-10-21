@@ -499,7 +499,8 @@ def require_approval(root, token):
     if not approval(root, token):
         raise Refused(f"plan {token} is not approved. Show the plan to the user and ask with AskUserQuestion: "
                       f"\"{approval_question(root, token)}\" with the options \"Yes, go ahead\" and \"No\". "
-                      "Their Yes is recorded by the devops hook; or they press Approve in the /devops pane.")
+                      "Their Yes is recorded by the devops hook; or they press Approve in the /devops pane. A yes typed in the "
+                      "chat does not count: ask with AskUserQuestion (or point them to the pane) even if they already said yes.")
 
 
 def approval_question(root, token):

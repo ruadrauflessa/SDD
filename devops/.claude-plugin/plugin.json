@@ -1,6 +1,6 @@
 {
   "name": "devops",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Azure DevOps release and verification skills: prepare a release, sync team branches, write release notes, start the stack for manual testing; scripts do the mechanics, guards protect branches, work and what goes out, and the /devops pane shows what needs you.",
   "types": "./types/index.d.ts"
 }
