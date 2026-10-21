@@ -50,6 +50,7 @@ function world(on: any, opts: { synced?: boolean; team?: boolean } = {}): World 
     files: {
       [`${ROOT}/.claude/sdd.json`]: JSON.stringify({ specRoot: 'docs/spec', ado: { org: 'Org', projects: ['Proj'] } }),
       [`/plugin/scripts/bugs/defaults.json`]: JSON.stringify(DEFAULTS),
+      [`/plugin/.claude-plugin/plugin.json`]: JSON.stringify({ name: 'sdd', version: '9.8.7' }),
       [`${DIR}/items/701.json`]: JSON.stringify({ id: 701, rev: 3, text: { repro: 'Export shows 12 not 12.40' }, comments: [{ by: 'Ann', at: '', text: 'Seen on prod' }] }),
     },
     runs: [], prompts: [], toasts: [], filled: [], registered: [],
@@ -81,7 +82,7 @@ function world(on: any, opts: { synced?: boolean; team?: boolean } = {}): World 
     return done('{"ok":false,"error":"unknown"}', 1)
   }) as never)
   on('fs.read', ((_$: unknown, e: { path: string }) => {
-    const p = e.path.replace(/^.*\/scripts\/bugs\//, '/plugin/scripts/bugs/')
+    const p = e.path.replace(/^.*\/scripts\/bugs\//, '/plugin/scripts/bugs/').replace(/^.*\/\.claude-plugin\/plugin\.json$/, '/plugin/.claude-plugin/plugin.json')
     if (!(p in w.files)) throw new Error(`ENOENT: no such file ${e.path}`)
     return { value: w.files[p] }
   }) as never)
@@ -136,6 +137,7 @@ test('desktop: the list shows the synced items, the categories and the filters',
   const t = await texts(ui)
   expect(t).toContain('3 items · Org / Proj')
   expect(t).toContain('you are me@x.co')
+  expect(t).toContain('sdd v9.8.7')
   const b = await labels(ui)
   expect(b).toContain('▸ Totals lose cents')
   expect(b).toContain('▸ Login hangs')

@@ -465,6 +465,7 @@ let bugsDirKnown: string | null = null
 let bugsSeen = ''  // what bugsRead last read: settings, index.json and pending.json
 let bugsRunning: string | null = null  // the long action running in this copy of the module (a reload ends it)
 let pwshExe: string | null = null  // the PowerShell that ran last; lost on reload, which costs one more try
+let pluginVersion: string | null = null  // the plugin's version from plugin.json, shown in the header; '' = could not read it
 
 type BugsWhere = { root: string; dir: string; cfg: BugsConfig; defaults: BugsConfig }
 type ScriptOut = { ok: boolean; error?: string }
@@ -554,6 +555,13 @@ async function settingsSave($: EngineInterface, w: BugsWhere, d: BugSettingsDraf
 /** Reads what the scripts wrote: the list and the staged changes. No index yet: not synced. `quiet` (the timer)
  *  changes nothing when the files are as they were, so a redraw never comes for nothing (or over a half-typed field). */
 async function bugsRead($: EngineInterface, quiet = false): Promise<BugsWhere | null> {
+  if (pluginVersion == null) {
+    try {
+      pluginVersion = String(parseJson<{ version?: string }>(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`)).version ?? '')
+    } catch {
+      pluginVersion = ''
+    }
+  }
   const w = await bugsWhere($)
   if (typeof w === 'string') {
     await $.state.set(bugsErr, w)
@@ -1114,6 +1122,7 @@ export const register: Register = (on, options) => {
           <Box flexGrow={1} flexShrink={1} minWidth={0}>
             <Text bold wrap="truncate-end">🐞 Bugs and issues</Text>
           </Box>
+          {pluginVersion && <Text dimColor>{`sdd v${pluginVersion}`}</Text>}
           {busy && <Text color={C.now}>{`⟳ ${BUSY_WORD[busy] ?? busy}…`}</Text>}
           <Button key="bugs-sync" label="↻ Sync from ADO" onPress={sync} />
           <Button key="bugs-config" label={view === 'settings' ? '← Back to the list' : isDirty(draftState) ? '⚙ Config ✎' : '⚙ Config'} onPress={toggleSettings} />
