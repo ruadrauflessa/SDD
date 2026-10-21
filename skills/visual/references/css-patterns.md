@@ -1,5 +1,9 @@
 # CSS Patterns for Diagrams
 
+> **Colour, font and decoration advice in this file is superseded by `SKILL.md` → "House style".**
+> Use this file for layout, overflow, connectors and mechanics. Colours and fonts come from the
+> SpesNet tokens (`brand/`); hex values and font names below are examples, not choices to copy.
+
 Reusable patterns for layout, connectors, theming, and visual effects in self-contained HTML diagrams.
 
 ## Theme Setup

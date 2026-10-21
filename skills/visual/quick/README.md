@@ -4,6 +4,8 @@ Quick mode moves repeated HTML and CSS out of the agent response. The agent emit
 
 SKILL.md says which modes default to quick; `--quick` / `--full` override it. Use full mode if the content does not fit the schema or if validation or rendering fails.
 
+The page is styled with the SpesNet Design System: `render.mjs` puts the Public Sans font and the tokens from `../brand/` in front of `base.css`. `base.css` holds the component rules only; it uses token names, never a typed colour or font.
+
 ## Example spec
 
 ```json

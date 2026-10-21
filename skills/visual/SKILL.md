@@ -1,6 +1,6 @@
 ---
 name: visual
-description: "Turn any explanation or plan into a self-contained HTML visual page that is easy to digest — diagrams, tables, before/after, risk matrices, slide decks. Use it EVERY time you present a plan, design, decomposition/task list, bug root cause, proposed or applied fix, code or PR review, investigation result, impact analysis, requirement summary, project recap, or comparison — inside the /sdd flows (sdd:spec, sdd:bug, sdd:impact), in ado-bug-fix and ado-pr-review, and in ordinary chat. Also for \"draw / diagram / visualise / explain visually / make slides / diff review / plan review / recap / fact-check this page\". Skip it only for one-line answers, yes/no confirmations and pure tool/setup chatter. `/sdd:visual <mode> [args]` runs a mode directly — modes: diagram, plan, slides [--pptx], diff-review, plan-review, recap, fact-check, bug, design, tasks, requirements, impact, review; add --quick or --full to force the renderer."
+description: "Turn any explanation or plan into a self-contained HTML visual page that is easy to digest — diagrams, tables, before/after, risk matrices, slide decks. Use it EVERY time you present a plan, design, decomposition/task list, bug root cause, proposed or applied fix, code or PR review, investigation result, impact analysis, requirement summary, project recap, or comparison — inside the /sdd flows (sdd:spec, sdd:bug, sdd:impact), in ado-bug-fix and ado-pr-review, and in ordinary chat. Also for \"draw / diagram / visualise / explain visually / make slides / diff review / plan review / recap / fact-check this page\". Skip it only for one-line answers, yes/no confirmations and pure tool/setup chatter. Every page is styled with the SpesNet Design System. `/sdd:visual <mode> [args]` runs a mode directly — modes: diagram, plan, slides [--pptx], diff-review, plan-review, recap, fact-check, bug, design, tasks, requirements, impact, review; add --quick or --full to force the renderer."
 license: MIT (forked from nicobailon/visual-explainer 0.11.0 — see LICENSE)
 ---
 
@@ -44,7 +44,7 @@ Each mode's sections live in `modes/<mode>.md`. Read only the one you need. Thos
 | Renderer | Use for | How |
 | --- | --- | --- |
 | **quick** (default for `bug`, `requirements`, `impact`, `tasks`, `review` at a gate) | Routine gate visuals. Cheap: you write a small JSON spec, a script writes the HTML. | Read `quick/README.md` + `quick/schema.json`. Write the spec to a `.json` file, then `node ${CLAUDE_PLUGIN_ROOT}/skills/visual/quick/render.mjs <spec.json> <out.html>` |
-| **full** (default for `design`, `plan`, `diagram`, `diff-review`, `plan-review`, `recap`, `slides`, `fact-check`) | Pages that need custom layout or more than the schema can say. | Write the complete HTML yourself, following the rules below and the templates. |
+| **full** (default for `design`, `plan`, `diagram`, `diff-review`, `plan-review`, `recap`, `slides`, `fact-check`) | Pages that need custom layout or more than the schema can say. | Write the complete HTML yourself, following the rules below and the templates. Then run `brand.mjs inject` on it (see "House style"). |
 
 Quick-mode block choice: test and verification results → `cards` in a `"layout": "stack"` section, one per
 row (tone = pass/fail, `meta` = the command); `evidence` only for short proof values with a source. `files` draw a fixed-size status
@@ -156,18 +156,68 @@ everything else.
   `fact-check` mode over it before sending.
 - Link every ADO artifact (work items, PRs, commits, branches) with full URLs, as in chat.
 
+## House style — the SpesNet Design System
+
+Every page wears the SpesNet look. The source is the **SpesNet Design System** (the organisation's
+default design system on claude.ai). `brand/` holds a copy of its tokens and its font. Do not
+invent a palette, a font or a decoration.
+
+- **Quick mode:** nothing to do. `render.mjs` adds the font, the tokens and `quick/base.css`.
+- **Full mode:** put two markers in the page's `<style>`: `/* @brand:font */` and
+  `/* @brand:tokens */` (every template already has them). Style each block with the token
+  names below. When the file is written, run
+  `node ${CLAUDE_PLUGIN_ROOT}/skills/visual/brand/brand.mjs inject <page.html>`. It fills the
+  markers with Public Sans (inlined, no network), the light, dim and dark themes and the dark-mode
+  rule. Running it twice does no harm. Never type a hex colour or a font name into a page.
+
+| Need | Token |
+| --- | --- |
+| Page, card, block inside a card | `--bg`, `--surface`, `--surface-2` |
+| Text, quiet text, hairline | `--text`, `--text-dim`, `--border` |
+| Accent: links, focus, the active thing | `--accent` (fills, strokes), `--accent-text` (small text), `--accent-bg` (tint) |
+| Status: good, watch, bad, info, neutral | `--positive`, `--caution`, `--danger`, `--info`, `--neutral`; each has `-bg` (tint) and `-fg` (text) |
+| Corners | `--radius-sm` 6px (pill, chip), `--radius-lg` 10px (block in a card), `--radius-xl` 14px (card, section) |
+| Space, 4px grid | `--space-1` … `--space-14` |
+| Type | `--font-body` (Public Sans), `--font-mono` (code only), `--text-label` 11px, `--text-xs` 12px, `--text-sm` 14px, `--text-base` 16px, `--text-2xl` 24px |
+| Shadow | `--shadow` only. An overlay may use `--shadow-lg` |
+
+The look, in short:
+
+- **Colour carries meaning.** One accent (primary blue `#497CAB`), five status colours, grey for
+  the rest. Never a sixth colour.
+- **A status is a pill or a dot.** A pill is a tint background with a saturated text colour
+  (`--positive-bg` + `--positive-fg`). A dot is 8px, before a word. Never a solid saturated fill
+  behind body text.
+- **A card is flat.** `--surface`, a 1px `--border`, `--radius-xl`, 20px padding, `--shadow`. No
+  gradient, glow, texture, background image, coloured side bar, thick rule or frosted glass.
+- **Sentence case.** UPPERCASE only for small labels (11px, semibold, 0.05–0.1em spacing): table
+  heads, kickers, link kinds.
+- **One font.** Public Sans, weights 400, 500, 600, 700. Mono only for code, ids and paths.
+- **No emoji, no icon font, no hand-drawn icons.** The status icons that quick mode draws are the
+  only glyphs.
+- **Numbers and dates.** Counts with thousands separators (`1,284`). Dates `dd MMM yyyy`, times
+  `HH:mm:ss`.
+- **The logo.** Never redraw or recolour the mark. If a page needs the name, set "SpesNet" in
+  Public Sans Bold.
+- **Themes.** Light is the base. The OS dark setting switches to Dark. `data-theme="dim"` is a
+  softer third theme: use it only when the user asks.
+- **Tone of voice.** Calm and factual. The page states the facts and gets out of the way.
+
+The user's words win over all of this. A named palette (`references/themes.md`) only when the user
+asks for it by name. To update `brand/` from the design system, see `brand/README.md`.
+
 ## Design judgment
 
 Before writing any HTML:
 
-- Calibrate treatment: reviews, bug explainers, audits and recaps get polished-utilitarian (real
-  hierarchy, considered spacing, no flashy hero); narrative decks get editorial. A well-composed
-  page is never wrong; an over-designed one sometimes is.
-- Precedence: the user's words, then the project's existing design system (theme/token files,
-  component styles), then this skill's choices. A project default theme/font can live in
-  `sdd-visual.config.md` (see `references/themes.md` → Default config).
-- Plan first: 4–6 named hex values, type roles, a one-sentence layout concept. Audit once — "would
-  I produce this plan for any similar page?" — and revise the generic parts.
+- Calibrate density, not the look: reviews, bug explainers, audits and recaps are dense and
+  utilitarian (real hierarchy, considered spacing, no hero); explanations and recaps get more air.
+  A well-composed page is never wrong; an over-designed one sometimes is.
+- Precedence: the user's words, then the SpesNet Design System ("House style"), then this skill's
+  choices. A project may name a different default theme in `sdd-visual.config.md` (see
+  `references/themes.md` → Default config); without that, SpesNet applies.
+- Plan first: the layout concept in one sentence, the blocks, and which token marks each status.
+  Audit once — "would I produce this plan for any similar page?" — and revise the generic parts.
 - Structure must encode something true: 01/02/03 markers only when order matters, eyebrow labels
   only when they classify, dividers only at real seams.
 - **First viewport = the answer.** The decision, verdict or root cause is readable without
@@ -254,25 +304,23 @@ What to draw:
 ## Layout and style invariants
 
 - Use semantic HTML where it helps accessibility and copy/paste: `<table>`, headings, lists, `<details>`, captions.
-- Use CSS custom properties for palette: `--bg`, `--surface`, `--border`, `--text`, `--text-dim`, and 3–5 accents.
-- Pages meant to persist ship both color schemes: tokens on `:root`, the `prefers-color-scheme` media query redefines tokens only, components styled through tokens. Pick the second theme's values; never invert. Single-theme is fine when deliberate (one-shot pages, quick mode, `themes.md` picker).
-- Commit to one palette (with its light and dark scheme variants) and one font pair. Add a runtime picker only when the user asks to switch themes or fonts, or names a prebuilt palette; see `references/themes.md`.
-- Anchor the aesthetic direction to the content's domain: CLI/infra → terminal or IDE-inspired; metrics/audits → data-dense; plans/architecture → blueprint; recaps → editorial; prose → paper/ink. Warm cream + serif + terracotta on everything is itself a cliché.
-- Avoid generic defaults when choosing freely (a project's existing design system overrides this list): no body font that is only Inter, Roboto, Arial, Helvetica, or system-ui; no violet/fuchsia Tailwind-default accents as the main palette (`#8b5cf6`, `#7c3aed`, `#a78bfa`, `#d946ef`); no cyan+magenta+purple neon dashboard; no gradient-mesh blobs; no purple-to-blue gradient heroes, emoji section markers, centered-everything layouts, uniform large border-radius, or default accent bars on rounded cards.
+- Style through the SpesNet tokens (see "House style"): `--bg`, `--surface`, `--surface-2`, `--border`, `--text`, `--text-dim`, `--accent` and the status colours. Never type a new colour or font into a page.
+- Both colour schemes come from the tokens: Light is the base, the OS dark setting switches to Dark (`brand.mjs` writes the rule). Style components through tokens only, so both schemes hold; never invert by hand.
+- No runtime picker unless the user asks to switch themes or fonts, or names a palette; see `references/themes.md`.
+- Calibrate density to the content, not the look: audits and reviews are dense (tables, pills, small type); explanations get more air. The look stays SpesNet.
+- Never use: a gradient, glow or mesh blob, a texture or background image, a coloured side bar or thick rule on a card, an emoji marker, a frosted panel, centered-everything layouts. The design system has none of them.
 - Set type deliberately: running text near 65ch, a committed type scale, `text-wrap: balance` on headings, letter-spacing on uppercase labels.
 - For non-slide, scrollable pages, use a rem-based type scale with one root knob: set `html { font-size: 16px }` (choose a value in the 16–18px range) and express ordinary page text in `rem`. Minimum effective sizes at the chosen root: body/reading text ≥ 14px, secondary text and labels ≥ 11px, code/mono ≥ 12px. Never hard-code reading text below 14px in px. Diagram SVG labels stay in px. Slide decks are the exception: keep their `clamp(...px, ...vw, ...px)` typography and `autoFit()` runtime fitting from `slide-patterns.md` and `slide-deck.html`. Re-scale px values when copying reference snippets into ordinary pages.
 - Bias neutrals toward the accent hue; pure mid-grey reads as unconsidered. Space siblings with flex/grid `gap`, not collapsing margins; `tabular-nums` where digits align in columns; watch specificity so classes do not silently cancel each other's spacing.
 - Microcopy is design material: name things by what readers recognize, not internal structure; controls say exactly what happens; specific beats clever.
 - Dashboards are scanned, not read: summary before detail; encode state in form (pills, chips, severity stripes); keep semantic color separate from the accent hue; interactive things look interactive.
-- Diff colour language, everywhere: red = removed/before, green = added/after, amber = modified/risk, blue = neutral context.
-- Good font pair families: DM Sans + Fira Code; Instrument Serif + JetBrains Mono; IBM Plex Sans + IBM Plex Mono; Bricolage Grotesque + JetBrains Mono; Plus Jakarta Sans + Azeret Mono.
-- Load every font weight the CSS uses, including mono labels. Do not rely on faux-bold for 500, 600, or 700 weights. Always give a local fallback stack — the page must still read when the font CDN is blocked.
-- Good accent directions: terracotta+sage, teal+slate, rose+cranberry, amber+emerald, deep blue+gold.
+- Diff colour language, everywhere: red = removed/before (`--danger`), green = added/after (`--positive`), amber = modified/risk (`--caution`), blue = neutral context (`--accent`).
+- Public Sans is one variable font (weights 100–900). `brand.mjs` inlines it, so every weight loads and no network is needed. The fallback stack is already in `--font-body`.
 - **Every block wraps its text.** Long code tokens, paths, URLs and identifiers must break inside their card, never spill out of it. Set `overflow-wrap: anywhere` on `body` (it inherits; `break-word` does **not** stop grid/flex items from growing past their track), `min-width: 0` on every grid/flex child, `white-space: normal` on inline `code` inside cards, and scroll containers only for wide tables and `<pre>` blocks. Check a card with a 60-character identifier before sending.
 - Do not set `display: flex` directly on `<li>` when list markers matter.
-- Corners match: every block uses the same small radius on all four corners (sections 5px, cards,
+- Corners follow the tokens: sections and cards 14px (`--radius-xl`), blocks inside a card 10px (`--radius-lg`), pills and chips 6px (`--radius-sm`), dots full. All four corners alike; no odd-corner shapes.
   tables and diagrams 4px). No odd-corner shapes such as a large bottom-right only.
-- Use depth sparingly: hero/elevated only for primary sections; flat/recessed for reference material.
+- Depth is quiet: a hairline and `--shadow`. Only an overlay lifts higher.
 - Use entrance/hover animation only when it clarifies hierarchy. Respect `prefers-reduced-motion`. Do not use continuous glow, pulse, or breathing effects on static content.
 - Every page has `<html lang="en">`, a viewport meta tag, and a self-contained favicon (inline SVG data URI). In display math (`$$…$$`) escape raw `<` / `>`.
 - No secrets or personal data on a page: no connection strings with passwords, keys, tokens or patient data. Pages under `documents/` are kept in the workspace snapshot.
@@ -297,17 +345,17 @@ Before sending, verify:
 - no horizontal overflow at normal desktop width, and it reads at phone width;
 - no text spills out of any card, table cell or evidence block;
 - every execution path or process in the explanation is drawn as a diagram (sequence diagram preferred);
-- fonts load with fallbacks; self-contained favicon; `lang` and viewport set;
+- Public Sans is inlined (quick mode, or `brand.mjs inject` ran); self-contained favicon; `lang` and viewport set;
 - tables preserve rows/columns and wrap long text;
 - interactive elements have visible keyboard focus states;
 - diagrams are static inline SVG (no `<script>`, no CDN) in a `<figure>` with a claim-stating `figcaption`; the SVG carries `role="img"` and a `<title>`;
-- both color schemes hold up, or single-theme was deliberate;
+- both colour schemes hold up (check dark with `prefers-color-scheme`);
 - the page has no `<script>` that loads anything from the internet;
 - a runtime picker, if present, swaps palette and font variables;
 - slides: see `modes/slides.md` checklist;
 - non-slide page type uses rem with one root knob and meets the minimum sizes;
 - the main idea — decision, verdict, root cause — is obvious in the first viewport;
-- styling would still be recognizable if compared against a generic dark/violet template;
+- the page uses SpesNet tokens only: no typed hex colour or font name, no gradient, no side bar, no emoji;
 - every fact on the page is backed by a file:line, command output or ADO link;
 - the page opens with a TL;DR of 1–3 lines;
 - every work item, PR, commit and branch the page mentions is in the Links box under the TL;DR;
@@ -324,4 +372,5 @@ Before sending, verify:
 | `templates/*.html` | Full renderer — the matching template |
 | `references/*.md` | See Reference routing |
 | `pptx/export.mjs`, `pptx/README.md`, `package.json` | `slides --pptx` only |
+| `brand/brand.mjs`, `brand/tokens.css`, `brand/aliases.css`, `brand/public-sans-latin.woff2`, `brand/README.md` | The SpesNet look: tokens, token names, font, and the `inject` command for full-mode pages |
 | `LICENSE` | Original MIT licence — keep it with the fork |

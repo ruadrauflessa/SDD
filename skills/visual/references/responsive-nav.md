@@ -1,5 +1,9 @@
 # Responsive Section Navigation
 
+> **Colour, font and decoration advice in this file is superseded by `SKILL.md` → "House style".**
+> Use this file for layout, overflow, connectors and mechanics. Colours and fonts come from the
+> SpesNet tokens (`brand/`); hex values and font names below are examples, not choices to copy.
+
 Navigation pattern for multi-section pages (reviews, recaps, dashboards). Provides a sticky sidebar TOC on desktop and a sticky horizontal scrollable bar on mobile.
 
 ## Layout Structure

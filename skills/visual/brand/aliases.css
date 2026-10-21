@@ -1,0 +1,57 @@
+/* The names sdd:visual pages use, mapped onto SpesNet Design System tokens (tokens.css).
+   Same element as the theme tokens (:root), so one rule serves all three themes.
+   Rule of thumb from the design system: colour carries meaning. One accent (primary), five
+   status colours, grey for the rest. A status is a tint background with a saturated foreground. */
+:root {
+  --font-body: var(--font-sans);
+
+  /* Surfaces */
+  --bg: var(--background);
+  --surface: var(--panel);          /* a card. Replaces the design system's page-tint --surface */
+  --surface-2: var(--secondary);    /* a panel inside a card, table header */
+  --text: var(--foreground);
+  --text-dim: var(--muted-foreground);
+
+  /* Accent: primary. --accent-text is primary pulled toward the text colour so small text keeps
+     its contrast in every theme (darker in light, lighter in dark). */
+  --accent: var(--primary);
+  --accent-text: color-mix(in oklab, var(--primary) 70%, var(--foreground));
+  --accent-bg: color-mix(in oklab, var(--primary) 10%, var(--panel));
+
+  /* Status: solid colour, tint, and the readable foreground. "caution" is the design system's
+     warning; the name --warning is taken by its pale gold surface tint. */
+  --positive: var(--success);
+  --positive-bg: var(--status-success-bg);
+  --positive-fg: var(--status-success-fg);
+  --caution: var(--warning-solid);
+  --caution-bg: var(--status-warning-bg);
+  --caution-fg: color-mix(in oklab, var(--status-warning-fg) 55%, var(--foreground));
+  --danger: var(--fail);
+  --danger-bg: var(--status-error-bg);
+  --danger-fg: var(--status-error-fg);
+  --info: var(--primary);
+  --info-bg: var(--accent-bg);
+  --info-fg: var(--accent-text);
+  --neutral: var(--gray-400);
+  --neutral-bg: var(--status-neutral-bg);
+  --neutral-fg: var(--status-neutral-fg);
+
+  --shadow: var(--shadow-sm);
+
+  /* Names the full-mode templates use. Tints are the colour at 8-10% over whatever is behind. */
+  --surface2: var(--surface-2);
+  --surface-elevated: var(--surface);
+  --border-bright: color-mix(in oklab, var(--border) 60%, var(--foreground));
+  --accent-dim: color-mix(in oklab, var(--primary) 8%, transparent);
+  --green: var(--positive);
+  --green-dim: color-mix(in oklab, var(--positive) 10%, transparent);
+  --red: var(--danger);
+  --red-dim: color-mix(in oklab, var(--danger) 10%, transparent);
+  --orange: var(--caution);
+  --orange-dim: color-mix(in oklab, var(--caution) 10%, transparent);
+  --blue: var(--primary);
+  --blue-dim: var(--accent-dim);
+  /* Code sits on the page surface, as in the design system: no dark editor theme. */
+  --code-bg: var(--surface-2);
+  --code-text: var(--text);
+}

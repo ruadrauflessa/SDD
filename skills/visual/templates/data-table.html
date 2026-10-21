@@ -4,13 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Requirements Audit — Reference Template</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f172a'/%3E%3Cpath d='M18 40V24l14-8 14 8v16l-14 8-14-8Z' fill='none' stroke='%23fbbf24' stroke-width='4' stroke-linejoin='round'/%3E%3Ccircle cx='32' cy='32' r='5' fill='%2338bdf8'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23497CAB'/%3E%3Cpath d='M18 40V24l14-8 14 8v16l-14 8-14-8Z' fill='none' stroke='%23ffffff' stroke-width='4' stroke-linejoin='round'/%3E%3Ccircle cx='32' cy='32' r='5' fill='%23183e65'/%3E%3C/svg%3E">
 <!--
   Reference template for the visual-explainer skill: data tables.
-  Rose/cranberry palette — distinctly different from terracotta (architecture)
-  and teal (mermaid) templates so agents absorb variety.
+  SpesNet Design System: Public Sans, primary blue, five status colours, grey for the rest.
   Key patterns demonstrated:
-  - Rose/cranberry palette (NOT indigo/violet)
+  - SpesNet tokens only (see THEME)
   - KPI summary cards above the table (visual hook before the data)
   - Collapsible <details> section (replaces static callout)
   - Depth tiers: elevated KPIs, default table, collapsible for secondary
@@ -19,66 +18,23 @@
   - Text wrapping in wide columns, code references in cells
   - Summary footer row with aggregate status
   - Staggered row animation via --i variable
-  - Both light and dark themes via prefers-color-scheme
+  - Light and dark themes from the tokens (prefers-color-scheme)
   - Responsive horizontal scroll wrapper
 -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   /* ============ THEME ============ */
-  :root {
-    --font-body: 'Instrument Serif', 'Georgia', serif;
-    --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
-    --font-sans: system-ui, -apple-system, sans-serif;
-
-    --bg: #fff5f5;
-    --surface: #ffffff;
-    --surface2: #fef0ee;
-    --surface-elevated: #fff8f7;
-    --border: rgba(0, 0, 0, 0.07);
-    --border-bright: rgba(0, 0, 0, 0.14);
-    --text: #1c1917;
-    --text-dim: #78716c;
-    --accent: #be123c;
-    --accent-dim: rgba(190, 18, 60, 0.06);
-    --green: #16a34a;
-    --green-dim: rgba(22, 163, 74, 0.08);
-    --red: #dc2626;
-    --red-dim: rgba(220, 38, 38, 0.08);
-    --orange: #d97706;
-    --orange-dim: rgba(217, 119, 6, 0.08);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #1a0a0a;
-      --surface: #231414;
-      --surface2: #2e1b1b;
-      --surface-elevated: #351f1f;
-      --border: rgba(255, 255, 255, 0.06);
-      --border-bright: rgba(255, 255, 255, 0.12);
-      --text: #fde2e2;
-      --text-dim: #c9a3a3;
-      --accent: #fb7185;
-      --accent-dim: rgba(251, 113, 133, 0.12);
-      --green: #4ade80;
-      --green-dim: rgba(74, 222, 128, 0.1);
-      --red: #f87171;
-      --red-dim: rgba(248, 113, 113, 0.1);
-      --orange: #fbbf24;
-      --orange-dim: rgba(251, 191, 36, 0.1);
-    }
-  }
+  /* SpesNet Design System. Do not paste fonts or tokens here. After writing the page, run
+     node <plugin root>/skills/visual/brand/brand.mjs inject <page.html>
+     It fills the two markers with Public Sans (inlined), the three themes, the dark-mode rule and the
+     token names this page uses. */
+  /* @brand:font */
+  /* @brand:tokens */
 
   /* ============ RESET + BASE ============ */
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   body {
     background: var(--bg);
-    background-image:
-      radial-gradient(ellipse at 30% 0%, var(--accent-dim) 0%, transparent 50%),
-      radial-gradient(ellipse at 70% 100%, var(--green-dim) 0%, transparent 40%);
     color: var(--text);
     font-family: var(--font-sans);
     padding: 40px;
