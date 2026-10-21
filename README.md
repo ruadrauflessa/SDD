@@ -168,7 +168,7 @@ values already set are kept. `skills/workspace/SKILL.md` lists every key.
 | `skills/` | `sdd` (entry; `references/flow-rules.md` holds the rules both flows share), `spec` (outline + `modes/`), `bug` (outline + `phases/`), `next` (what to take next), `request` (Ai Agent Request triage), `sync`, `impact`, `harness`, `visual`, `workspace` |
 | `agents/` | `investigator` (read-only code search) and `skeptic` (independent review of a root cause, a test or a design), used by the bug and spec flows; models from `agents.models` |
 | `scripts/` | `env.py` (work item folders, state guards, progress, config upgrades), `spec.py` (ADO mirror, impact, rev-tested writes: claim, handover, sprint, comment, route; an Ai Agent Request's report), `adowrite.py` (those writes), `proof.py` (recorded test runs that gates need), `nextpick.py` (the next-item rules), `metrics.py` (`.index/metrics.json`: every item's decision facts and what the last sync changed), `flows.json` (the stages of each flow) |
-| `hooks/` | `hooks.json`, `question_guard.py` (links before every question), `agent_guard.py` (keeps the sdd agents read-only: no git writes, no `env.py` / `spec.py` runs), `edit_guard.py` (no edits in the main checkout during a flow), `register.tsx` + `view/` (the sdd view) |
+| `hooks/` | `hooks.json`, `question_guard.py` (links before every question), `agent_guard.py` (keeps the sdd agents read-only: no git writes, no `env.py` / `spec.py` runs), `edit_guard.py` (no edits in the main checkout during a flow), `graph_use.py` (code is explored from its graph first), `spec_use.py` (specs are searched by meaning first while Ollama is on), `register.tsx` + `view/` (the sdd view) |
 | `assets/output-styles/` | `ELI5.md`, the output style the plugin installs globally |
 | `types/` | The view's state contract |
 
@@ -179,6 +179,8 @@ python scripts/test_sdd.py
 python hooks/test_question_guard.py
 python hooks/test_agent_guard.py
 python hooks/test_edit_guard.py
+python hooks/test_graph_use.py
+python hooks/test_spec_use.py
 python scripts/test_proof.py
 python scripts/test_fakeado.py
 python scripts/check_evals.py

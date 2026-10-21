@@ -9,7 +9,8 @@ Deterministic: the same ADO state always produces the same files and index. No L
     query links   --id N [--hops 2]      linked items, both directions
     query overlap --id N                 items sharing this one's key terms, rarest terms weigh most
     query term    TEXT                   items naming a term
-    query search  TEXT                   full-text search (SQLite FTS5, BM25)
+    query search  TEXT                   search by words (SQLite FTS5, BM25) and, while Ollama is on, by
+                                         meaning too: one list, ranked by both (reciprocal rank fusion)
     query similar --id N | --text T      meaning search (Ollama embeddings)
     query show    --id N                 one item's index row and folder
     impact --id N [--hops 2]             all of the above for N, written to its folder as impact.json
@@ -544,12 +545,27 @@ def place_folders(ctx, pending):
 
 # ---------------------------------------------------------------- embeddings
 
-def ollama(ctx, path, body=None):
+def ollama(ctx, path, body=None, timeout=300):
     url = ctx.cfg["embeddings"]["url"].rstrip("/") + path
     req = urllib.request.Request(url, data=None if body is None else json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=300) as r:
+    with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read())
+
+
+def meaning_status(ctx):
+    """(model, "") when a meaning search can run now: Ollama answers, the model is pulled and the index holds
+    its embeddings. Else (None, why). Quiet: the caller says what it means for its own output."""
+    model = ctx.cfg["embeddings"]["model"]
+    try:
+        names = [m["name"] for m in ollama(ctx, "/api/tags", timeout=5).get("models", [])]
+    except (urllib.error.URLError, OSError, ValueError):
+        return None, "Ollama is not running"
+    if not any(n.split(":")[0] == model.split(":")[0] for n in names):
+        return None, f"the model {model} is not pulled (ollama pull {model})"
+    if not ctx.db.execute("SELECT 1 FROM emb WHERE model=? LIMIT 1", (model,)).fetchone():
+        return None, "no item is embedded yet (spec.py embed)"
+    return model, ""
 
 
 def ollama_ready(ctx):
@@ -588,11 +604,13 @@ def cmd_embed(a):
     embed(Ctx())
 
 
+def unit(v):
+    n = math.sqrt(sum(x * x for x in v)) or 1.0
+    return [x / n for x in v]
+
+
 def similar(ctx, vec, skip=None, top=15):
     # ponytail: brute-force cosine over every vector; fine to ~50k specs, use sqlite-vec beyond that
-    def unit(v):
-        n = math.sqrt(sum(x * x for x in v)) or 1.0
-        return [x / n for x in v]
     q = unit(vec)
     scored = []
     for r in ctx.db.execute("SELECT id, vec FROM emb"):
@@ -601,6 +619,53 @@ def similar(ctx, vec, skip=None, top=15):
         v = unit(array.array("f", r["vec"]))
         scored.append((round(sum(a * b for a, b in zip(q, v)), 3), r["id"]))
     return sorted(scored, reverse=True)[:top]
+
+
+def top_similar(vecs, have, top=15):
+    """{id: [(cosine, other id)], best first} for each id in `have`, against every vector in `vecs`.
+    numpy when it is installed (a full matrix: fine to ~20k specs); plain Python otherwise, slower but the same."""
+    allids = sorted(vecs)
+    try:
+        import numpy as np
+    except ImportError:
+        units = {i: unit(vecs[i]) for i in allids}
+        return {i: sorted(((round(sum(a * b for a, b in zip(units[i], units[j])), 3), j) for j in allids if j != i),
+                          reverse=True)[:top] for i in have}
+    m = np.array([vecs[i] for i in allids], dtype=np.float32)
+    m /= np.linalg.norm(m, axis=1, keepdims=True) + 1e-9
+    pos = {i: n for n, i in enumerate(allids)}
+    scores = m[[pos[i] for i in have]] @ m.T
+    out = {}
+    for row_n, i in enumerate(have):
+        order = np.argsort(-scores[row_n])
+        out[i] = [(round(float(scores[row_n][j]), 3), allids[j]) for j in order if allids[j] != i][:top]
+    return out
+
+
+def fuse(words, meaning, top=20, k=60):
+    """One list from a word search and a meaning search (reciprocal rank fusion: each list adds 1/(k + rank)).
+    words: [(id, bm25)] best first; meaning: [(cosine, id)] best first. An item both find ranks above one found
+    by only one of them."""
+    out = {}
+    for n, (i, bm) in enumerate(words, 1):
+        out[i] = {"id": i, "score": 1.0 / (k + n), "found_by": ["words"], "words_rank": n, "bm25": bm}
+    for n, (cos, i) in enumerate(meaning, 1):
+        d = out.setdefault(i, {"id": i, "score": 0.0, "found_by": []})
+        d["score"] += 1.0 / (k + n)
+        d["found_by"].append("meaning")
+        d["meaning_rank"], d["cosine"] = n, cos
+    for d in out.values():
+        d["score"] = round(d["score"], 5)
+    return sorted(out.values(), key=lambda d: (-d["score"], d["id"]))[:top]
+
+
+def found_by(d):
+    parts = []
+    if "words_rank" in d:
+        parts.append(f"words #{d['words_rank']}")
+    if "cosine" in d:
+        parts.append(f"meaning {d['cosine']}")
+    return " + ".join(parts)
 
 
 # ---------------------------------------------------------------- queries
@@ -673,9 +738,19 @@ def cmd_query(a):
         rows = [line(r) for r in res]
     elif a.what == "search":
         q = " ".join(f'"{w}"' for w in re.findall(r"\w+", a.text))
-        found = ctx.db.execute("SELECT id, bm25(fts) AS s FROM fts WHERE fts MATCH ? ORDER BY s LIMIT 20", (q,))
-        res = [{**describe(ctx, int(r["id"])), "score": round(-r["s"], 2)} for r in found]
-        rows = [line(r, f"score {r['score']}") for r in res]
+        words = [(int(r["id"]), round(-r["s"], 2)) for r in
+                 ctx.db.execute("SELECT id, bm25(fts) AS s FROM fts WHERE fts MATCH ? ORDER BY s LIMIT 20", (q,))]
+        model, why = meaning_status(ctx)
+        meaning = []
+        if model:
+            try:
+                meaning = similar(ctx, embed_texts(ctx, model, [f"search_query: {a.text}"])[0], top=20)
+            except (urllib.error.URLError, OSError, KeyError, ValueError) as e:
+                model, why = None, f"Ollama failed: {e}"
+        res = [{**describe(ctx, d["id"]), **d} for d in fuse(words, meaning)]
+        rows = [f"meaning search: on ({model}): ranked by words and by meaning" if model else
+                f"meaning search: off ({why}): ranked by words only"]
+        rows += [line(r, found_by(r)) for r in res] or ["no results"]
     elif a.what == "similar":
         model = ollama_ready(ctx) or die("meaning search needs Ollama with the embeddings model")
         if a.id:
@@ -777,18 +852,10 @@ def impact_all(ctx, a):
     ids = sorted(rows)
     sims = {}
     if ollama_ready(ctx):
-        import numpy as np  # ponytail: full n×n matrix; fine to ~20k specs, chunk it beyond that
         vecs = {r["id"]: array.array("f", r["vec"]) for r in ctx.db.execute("SELECT id, vec FROM emb")}
         have = [i for i in ids if i in vecs]
-        allids = sorted(vecs)
         if have:
-            m = np.array([vecs[i] for i in allids], dtype=np.float32)
-            m /= np.linalg.norm(m, axis=1, keepdims=True) + 1e-9
-            pos = {i: n for n, i in enumerate(allids)}
-            scores = m[[pos[i] for i in have]] @ m.T
-            for row_n, i in enumerate(have):
-                order = np.argsort(-scores[row_n])
-                sims[i] = [(round(float(scores[row_n][j]), 3), allids[j]) for j in order if allids[j] != i][:15]
+            sims = top_similar(vecs, have)
     pairs = {}
     for n, wid in enumerate(ids, 1):
         out = build_impact(ctx, wid, a.hops, sims.get(wid, []) if sims else None)

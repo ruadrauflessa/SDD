@@ -112,12 +112,12 @@ def cmd_init(a):
     report_output_style(force=True)
 
 
-HELP_FILES = ("help/help.html",)
+HELP_FILES = ("help/help.html", "help/hooks-picasso.jpg")  # the page first: its path is the one to open
 
 
 def help_copy(dest):
-    """Copy the help page into `dest`, which sits inside the workspace: the plugin's own folder is in a cache the
-    Desktop app cannot open a file from. Returns the copy's path."""
+    """Copy the help page and the picture it shows into `dest`, which sits inside the workspace: the plugin's own
+    folder is in a cache the Desktop app cannot open a file from. Returns the copies' paths."""
     dest.mkdir(parents=True, exist_ok=True)
     out = []
     for rel in HELP_FILES:
@@ -130,8 +130,7 @@ def help_copy(dest):
 
 def cmd_help(a):
     root = find_root() or Path(os.getcwd()).resolve()
-    for p in help_copy(root / ".claude" / "sdd" / "help"):
-        print(p.as_posix())
+    print(help_copy(root / ".claude" / "sdd" / "help")[0].as_posix())  # the page: the picture beside it is only what it shows
 
 
 def cmd_type(a):

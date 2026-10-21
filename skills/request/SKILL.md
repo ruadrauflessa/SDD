@@ -58,7 +58,8 @@ Otherwise it writes two files into the request's spec folder (`{specRoot}/**/<id
 1. **Read `request.md` in full.** The script's `workLeft` lines are a start, not the answer: a
    hand-over can say what is left in other words ("the PDF export is next").
 2. **Items named without an id** ("the CSV export story"): search the mirror first —
-   `spec.py query search "<words>"`, `spec.py query term "<name>"`. Nothing there? A WIQL title
+   `spec.py query search "<words>"` (by words, and by meaning while Ollama is on), `spec.py query term "<name>"`.
+   Nothing there? A WIQL title
    search (`[System.Title] CONTAINS '<name>'`, `[System.State] <> 'Removed'`) in the request's project.
    Take a hit only when its title clearly is the thing named; list a doubtful one as "maybe".
 3. **For each open item that could take the work** (from `references` or step 2):

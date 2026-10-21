@@ -13,7 +13,7 @@ the user's view; this file is for working on the plugin itself.
 
 | Path | What |
 | --- | --- |
-| `skills/sdd/` | The `/sdd` router, `help/help.html` (the one help page: first-time walk-through and every command; `env.py help` copies it into the workspace, because Desktop cannot open files in the plugin cache), and `references/flow-rules.md` — the rules both flows share (Abandon, Decision briefs, bugs this work did not cause, checkpoints, stage guards, proof runs, resuming, sub-agents). Change a shared rule there, once |
+| `skills/sdd/` | The `/sdd` router, `help/help.html` (the one help page: first-time walk-through and every command; `env.py help` copies it, and `help/hooks-picasso.jpg` the hooks picture it shows, into the workspace, because Desktop cannot open files in the plugin cache; the prompt that regenerates the picture is in the page's "The hooks in a picture" section), and `references/flow-rules.md` — the rules both flows share (Abandon, Decision briefs, bugs this work did not cause, checkpoints, stage guards, proof runs, resuming, sub-agents). Change a shared rule there, once |
 | `skills/bug/`, `skills/spec/` | Each flow: `SKILL.md` is the outline (rules, gates, stage index); each stage's steps are in `phases/NN-*.md` / `modes/*.md` |
 | `skills/request/` | Ai Agent Request triage: report on a hand-over, ask spec or bug, route the work (`spec.py request` / `route`), then hand over to that flow. No stages of its own: `route.json` in the request's spec folder is its record |
 | `skills/help/` | `/sdd:help`: a thin skill that sends the same page as `/sdd:sdd` with no arguments; the steps live once, in `skills/sdd/SKILL.md` |
@@ -25,7 +25,7 @@ the user's view; this file is for working on the plugin itself.
 | `scripts/adowrite.py`, `proof.py`, `nextpick.py`, `metrics.py`, `anchors.py` | ADO writes; recorded test runs; next-item rules; metrics.json; design.md's Affected components checked against the code graph (`env.py anchors`, the proof "Design agreed" needs) — logic as plain functions, tested without ADO |
 | `scripts/bugs/` | The bug manager's mechanics (`/sdd-bugs`), in PowerShell: `Sync-Bugs`, `Get-BugDetail`, `Save-BugChanges` (rev-tested batch writes), `Find-BugEvidence` (git, no tokens); `BugsCommon.ps1` is what they share, `defaults.json` the one source of the `bugs` settings (sddlib, the scripts and the view all read it) |
 | `scripts/fakeado.py` | Offline ADO for tests and evals: on when `SDD_FAKE_ADO` names a JSON world file |
-| `hooks/` | `question_guard.py`, `agent_guard.py`, `edit_guard.py`, `graph_use.py` (the graph first: rebuilds a stale graph before any read of it, refuses a search of a work item's code until that caller asked the graph in the stage, and counts both in `graph-use.jsonl`), and `register.tsx` + `view/model.ts` (the sdd view, a mod), `view/worktrees.ts` (pure helpers of the `/sdd-worktrees` page, whose hooks live in `register.tsx`), `view/bugs.ts` (pure helpers of the `/sdd-bugs` bug manager: categories, filters, staged changes, the probable-cause prompt), `view/settings.ts` (pure helpers of its ⚙ Config panel: the draft, the fields, the category rules, and `applyToSdd` / `applyToDevelopers`, which write only changed keys) |
+| `hooks/` | `question_guard.py`, `agent_guard.py`, `edit_guard.py`, `graph_use.py` (the graph first: rebuilds a stale graph before any read of it, refuses a search of a work item's code until that caller asked the graph in the stage, and counts both in `graph-use.jsonl`), `spec_use.py` (meaning first: while Ollama is on, refuses a grep of the spec folder until that caller ran `spec.py query search` or `similar` in the turn; the runs go in `.claude/sdd/spec-use.jsonl`), and `register.tsx` + `view/model.ts` (the sdd view, a mod), `view/worktrees.ts` (pure helpers of the `/sdd-worktrees` page, whose hooks live in `register.tsx`), `view/bugs.ts` (pure helpers of the `/sdd-bugs` bug manager: categories, filters, staged changes, the probable-cause prompt), `view/settings.ts` (pure helpers of its ⚙ Config panel: the draft, the fields, the category rules, and `applyToSdd` / `applyToDevelopers`, which write only changed keys) |
 | `agents/` | `investigator` and `skeptic`, the read-only sub-agents |
 | `evals/` | `claude plugin eval` cases; `_fixtures/workspace.py` builds each case's workspace |
 | `repowatch/` | A second, standalone plugin (sdd depends on it, same marketplace): tracks many git repos and worktrees. `scripts/repowatch.py` does the git mechanics and writes `.claude/repowatch/state.json`; `hooks/register.tsx` draws the pane and status line from it, and runs a clean-up only after `plan`, a confirm and `apply` (which re-checks). Has its own `plugin.json` and version |
@@ -44,6 +44,7 @@ python hooks/test_question_guard.py
 python hooks/test_agent_guard.py
 python hooks/test_edit_guard.py
 python hooks/test_graph_use.py
+python hooks/test_spec_use.py
 python repowatch/scripts/test_repowatch.py   # needs git; real repos in temp folders
 claude plugin test repowatch         # also mounts and presses the pane (hooks/pane.test.ts)
 claude plugin validate repowatch
@@ -58,7 +59,8 @@ to trust the plugin directory, and each case is a paid agent run. A full TypeScr
 
 ## Rules for changes
 
-- **Scripts are standard library only and must run on Python 3.9 and on Windows.** The users run
+- **Scripts are standard library only and must run on Python 3.9 and on Windows.** A third-party module may only
+  speed a path up (`spec.top_similar` uses numpy when it is there), never be needed. The users run
   PowerShell on Windows: no shell-only paths, no 3.10+ syntax (`match`, `X | Y` types, a quote in an
   f-string's `{}` that matches its own quotes).
 - **Mechanics go in a script, judgement in a skill.** If a rule can be checked, the script enforces
