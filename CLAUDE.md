@@ -13,7 +13,7 @@ the user's view; this file is for working on the plugin itself.
 
 | Path | What |
 | --- | --- |
-| `skills/sdd/` | The `/sdd` router, `help/help.html` (the one help page: first-time walk-through and every command; `env.py help` copies it into the workspace, because Desktop cannot open files in the plugin cache), and `references/flow-rules.md` — the rules both flows share (Abandon, Decision briefs, bugs this work did not cause, checkpoints, stage guards, proof runs, resuming, sub-agents). Change a shared rule there, once |
+| `skills/sdd/` | The `/sdd` router, `help/help.html` (the one help page: first-time walk-through and every command; `env.py help` copies it, and `help/hooks-picasso.jpg` the hooks picture it shows, into the workspace, because Desktop cannot open files in the plugin cache; the prompt that regenerates the picture is in the page's "The hooks in a picture" section), and `references/flow-rules.md` — the rules both flows share (Abandon, Decision briefs, bugs this work did not cause, checkpoints, stage guards, proof runs, resuming, sub-agents). Change a shared rule there, once |
 | `skills/bug/`, `skills/spec/` | Each flow: `SKILL.md` is the outline (rules, gates, stage index); each stage's steps are in `phases/NN-*.md` / `modes/*.md` |
 | `skills/request/` | Ai Agent Request triage: report on a hand-over, ask spec or bug, route the work (`spec.py request` / `route`), then hand over to that flow. No stages of its own: `route.json` in the request's spec folder is its record |
 | `skills/help/` | `/sdd:help`: a thin skill that sends the same page as `/sdd:sdd` with no arguments; the steps live once, in `skills/sdd/SKILL.md` |

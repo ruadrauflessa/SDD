@@ -26,9 +26,10 @@ def wi(i, title, parent=None, rels=(), desc="", typ="User Story", rev=1, state="
 def check_help_copy():
     with tempfile.TemporaryDirectory() as t:
         out = env.help_copy(Path(t) / ".claude" / "sdd" / "help")
-        assert [p.name for p in out] == ["help.html"]
+        assert [p.name for p in out] == ["help.html", "hooks-picasso.jpg"]
         text = out[0].read_text(encoding="utf-8")
         assert "<html" in text and 'id="commands"' in text and 'id="init"' in text   # the guide and the reference, in one page
+        assert 'src="hooks-picasso.jpg"' in text and out[1].stat().st_size > 0   # the picture the page shows sits beside it
 
 
 def main():
