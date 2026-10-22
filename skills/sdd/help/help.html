@@ -221,6 +221,7 @@
     </table>
     <h3>Spec flow (story, tech story, change request, PBI, feature, epic)</h3>
     <p><b>Two paths.</b> <b>Full</b> stops at Requirements, Design, Decompose, Verify and Review. <b>Short</b> approves design and tasks together at Decompose. The short path skips a stop, never a check. Say <code>short</code> or <code>full</code> in the command, or sdd asks first.</p>
+    <p><b>A feature or an epic.</b> <code>/sdd &lt;id&gt;</code> on one asks first: <b>pick the next item</b> under it (the same as <code>/sdd next</code>), <b>design it only</b> (the <code>design</code> path: Requirements and Design, no claim, and the flow ends there; its stories point to that design), or <b>build it as one piece of work</b> on the full or short path.</p>
     <table>
       <tr><td>Specify</td><td>Asks the path, claims the item (assigned to you, <code>Active</code>, <code>Dev In Progress</code>, one rev-tested write), mirrors it, runs impact.</td></tr>
       <tr><td>Open Questions <b>(stop, if any)</b></td><td>Gaps go in <code>questions.md</code> as <code>- [ ]</code> lines. The flow asks them one by one. You can answer <b>Continue with this open</b>.</td></tr>
@@ -481,6 +482,11 @@ A strip of faux wood-grain paper holding three pasted labels: "session.start", "
       <tr><td><code>/sdd bug &lt;id&gt;</code> / <code>/sdd spec &lt;id&gt;</code></td><td>Force the bug or the spec flow.</td></tr>
       <tr><td><code>/sdd &lt;id&gt; short</code> / <code>full</code></td><td>A small spec item: one stop approves design and tasks together. <code>full</code> keeps every stop. Say neither and the flow asks.</td></tr>
       <tr><td><code>/sdd spec &lt;id&gt; short</code></td><td>A flow word and a path word go together in any order.</td></tr>
+      <tr><td><code>/sdd &lt;id&gt; design</code></td><td>A feature or epic: its design only. No claim; the flow ends after Design. Without a word, <code>/sdd</code> on a feature or epic asks: next item, design only, or the whole thing.</td></tr>
+      <tr><td><code>/sdd &lt;id&gt;</code> under a designed feature</td><td>The flow starts from the feature's or epic's agreed design, whoever designed it, and does not ask again what it settled. The item's own design must point to it. <code>env.py upstream --id &lt;id&gt;</code> reads its part off the board (its Implementation Plan) and shows what holds.</td></tr>
+      <tr><td>A feature's design agreed</td><td>Its design ends with a work item plan: per item, where the work starts and stops, what is in and out of scope, what it needs and gives. <code>env.py plan --id &lt;id&gt;</code> writes the whole design into the feature's Implementation Plan field. It writes each item's part into that item's own field, and adds the order as predecessor links. It runs <code>--post</code> only after you agree. Another developer's <code>/sdd</code> on one of the items reads its part.</td></tr>
+      <tr><td>Claim and hand-over</td><td>Claiming an item makes its feature and epic Active. Handing over the last open item under a feature resolves the feature, and the epic when that was its last. <code>/sdd next</code> holds back an item that waits on an unfinished predecessor.</td></tr>
+      <tr><td><code>/sdd &lt;id&gt; full</code> on a feature or epic</td><td>The whole thing as one build. You pick which items under it it covers (<code>env.py members --id &lt;id&gt;</code>); they are claimed together, each task names its item, the PR links them all, and each is handed over at Review.</td></tr>
     </table>
     <p>Typing <code>/sdd </code> in the Desktop app offers your open items by id or a word of the title. An item already in progress resumes in the flow it started in, whatever its type says now; a completed or abandoned one asks before it starts again.</p>
     <h3>Panels (Claude Desktop app)</h3>

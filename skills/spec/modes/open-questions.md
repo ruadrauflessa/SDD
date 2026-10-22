@@ -33,3 +33,9 @@ start Requirements until this stage is done.
 6. **All answered?** Record `--status done --passed "Open questions" --note "all <N> answered"`.
 7. A question that arises while asking is added as a new `- [ ]` line and asked in turn. One that an
    earlier answer made moot is ticked with "— moot after Q<n>".
+8. **Settled above?** Before asking, run `env.py upstream --id <id>` (it reads the board; `env.py
+   can` refuses this stage, Requirements and Design until it ran that day). A question a design
+   agreed above already settled is ticked with that answer and "(answered at <Type> ADO <id>)", not
+   asked. Its open questions for this item are asked here, like any other.
+   On the design path, keep each question's `(ADO <child>)` tag on its line: the child's own flow
+   finds its answers by it.

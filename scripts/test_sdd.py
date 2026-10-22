@@ -510,7 +510,156 @@ def main():
     output_style()
     ado_writes()
     progress_rules()
+    feature_scope()
     print("ok")
+
+
+def feature_scope():
+    """scope.py and env.py's gate checks for the feature or epic around an item: a child design must point to the
+    design agreed above it, and names what its plan puts out of its scope; a feature's work item plan holds; a whole
+    build's tasks name every member; the work item plan's parts; the board around the work; /sdd next's order."""
+    import scope
+    items = {"890": {"type": "Epic", "title": "Billing", "state": "Active", "parent": None, "ancestors": []},
+             "900": {"type": "Feature", "title": "Export", "state": "Active", "parent": 890,
+                     "ancestors": [{"id": 890, "type": "Epic", "title": "Billing"}]},
+             "901": {"type": "User Story", "title": "CSV", "state": "New", "parent": 900, "assigned_email": "me@x.co",
+                     "ancestors": [{"id": 900, "type": "Feature", "title": "Export"}, {"id": 890, "type": "Epic", "title": "Billing"}]},
+             "902": {"type": "User Story", "title": "PDF", "state": "Active", "parent": 900, "inProgress": True, "assigned": "Bob",
+                     "ancestors": [{"id": 900, "type": "Feature", "title": "Export"}, {"id": 890, "type": "Epic", "title": "Billing"}]},
+             "903": {"type": "User Story", "title": "Old", "state": "Closed", "parent": 900, "done": True,
+                     "ancestors": [{"id": 900, "type": "Feature", "title": "Export"}, {"id": 890, "type": "Epic", "title": "Billing"}]}}
+    assert scope.under(items, 890) == [900, 901, 902, 903] and scope.direct_children(items, 900) == [901, 902, 903]
+    assert scope.open_children(items, 900, ["Resolved", "Closed", "Done"]) == [901, 902]
+    assert [(c["id"], c["status"]) for c in scope.candidates(items, 900, ["User Story", "Bug"], "ME@x.co")] == \
+        [(901, "yours"), (902, "taken"), (903, "done")]
+    assert scope.candidates(items, 890, ["User Story"])[0]["id"] == 901                     # a container never counts
+    assert scope.mentions("covers ADO 901 and AB#902", 902) and not scope.mentions("ADO 9010", 901)
+    assert scope.uncovered("1. CSV (ADO 901)\n2. PDF", [901, 902]) == [902]
+    # the work item plan: each item's part of the design, the order, and what comes back off the board
+    design = ("# Export\n\n## Approach\nOne exporter.\n\n```\nPOST /x <a>\n```\n\n## Work item plan\n\n"
+              "### ADO 901 CSV\n- Starts: the interface from ADO 902\n- Stops: a CSV file\n- In scope:\n  - the writer\n"
+              "  - the button\n- Out of scope: PDF (ADO 902)\n- Needs: ADO 902 (the interface)\n- Decision: cents\n\n"
+              "### ADO 902 PDF\n- Starts: nothing\n- Stops: the interface\n- In scope: the interface\n\n## Risks\nNone.\n")
+    found, plan = scope.item_plan(design)
+    assert found and sorted(plan) == [901, 902] and plan[901]["in"] == ["the writer", "the button"], plan
+    assert plan[901]["out"] == ["PDF (ADO 902)"] and plan[902]["decisions"] == [] and "None." not in str(plan)
+    assert scope.edges(plan) == [(902, 901)] and scope.cycle([(902, 901)]) is None
+    assert scope.cycle([(1, 2), (2, 3), (3, 1)]) == [1, 2, 3, 1]
+    assert scope.plan_problems(design, items, 900, ["Closed"]) == []
+    assert scope.plan_targets(design, items, 900, ["Closed"]) == [900, 901, 902]
+    bad = design.replace("- Stops: a CSV file\n", "").replace("PDF (ADO 902)", "PDF, later").replace("(the interface)", "(ADO 777)")
+    got = scope.plan_problems(bad + "\n## Work item plan\n### ADO 903 Old\n- Gives: ADO 901\n", items, 900, ["Closed"])
+    assert "ADO 901's entry has no Stops" in got and any('"PDF, later" names neither' in g for g in got), got
+    assert any("ADO 777, not under 900" in g for g in got), got
+    assert scope.plan_problems(design.replace("### ADO 902 PDF", "### PDF"), items, 900, ["Closed"]) == \
+        ["the work item plan has no entry for ADO 902"]
+    loop = design.replace("- In scope: the interface\n", "- In scope: the interface\n- Needs: ADO 901\n")
+    assert scope.plan_problems(loop, items, 900, ["Closed"])[-1].startswith("the work item plan orders a loop: ADO 901 before ADO 902")
+    assert "no \"## Work item plan\"" in scope.plan_problems("# Export\n", items, 900, ["Closed"])[0]
+    qs = "- [x] Q1: Rounding? Answer: up\n- [x] Q2 (ADO 902): Font? Answer: Arial\n- [ ] Q3 (ADO 901): Quotes?\n"
+    src = {"id": 900, "type": "Feature", "title": "Export"}
+    md = scope.block_md(src, 901, design, qs, "2026-10-22T08:00:00Z")
+    assert md.startswith("**sdd plan: Feature ADO 900 for ADO 901, agreed 2026-10-22**"), md
+    assert md.rstrip().endswith("end of sdd plan from ADO 900") and "the writer" in md and "- cents" in md, md
+    assert "One exporter" not in md and "Arial" not in md and "Rounding" not in md and "Quotes?" in md, md
+    md902 = scope.block_md(src, 902, design, qs, "2026-10-22")
+    assert "ADO 901 (its plan needs ADO 902 (the interface))" in md902, md902      # 901's need shows as 902's give
+    whole = scope.block_md(src, 900, design, qs, "2026-10-22")
+    assert "One exporter" in whole and "Arial" in whole and "Rounding" in whole, whole
+    html_text = scope.md_to_html(whole)
+    assert "<pre>POST /x &lt;a&gt;</pre>" in html_text and "<h4>Work item plan</h4>" in html_text, html_text
+    field = scope.merge_block("<div>my notes</div>", 900, scope.md_to_html(md))
+    field = scope.merge_block(field, 890, "<div><b>sdd plan: Epic ADO 890 for ADO 901, agreed 2026-10-01</b></div>\n"
+                                          "<div>end of sdd plan from ADO 890</div>")
+    again = scope.merge_block(field, 900, scope.md_to_html(md.replace("cents", "rands")))
+    assert again.startswith("<div>my notes</div>") and again.count("sdd plan: Feature ADO 900") == 1, again
+    assert "rands" in again and "cents" not in again and "Epic ADO 890 for ADO 901" in again, again
+    ado_html = again.replace("<div>", '<div style="x">')                           # ADO's own rewrite of it
+    blocks = scope.read_blocks(ado_html)
+    assert [b["head"] for b in blocks] == [("Feature", 900, 901, "2026-10-22"), ("Epic", 890, 901, "2026-10-01")], blocks
+    parts = scope.block_parts(blocks[0]["md"])
+    assert parts["in"] == ["the writer", "the button"] and parts["needs"] == ["ADO 902 (the interface)"], parts
+    assert parts["settled"] == [] and parts["open"] == ["Q3 (ADO 901): Quotes?"] and parts["decisions"] == ["rands"], parts
+    flat = again.replace("<h3>", "<div><b>").replace("</h3>", "</b></div>")             # headings dropped to bold
+    assert scope.block_parts(scope.read_blocks(flat)[0]["md"]) == parts
+    assert scope.read_blocks("<div>a note about ADO 900</div>") == []
+    b = lambda src_id, for_id: {"head": ("Feature", src_id, for_id, ""), "id": (src_id, for_id)}
+    got = scope.pick_plans([904, 901, 900, 890], [b(900, 900), b(900, 901), b(890, 900), b(901, 904), b(904, 904), b(777, 904)])
+    assert [(k, v["id"]) for k, v in got.items()] == [(901, (901, 904)), (900, (900, 901)), (890, (890, 900))], got
+    # the board around the work: only a feature or epic is made Active, or Resolved after its last item
+    import adowrite
+    F = lambda t, st: {"System.WorkItemType": t, "System.State": st}
+    assert adowrite.activate_ops(F("Feature", "New")) == [adowrite.add("System.State", "Active")]
+    assert adowrite.activate_ops(F("Epic", "Active")) == [] and adowrite.activate_ops(F("User Story", "New")) == []
+    assert adowrite.activate_ops(F("Feature", "Resolved")) == [adowrite.add("System.State", "Active")]   # work again under it
+    assert adowrite.resolve_ops(F("Feature", "Active")) == [adowrite.add("System.State", "Resolved")]
+    assert adowrite.resolve_ops(F("Feature", "Closed")) == [] and adowrite.resolve_ops(F("User Story", "Active")) == []
+    assert adowrite.all_done(["Resolved", "Closed", "Removed"]) and not adowrite.all_done(["Resolved", "Active"])
+    assert not adowrite.all_done([])
+    rels = {"relations": [{"rel": "System.LinkTypes.Hierarchy-Reverse", "url": "https://x/_apis/wit/workItems/900"},
+                          {"rel": "System.LinkTypes.Hierarchy-Forward", "url": "https://x/_apis/wit/workItems/904"}]}
+    assert adowrite.parent_id(rels) == 900 and adowrite.children_ids(rels) == [904] and adowrite.parent_id({}) is None
+    # /sdd next: a predecessor not done blocks outright; the ready item more items wait on goes first
+    import nextpick
+    row = lambda i, st="New", **k: {"id": i, "type": "User Story", "title": f"S{i}", "state": st, "parent": 900,
+                                    "tags": "1.1.0", **k}
+    rows = {900: {"id": 900, "type": "Feature", "title": "F", "state": "Active", "parent": None},
+            911: row(911, effort=3), 912: row(912, effort=3, priority=1), 913: row(913, effort=3)}
+    links = {913: [("Predecessor", 911)]}
+    res = nextpick.plan(rows, links, 900, "1.1.0", "", {**sddlib.DEFAULTS["next"], "types": [["User Story"]]},
+                        ["Closed"], {})
+    assert [r["id"] for r in res["ranked"]] == [911, 912] and res["ranked"][0]["unblocks"] == [913], res
+    assert res["blocked"][0]["id"] == 913 and res["blocked"][0]["reason"] == "waits on ADO 911 (New): its predecessor"
+    q = "- [x] Q1: general\n- [X] Q2 (ADO 901): mine\n* [x] Q3 (ADO 902): theirs\n- [ ] Q4: open"
+    assert scope.answered_for(q, 901) == ["Q1: general", "Q2 (ADO 901): mine"]
+    with scratch() as tmp:
+        root = Path(tmp)
+        (root / ".claude").mkdir()
+        (root / ".claude" / "sdd.json").write_text(json.dumps({"specRoot": "docs/spec", "ado": {"org": "O", "projects": ["P"]}}))
+        cfg = sddlib.load_config(root)
+        idx = root / "docs" / "spec" / ".index"
+        idx.mkdir(parents=True)
+        (idx / "metrics.json").write_text(json.dumps({"items": items}))
+        epic = root / "docs" / "spec" / "890-EPIC-billing"
+        feat = epic / "900-FEAT-export"
+        story = feat / "901-US-csv"
+        story.mkdir(parents=True)
+        (epic / "design.md").write_text("# Billing\n")
+        (feat / "design.md").write_text("# Export\nCovers ADO 901.\n")
+        (story / "design.md").write_text("# CSV\n")
+        env.design_marker(root, cfg, {"id": 890, "type": "Epic", "title": "Billing", "path": "design"}, True)
+        assert json.loads((epic / scope.DONE_FILE).read_text())["id"] == 890
+        assert [u["id"] for u in env.upstream(root, cfg, 901)] == [890]
+        gp = lambda data, gate: env.gate_problems(root, cfg, "spec", data, gate)
+        got = gp({"id": 901, "type": "User Story", "path": "full"}, "Design agreed")
+        assert len(got) == 1 and "Epic ADO 890" in got[0], got
+        (story / "design.md").write_text("# CSV\nStarts from the billing design (ADO 890); departs on the delimiter.\n")
+        assert gp({"id": 901, "type": "User Story", "path": "full"}, "Design agreed") == []
+        (story / "design.md").write_text("# CSV\nSee 890-EPIC-billing/design.md.\n")
+        assert gp({"id": 901, "type": "User Story", "path": "full"}, "Design agreed") == []  # its folder name will do
+        got = gp({"id": 900, "type": "Feature", "path": "design"}, "Design agreed")         # no work item plan yet
+        assert any('no "## Work item plan"' in g for g in got) and any("Epic ADO 890" in g for g in got), got
+        (feat / "design.md").write_text("# Export (ADO 890)\n" + design[design.index("## Work item plan"):])
+        assert gp({"id": 900, "type": "Feature", "path": "full"}, "Design agreed") == []    # any path: the plan holds
+        # the story's part, read off the board, puts PDF out of its scope: its design must say so
+        (story / "upstream.json").write_text(json.dumps({"fetched": "x", "plans": [{"id": 900, "type": "Feature",
+                                                         "for": 901, "at": "2026-10-22", "file": "upstream-900.md"}]}))
+        (story / "upstream-900.md").write_text(scope.html_to_md(scope.md_to_html(md)))
+        ups = env.upstream(root, cfg, 901)
+        assert [(u["id"], u["source"]) for u in ups] == [(900, "ado"), (890, "local")], ups
+        got = gp({"id": 901, "type": "User Story", "path": "full"}, "Design agreed")
+        assert any("ADO 900's plan puts work of ADO 902 out of this item's scope" in g for g in got), got
+        (story / "design.md").write_text("# CSV\nFrom ADO 890 and ADO 900. Out of scope: PDF (ADO 902).\n")
+        assert gp({"id": 901, "type": "User Story", "path": "full"}, "Design agreed") == []
+        for f in ("upstream.json", "upstream-900.md"):
+            (story / f).unlink()
+        (feat / "tasks.md").write_text("1. CSV columns (ADO 901)\n")
+        got = gp({"id": 900, "type": "Feature", "path": "full", "members": [901, 904]}, "Tasks written")
+        assert got and "does not name ADO 904" in got[0], got
+        assert gp({"id": 900, "type": "Feature", "path": "full"}, "Tasks written") == []      # no members: nothing to cover
+        assert env.gate_problems(root, cfg, "bug", {"id": 901}, "Design agreed") == []        # the bug flow has its own gates
+        env.design_marker(root, cfg, {"id": 890}, False)
+        assert not (epic / scope.DONE_FILE).exists() and env.upstream(root, cfg, 901) == []
 
 
 def progress_rules():
@@ -808,7 +957,7 @@ def config_upgrade():
         before = {"specRoot": "docs/spec", "ado": {"org": "Org", "projects": ["P"]}}
         path.write_text(json.dumps(before))
         assert sddlib.load_config(root)["agents"]["models"] == {"investigator": "sonnet", "skeptic": "opus"}
-        assert sddlib.upgrade_config(root) == ["agents.models.investigator", "agents.models.skeptic"] + ["next.weights.priority", "next.weights.severity", "next.weights.complexity", "next.complexity"] + ["bugs.folder", "bugs.categories", "progress.measure"]
+        assert sddlib.upgrade_config(root) == ["agents.models.investigator", "agents.models.skeptic"] + ["next.weights.priority", "next.weights.severity", "next.weights.complexity", "next.complexity"] + ["bugs.folder", "bugs.categories", "progress.measure", "plan.field"]
         got = json.loads(path.read_text())
         assert got["progress"] == {"measure": "count"}
         assert got["bugs"] == {"folder": ".bugs", "categories": sddlib.DEFAULTS["bugs"]["categories"]}
@@ -819,14 +968,15 @@ def config_upgrade():
         assert sddlib.upgrade_config(root) == []                         # second run: nothing to do
         path.write_text(json.dumps({**before, "agents": {"models": {"skeptic": "sonnet"}, "x": 1},
                                     "next": {"weights": {"priority": 70}, "complexity": "simple-first"},
-                                    "bugs": {"folder": ".bugs", "categories": []}, "progress": {"measure": "points"}}))
+                                    "bugs": {"folder": ".bugs", "categories": []}, "progress": {"measure": "points"},
+                                    "plan": {"field": "Custom.Plan"}}))
         assert sddlib.upgrade_config(root) == ["agents.models.investigator", "next.weights.severity",
                                                "next.weights.complexity"]
         assert json.loads(path.read_text())["next"]["weights"]["priority"] == 70     # a tuned weight stays
         assert sddlib.load_config(root)["next"]["complexity"] == "simple-first"
         got = json.loads(path.read_text())
         assert got["agents"] == {"models": {"skeptic": "sonnet", "investigator": "sonnet"}, "x": 1}  # set value kept
-        path.write_text(json.dumps({**before, "agents": "opus", "next": dict(sddlib.DEFAULTS["next"]), "bugs": "off", "progress": "off"}))
+        path.write_text(json.dumps({**before, "agents": "opus", "next": dict(sddlib.DEFAULTS["next"]), "bugs": "off", "progress": "off", "plan": "off"}))
         assert sddlib.upgrade_config(root) == [] and json.loads(path.read_text())["agents"] == "opus"
         assert sddlib.load_config(root)["agents"]["models"]["skeptic"] == "opus"
         path.write_text(json.dumps({**before, "agents": {"models": {"investigator": "gpt-4"}}}))

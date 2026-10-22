@@ -72,6 +72,23 @@ def _children(items, wid):
     return sorted(kids)
 
 
+def _relations(items, wid):
+    """An item's links as ADO returns them: the ones stored on it, and the other end of each link stored on another
+    item (a child's parent link shows on the parent as a child link; a predecessor link as a successor link)."""
+    rels = list((items.get(str(wid)) or {}).get("relations") or [])
+    other = {"System.LinkTypes.Hierarchy-Reverse": HIER_FWD, HIER_FWD: "System.LinkTypes.Hierarchy-Reverse",
+             "System.LinkTypes.Dependency-Reverse": "System.LinkTypes.Dependency-Forward",
+             "System.LinkTypes.Dependency-Forward": "System.LinkTypes.Dependency-Reverse"}
+    have = {(r.get("rel"), r.get("url", "").rstrip("/").split("/")[-1]) for r in rels}
+    for k, v in items.items():
+        for r in v.get("relations") or []:
+            if r.get("rel") in other and r.get("url", "").rstrip("/").split("/")[-1] == str(wid) \
+                    and (other[r["rel"]], k) not in have:
+                rels.append({"rel": other[r["rel"]], "url": f"https://fake/_apis/wit/workItems/{k}"})
+                have.add((other[r["rel"]], k))
+    return rels
+
+
 def _apply(w, ops):
     """JSON Patch ops on a fake item: field adds, replaces and removes, and relation adds."""
     for o in ops:
@@ -109,7 +126,7 @@ def request(method, url, body=None):
                 fields = {k: v for k, v in fields.items() if k in body["fields"]}
             d = {"id": int(i), "rev": w.get("rev", 1), "fields": fields}
             if body.get("$expand") == "relations":
-                d["relations"] = w.get("relations") or []
+                d["relations"] = _relations(items, int(i))
             out.append(d)
         return {"value": out}
 
@@ -168,15 +185,16 @@ def request(method, url, body=None):
 
     m = re.search(r"/_apis/wit/workItems/(\d+)/comments$", path, re.I)
     if method == "POST" and m:
-        writes.append({"method": "COMMENT", "id": int(m.group(1)), "text": body["text"]})
+        cid = 5000 + sum(1 for x in writes if x.get("method") == "COMMENT") + 1
+        writes.append({"method": "COMMENT", "id": int(m.group(1)), "commentId": cid, "text": body["text"]})
         _save(p, world)
-        return {"id": len(writes)}
+        return {"id": cid}
     if method == "GET" and m:
         wid = int(m.group(1))
-        posted = [{"text": x["text"], "createdBy": {"displayName": "sdd"}} for x in writes
+        seeded = [dict(c, id=c.get("id", 1000 + n)) for n, c in enumerate((items.get(str(wid)) or {}).get("comments") or [])]
+        posted = [{"id": x.get("commentId"), "text": x["text"], "createdBy": {"displayName": "sdd"}} for x in writes
                   if x.get("method") == "COMMENT" and x.get("id") == wid]
-        return {"comments": list((items.get(str(wid)) or {}).get("comments") or []) + posted}
-
+        return {"comments": seeded + posted}
     m = re.search(r"/_apis/git/repositories/([^/]+)$", path, re.I)
     if method == "GET" and m and m.group(1) in (world.get("repositories") or {}):
         return world["repositories"][m.group(1)]

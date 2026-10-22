@@ -36,19 +36,57 @@ full command table. This file calls them `env.py` and `spec.py`, short for
 
 In this flow `--flow spec`, and the stages are the modes below, by name.
 
-## Path — full or short
+## Path — full, short or design
 
-Every spec item goes one of two ways, and **the user picks which** — in the command
-(`/sdd <id> short`) or when Specify asks, before anything else (`modes/specify.md` step 0):
+Every spec item goes one of these ways, and **the user picks which** — in the command
+(`/sdd <id> short`, or the router's question on a feature or epic) or when Specify asks, before
+anything else (`modes/specify.md` step 0):
 
 | Path | Stops for approval |
 | --- | --- |
 | Full | Requirements, Design, Decompose, Verify, Review |
 | Short | Requirements, Decompose (it approves the design and the tasks together), Verify, Review |
+| Design (a Feature or Epic only) | Requirements, Design. No claim; the flow ends when Design is done |
 
 `env.py path` records the choice and the user's words; `env.py can` refuses every stage after
 Specify until it is recorded, and on the short path lets Decompose start without "Design agreed".
 Nothing else changes: the short path skips a stop, never a check.
+
+On the **design** path `env.py` needs no "Claimed", refuses every stage after Design, records them
+skipped when Design is done, and `/sdd done` asks no close-out in ADO: the item stays as it was.
+Its stories then each go through the flow on their own (`/sdd next <id>`), and their designs point
+to this one.
+
+## The feature or epic around an item
+
+- **A design agreed above.** When "Design agreed" passes, `env.py` records it in the item's spec
+  folder (`design-agreed.json`; revoking the gate takes it away). Every item below then starts from
+  it: `env.py upstream --id <id>` lists the designs above it and the questions they answered for
+  it, `env.py can` names them as a note, Specify and Open Questions never ask again what they
+  settled, and `env.py` refuses the item's own "Design agreed" until `design.md` names the design
+  above (`ADO <id>`). The design path exists for this: design and question a feature once, and every
+  story under it starts with its questions answered.
+- **The work item plan** (Design step 6). A Feature's or Epic's design ends with an entry per item
+  under it: where the work starts and stops, what is in and out of its scope (and which item builds
+  what is out), what it needs from other items and gives them, and the decisions it follows.
+  `env.py` refuses "Design agreed" until the plan holds.
+- **On the board, for everyone** (Design step 9). Another developer's workspace has none of these
+  files. `env.py plan` writes the whole design into the feature's or epic's **Implementation Plan**
+  field, and each item's part into that item's own field. It writes nothing into the discussion.
+  The plan's order becomes predecessor and successor links. `env.py upstream` reads an item's part
+  back on the other side. `env.py can` refuses Open Questions, Requirements and Design until the
+  board was read that day, and refuses the feature's own flow past Design until its plan is
+  written. An item's own design must name what its part puts out of scope.
+- **The board around the work.** `spec.py claim` makes the feature and epic above an item Active.
+  `spec.py handover` resolves a feature whose last item it closes off, and the epic above when
+  that feature was its last. Only features and epics move this way; a story above a bug never
+  does. `/sdd next` holds back an item whose predecessor is not done, and ranks first the ready
+  item that others wait on.
+- **A feature or epic built whole** (full or short path). The user picks which items under it the
+  build covers (`env.py members`, Specify step 2); no stage after Specify starts without that.
+  They are claimed with it, each has a task that names it (`env.py` refuses "Tasks written"
+  otherwise), the PR links them all (`env.py pr`), each is handed over at Review, and `/sdd done`
+  refuses while one is still open.
 
 ## Ground rules (read before any mode)
 
@@ -128,7 +166,7 @@ Shape every gate the same way:
 | Gate | Mode | Options |
 | --- | --- | --- |
 | Open questions | Open Questions, one question at a time while any are open | The question's own options, plus "Continue with this open" (see "Mode: Open Questions") |
-| Path | Specify step 0, unless the user already said | "Full path" / "Short path" |
+| Path | Specify step 0, unless the user already said | "Full path" / "Short path" (on a feature or epic the router asked already) |
 | Requirements agreed | End of Requirements | "Approve — start Design" / "Needs changes" |
 | Design agreed | End of Design — asked again after any requested changes are incorporated | "Approve — start Decompose" / "Needs changes" |
 | Tech story creation | Design, tech story gate | One option per proposal, `multiSelect: true` — the user picks which, if any, get created |

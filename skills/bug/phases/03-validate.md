@@ -27,6 +27,11 @@ usually lives on a **User Story** (`Microsoft.VSTS.Common.AcceptanceCriteria`, G
 **Change Request** (`System.Description`, numbered Functional Requirements). Features in this project
 are typically title-only — don't expect a spec there.
 
+A design agreed on the feature or epic above the bug governs too: `env.py upstream --id <id>` reads
+its part off the board (the Implementation Plan field `env.py plan` wrote, whoever designed it):
+where the work starts and stops, what is in and out of scope, and the questions already settled. Read it before you classify, and treat
+what it settled as the spec.
+
 Read the governing requirement, then classify the ticket against it:
 
 | Verdict | Meaning | Action |

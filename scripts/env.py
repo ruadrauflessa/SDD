@@ -38,8 +38,17 @@ Commands (run from anywhere inside the workspace):
     verify --id N                            run every tasks.md Verify command; proof for Ready to PR
     stack  --id N                            pre-pr-verify: worktrees (both layouts), run script and its flags, facts
     stack-gate --id N [--script P]           pre-pr-verify Gate D: a running service is tagged with this item's worktree
-    path   --id N --set full|short --confirmed WORDS
-                                             the way through the spec flow the user chose
+    path   --id N --set full|short|design --confirmed WORDS
+                                             the way through the spec flow the user chose (design: a Feature or
+                                             Epic only, no claim, the flow ends after Design)
+    upstream --id N [--cached] [--json]      the designs agreed above N (a feature's or an epic's), read off the board,
+                                             and their questions that hold for N (settled, open): what N starts from
+    plan   --id N [--post --confirmed WORDS] a Feature's or Epic's agreed design, carried to the board: the whole design
+                                             into its Implementation Plan field, each item's part into that item's, and
+                                             the order as predecessor and successor links (without --post: plans/)
+    members --id N [--set IDS --confirmed WORDS] [--json]
+                                             a Feature or Epic built as one piece of work: the items under it, and
+                                             the ones the user picked for the build (claimed, linked, handed over with it)
     cost   --id N --stage S --usd X [--input N --output N --cache-read N --cache-write N] [--model M] [--session ID]
                                              record what a turn cost in dollars and tokens, against the stage it
                                              began in (the sdd view calls this after each turn; `view` reports the totals)
@@ -61,9 +70,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import adowrite
 import anchors
 import graphfocus
 import proof
+import scope
 from adowrite import flow_of, mentions
 from sddlib import (AGENT_MODELS, BUG_TYPES, CONFIG_REL, DEFAULTS, STYLE_NAME, TYPE_SEGMENT, ado,
                     bad_agent_models, config_home, developer, die, discover_repos, ensure_ignored,
@@ -140,7 +151,11 @@ def cmd_help(a):
 
 def cmd_type(a):
     cfg = load_config(require_root())
-    print(json.dumps(item_info(cfg, a.id), indent=2))
+    info = item_info(cfg, a.id)
+    design = ((PATHS.get("spec") or {}).get("design") or {}).get("types") or []
+    if info["flow"] == "spec" and info["type"] in design:  # a feature or an epic: the router asks what to do with it
+        info["ask"] = ["next", "design", "full", "short"]
+    print(json.dumps(info, indent=2))
 
 
 def report_output_style(force=False):
@@ -423,6 +438,148 @@ def spec_folder(root, cfg, wid):
     return hits[0] if hits else None
 
 
+UPSTREAM = "upstream.json"  # in an item's spec folder: the plans above it, as last read off the board
+
+
+def metrics_items(root, cfg):
+    """metrics.json's items (spec.py writes it on every sync), or {} before the first sync."""
+    try:
+        return json.loads((root / cfg["specRoot"] / ".index" / "metrics.json").read_text(encoding="utf-8")).get("items") or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def upstream(root, cfg, wid, items=None):
+    """The designs agreed above `wid`, nearest first: [{id, type, title, folder, design, questions, at, answered, open,
+    source, plan}]. `answered` / `open`: the settled and still-open questions that hold for `wid`. `source` is "local"
+    (the design's spec folder is in this workspace) or "ado" (its plan block, read off the board by env.py upstream
+    into this item's spec folder: upstream.json and upstream-<id>.md). `plan`, from the board: {starts, stops, in,
+    out, needs, gives, decisions} for the item the block is for."""
+    items = metrics_items(root, cfg) if items is None else items
+    own = spec_folder(root, cfg, wid)
+    try:
+        cached = {int(b["id"]): b for b in json.loads((own / UPSTREAM).read_text(encoding="utf-8")).get("plans") or []} \
+            if own and (own / UPSTREAM).is_file() else {}
+    except (ValueError, KeyError, TypeError):
+        cached = {}
+    out = []
+    for a in scope.ancestors(items, wid):
+        sp = spec_folder(root, cfg, a["id"])
+        rec = sp / scope.DONE_FILE if sp else None
+        if a["id"] in cached and (own / cached[a["id"]]["file"]).is_file():
+            b = cached[a["id"]]  # the board first: it is what every developer sees
+            parts = scope.block_parts((own / b["file"]).read_text(encoding="utf-8"))
+            out.append({"id": a["id"], "type": a["type"], "title": a["title"], "folder": sp.name if sp else None,
+                        "design": str(own / b["file"]), "questions": None, "at": b.get("at", ""),
+                        "answered": parts["settled"], "open": parts["open"], "source": "ado", "for": b.get("for"),
+                        "plan": {k: parts[k] for k, _ in scope.PARTS[:7]}})
+        elif rec and rec.is_file():
+            try:
+                agreed = json.loads(rec.read_text(encoding="utf-8"))
+            except ValueError:
+                agreed = {}
+            q = sp / "questions.md"
+            qt = q.read_text(encoding="utf-8") if q.is_file() else ""
+            out.append({"id": a["id"], "type": a["type"], "title": a["title"], "folder": sp.name,
+                        "design": str(sp / "design.md"), "questions": str(q) if q.is_file() else None,
+                        "at": agreed.get("at", ""), "answered": scope.answered_for(qt, wid),
+                        "open": scope.questions(qt, wid, ticked=False), "source": "local", "plan": None})
+    return out
+
+
+def upstream_read(own):
+    """When the plans above an item were last read off the board ("" if never)."""
+    try:
+        return json.loads((own / UPSTREAM).read_text(encoding="utf-8")).get("fetched") or "" if own else ""
+    except (OSError, ValueError, AttributeError):
+        return ""
+
+
+def fetch_upstream(root, cfg, wid, items=None):
+    """Read the plans that hold for `wid` off the board: the Implementation Plan field of it and of each item above
+    it. Saves them in its spec folder (upstream.json, upstream-<source id>.md) for upstream() and env.py can. -> count."""
+    items = metrics_items(root, cfg) if items is None else items
+    own = spec_folder(root, cfg, wid)
+    if not own:
+        die(f"{wid} has no spec folder yet: spec.py sync --id {wid}")
+    chain = [int(wid)] + [a["id"] for a in scope.ancestors(items, wid)]
+    field = cfg["plan"]["field"]
+    found = []
+    for w in get_items(cfg, chain, fields=[field]):
+        for b in scope.read_blocks((w.get("fields") or {}).get(field) or ""):
+            if b["head"][2] == w["id"]:  # a block counts only on the item it is for
+                found.append(b)
+    picked = scope.pick_plans(chain, found)
+    for f in own.glob("upstream-*.md"):
+        f.unlink()
+    rows = []
+    for src, b in picked.items():
+        name = f"upstream-{src}.md"
+        (own / name).write_text(b["md"], encoding="utf-8")
+        rows.append({"id": src, "type": b["head"][0], "for": b["head"][2], "at": b["head"][3], "file": name})
+    (own / UPSTREAM).write_text(json.dumps({"fetched": now(), "field": field, "plans": rows}, indent=2) + "\n",
+                                encoding="utf-8")
+    return len(rows)
+
+
+def design_marker(root, cfg, data, agreed):
+    """Write (or take away) {specFolder}/design-agreed.json: what the items below this one start from."""
+    sp = spec_folder(root, cfg, data.get("id"))
+    if not sp:
+        return
+    f = sp / scope.DONE_FILE
+    if agreed:
+        f.write_text(json.dumps({"id": data.get("id"), "type": data.get("type"), "title": data.get("title"), "at": now(),
+                                 "path": data.get("path")}, indent=2) + "\n", encoding="utf-8")
+    elif f.is_file():
+        f.unlink()
+
+
+def gate_problems(root, cfg, flow, data, gate):
+    """What stops a gate for the feature or epic around the item: a child design that does not point to the design
+    agreed above it, or leaves out an item its plan says builds what is out of its scope; a feature's or epic's design
+    without a sound work item plan; a whole build whose tasks miss one of its items."""
+    if flow != "spec":
+        return []
+    wid, out = data.get("id"), []
+    sp = spec_folder(root, cfg, wid)
+    if gate == "Design agreed":
+        design = (sp / "design.md").read_text(encoding="utf-8") if sp and (sp / "design.md").is_file() else ""
+        items = metrics_items(root, cfg)
+        for up in upstream(root, cfg, wid, items):
+            if not scope.points_to(design, up["id"], up["folder"]):
+                out.append(f"design.md does not point to the design agreed above it: {up['type']} ADO {up['id']} "
+                           f"({up['design']}). Start from it, name it (ADO {up['id']}), and say where this design departs from it")
+            others = [n for line in ((up.get("plan") or {}).get("out") or []) for n in scope.ids_in(line)
+                      if not scope.mentions(design, n)]
+            if others:
+                out.append(f"{up['type']} ADO {up['id']}'s plan puts work of " + ", ".join(f"ADO {n}" for n in others)
+                           + " out of this item's scope; design.md does not say so. Name each under Out of scope, "
+                           "with what it builds, and do not build it here")
+        if data.get("type") in scope.CONTAINERS and scope.under(items, wid):
+            out += scope.plan_problems(design, items, wid, cfg["doneStates"])
+    if gate == "Tasks written" and data.get("members"):
+        tasks = (sp / "tasks.md").read_text(encoding="utf-8") if sp and (sp / "tasks.md").is_file() else ""
+        left = scope.uncovered(tasks, data["members"])
+        if left:
+            out.append("every item this build covers needs a task that names it; tasks.md does not name "
+                       + ", ".join(f"ADO {m}" for m in left))
+    return out
+
+
+def plan_due(flow, data):
+    """Why a Feature's or Epic's flow cannot go past Design yet: its agreed design is not on the board since it was
+    last agreed (env.py plan). None when it is, or when this is not a feature or epic."""
+    agreed = (data.get("gates") or {}).get("Design agreed")
+    if flow != "spec" or data.get("type") not in scope.CONTAINERS or not agreed:
+        return None
+    if ((data.get("plans") or {}).get("at") or "") >= agreed:
+        return None
+    wid = data.get("id")
+    return (f"the agreed design of {wid} is not on the board yet, so the items under it do not know their part: "
+            f"env.py plan --id {wid}, show the user, then env.py plan --id {wid} --post --confirmed \"<their words>\"")
+
+
 def item_project(root, cfg, wid, data):
     db = root / cfg["specRoot"] / ".index" / "spec.db"
     if db.is_file():
@@ -544,6 +701,9 @@ def cmd_progress(a):
         if lack:
             die(f"'{g}' passes only on recorded runs, and these are missing:\n  " + "\n  ".join(lack)
                 + "\nRun them (env.py run / revert-check / verify / anchors), then record the gate again.")
+        bad = gate_problems(root, cfg, a.flow, data, g)
+        if bad:
+            die(f"'{g}' cannot pass yet:\n  " + "\n  ".join(bad))
     entry = {"at": now(), "flow": a.flow, "phase": a.phase, "status": a.status,
              "gate": a.gate or "", "next": a.next or "", "note": a.note or "", "refs": a.ref}
     if a.status == "skipped":
@@ -552,11 +712,20 @@ def cmd_progress(a):
         entry["caveat"] = a.caveat.strip()
         entry["openQuestions"] = open_q
     data["stages"] = mark_stage(a.flow, data, key, entry)
+    end = path_rule(a.flow, data).get("endsAfter")
+    if end == key and a.status == "done":  # the path ends here: the stages after it are not this item's to do
+        why = f"{flow_path(a.flow, data)} path: {(data.get('pathChosen') or {}).get('confirmed') or 'chosen by the user'}"
+        for k in stage_keys(a.flow)[stage_keys(a.flow).index(key) + 1:]:
+            data["stages"][k] = {"at": entry["at"], "status": "skipped", "confirmed": why}
     gates = data.setdefault("gates", {})
     for g in a.passed:
         gates[g] = entry["at"]
     for g in a.revoke:
         gates.pop(g, None)
+    if a.flow == "spec" and "Design agreed" in a.passed:
+        design_marker(root, cfg, data, True)
+    if a.flow == "spec" and "Design agreed" in a.revoke:
+        design_marker(root, cfg, data, False)
     if a.passed or a.revoke:
         entry["gates"] = {"passed": a.passed, "revoked": a.revoke}
     data["progress"] = entry
@@ -1195,6 +1364,7 @@ def cmd_pr(a):
         die(f"the PR text names {', '.join(found)}. ADO reads `#<id>` as a mention and posts a comment onto "
             f"that work item. Write `ADO {found[0][1:]}` instead; AB#<id> in the title is fine")
     wis = [int(x) for x in (a.work_items or str(a.id)).split(",") if x.strip()]
+    wis += [m for m in (data.get("members") or []) if m not in wis]  # a whole build's items ride the same PR
     only = {x.strip() for x in (a.repos or "").split(",") if x.strip()}
     for n, r in data["repos"].items():
         if only and n not in only:
@@ -1360,6 +1530,11 @@ def flow_path(flow, data):
     if "Design agreed" in (data.get("gates") or {}) or set(data.get("stages") or {}) & {"Decompose", "Implement", "Verify", "Review"}:
         return "full"
     return None
+
+
+def path_rule(flow, data):
+    """The flows.json entry of the item's chosen path ({} while none is chosen)."""
+    return ((PATHS.get(flow) or {}).get(flow_path(flow, data) or "") or {}) if flow in PATHS else {}
 
 
 def stage_needs(flow, data, key):
@@ -1559,9 +1734,36 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
                     for k in unaccounted(flow, data, key, open_questions(root, cfg, wid))]
         rule = PATHS.get(flow)
         if rule and key != rule["choose"] and keys.index(key) > keys.index(rule["choose"]) and not flow_path(flow, data):
-            choices = " / ".join(k for k in rule if k != "choose")
+            choices = " / ".join(k for k in rule if k != "choose" and data.get("type") in rule[k].get("types", [data.get("type")]))
             reasons.append(f"no path chosen for this item ({choices}). Ask the user which, then record their answer: "
                            f"env.py path --id {wid} --set <path> --confirmed \"<the user's words>\"")
+        if (flow == "spec" and data.get("type") in scope.CONTAINERS and flow_path(flow, data) in ("full", "short")
+                and keys.index(key) > keys.index("Specify") and not data.get("members")):
+            reasons.append(f"{wid} is a {data.get('type')} built as one piece of work: record the items under it this build "
+                           f"covers first. List them with env.py members --id {wid}, ask the user, then "
+                           f"env.py members --id {wid} --set <ids> --confirmed \"<the user's words>\"")
+        items = metrics_items(root, cfg)
+        own = spec_folder(root, cfg, wid)
+        read = upstream_read(own)
+        if (flow == "spec" and keys.index("Specify") < keys.index(key) <= keys.index("Design") and own
+                and read[:10] != now()[:10] and any(x["type"] in scope.CONTAINERS for x in scope.ancestors(items, wid))):
+            # the stages that ask and design: a plan may have gone up since, from anyone's workspace
+            reasons.append(f"read the board for a design agreed above {wid} first ("
+                           + (f"last read {read[:10]}" if read else "not read yet")
+                           + f"; a feature or epic designed by anyone): env.py upstream --id {wid}")
+        for up in upstream(root, cfg, wid, items):
+            notes.append(f"{up['type']} ADO {up['id']}'s design is agreed: start from {up['design']}"
+                         + (f" ({len(up['answered'])} settled question(s) hold for this item: do not ask them again"
+                            + (f"; {len(up['open'])} left open for it" if up["open"] else "") + ")"
+                            if up["answered"] or up["open"] else "")
+                         + f". env.py upstream --id {wid} lists them")
+        late = plan_due(flow, data)
+        if late and keys.index(key) > keys.index("Design"):
+            reasons.append(late)
+        end = path_rule(flow, data).get("endsAfter")
+        if end and keys.index(key) > keys.index(end):
+            reasons.append(f"{wid} is on the {flow_path(flow, data)} path: the flow ends after {end}. The work itself goes "
+                           f"through the items under it: /sdd next {wid}")
         missing = [g for g in stage_needs(flow, data, key) if g not in met]
         reasons += [f"{key} needs '{g}' first — " + ("not true on disk yet" if g in DERIVED else "not recorded as passed")
                     + (f": env.py graph --id {wid}" if g == "Graph" else "")
@@ -1629,6 +1831,20 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
             continue
         if st != "completed":
             reasons.append(f"{n}: PR {r['pr']['url']} is {st}, not merged yet")
+    late = plan_due(flow, data)
+    if late:
+        reasons.append(late)
+    if path_rule(flow, data).get("noClaim"):
+        return not reasons, reasons, notes  # nothing was claimed, so nothing is closed out in ADO
+    for m in data.get("members") or []:
+        try:
+            st = (live_item(cfg, m) or {}).get("state")
+        except RuntimeError as e:
+            reasons.append(f"could not read ADO {m}: {str(e)[:120]}")
+            continue
+        if st and st not in cfg.get("doneStates", ["Resolved", "Closed", "Done"]):
+            reasons.append(f"ADO {m}, covered by this build, is still {st}: hand it over (spec.py handover --id {m}) "
+                           f"or take it out of the build (env.py members --id {wid} --set ...)")
     try:
         live = live_item(cfg, wid) or {}
     except RuntimeError as e:
@@ -1690,12 +1906,191 @@ def cmd_path(a):
         die(f"no path '{a.set}'; the {flow} flow has {', '.join(k for k in rule if k != 'choose')}")
     if not (a.confirmed or "").strip():
         die("a path is the user's choice: ask them, then pass their words with --confirmed")
+    types = rule[a.set].get("types")
+    if types and data.get("type") not in types:
+        die(f"the {a.set} path is for {' and '.join(types)} only; {a.id} is a {data.get('type') or 'work item of unknown type'}")
     if a.set != "full" and set(data.get("stages") or {}) & {"Decompose", "Implement", "Verify", "Review"}:
         die(f"too late for the {a.set} path: Decompose has started. It stays {flow_path(flow, data) or 'full'}")
+    end = rule.get(flow_path(flow, data) or "", {}).get("endsAfter")
+    if end and a.set != flow_path(flow, data) and ((data.get("stages") or {}).get(end) or {}).get("status") == "done":
+        die(f"too late to leave the {flow_path(flow, data)} path: {end} is done and the flow has ended. "
+            f"The work goes through the items under it: /sdd next {a.id}")
     data["path"] = a.set
     data["pathChosen"] = {"at": now(), "path": a.set, "confirmed": a.confirmed.strip()}
     write_env(env_dir, data)
     print(f"{a.id}: {rule[a.set]['label']}")
+
+
+def cmd_upstream(a):
+    """The designs agreed above an item: where its work starts and stops, its scope, what it needs and gives, the
+    decisions made, and the questions settled and open. Reads the plans off the board first (a design agreed in any
+    developer's workspace), unless --cached."""
+    root = require_root()
+    cfg = load_config(root)
+    items = metrics_items(root, cfg)
+    if not a.cached:
+        if str(a.id) not in items:
+            die(f"{a.id} is not synced yet: spec.py sync --id {a.id}")
+        try:
+            fetch_upstream(root, cfg, a.id, items)
+        except RuntimeError as e:
+            print(f"warning: could not read the plans off the board ({str(e)[:160]}); showing the last ones read. "
+                  f"Is {cfg['plan']['field']} the Implementation Plan field? Set plan.field in .claude/sdd.json",
+                  file=sys.stderr)
+    ups = upstream(root, cfg, a.id, items)
+    if a.json:
+        print(json.dumps(ups, indent=2, ensure_ascii=False))
+        return
+    if not ups:
+        print(f"No design is agreed above {a.id}: nothing above it plans its part yet")
+        return
+    for up in ups:
+        where = "" if up["source"] == "local" else f" (its plan for ADO {up['for']}, on the board)"
+        print(f"{up['type']} ADO {up['id']} {up['title']}: design agreed {up['at'][:10]}{where}\n  read {up['design']}")
+        for k, title in scope.PARTS[:7]:
+            for v in (up.get("plan") or {}).get(k) or []:
+                print(f"  {title.split(':')[0].split(' (')[0].lower()}: {v}")
+        for q in up["answered"]:
+            print(f"  settled: {q}")
+        for q in up["open"]:
+            print(f"  open: {q}")
+
+
+def cmd_plan(a):
+    """Carry a Feature's or Epic's agreed design to the board, so any developer's sdd run on an item under it knows
+    its part: the whole design into the item's own Implementation Plan field; into each item the work item plan names,
+    only that item's part (where it starts and stops, in and out of scope, what it needs and gives, the decisions and
+    questions that are its); and the plan's order as predecessor links. Without --post it writes them to plans/."""
+    root = require_root()
+    cfg = load_config(root)
+    env_dir = find_env(root, cfg, a.id)
+    if not env_dir:
+        die(f"{a.id} has no work item folder: its design is agreed in the flow first (/sdd {a.id} design)")
+    data = read_env(env_dir)
+    if data.get("type") not in scope.CONTAINERS:
+        die(f"{a.id} is a {data.get('type')}: a work item plan goes from a Feature or Epic to the items under it")
+    agreed = (data.get("gates") or {}).get("Design agreed")
+    if not agreed:
+        die(f"the design of {a.id} is not agreed yet: only an agreed design goes on the board")
+    items = metrics_items(root, cfg)
+    if str(a.id) not in items:
+        die(f"{a.id} is not synced yet: spec.py sync --id {a.id}")
+    sp = spec_folder(root, cfg, a.id)
+    design = (sp / "design.md").read_text(encoding="utf-8") if (sp / "design.md").is_file() else ""
+    qs = (sp / "questions.md").read_text(encoding="utf-8") if (sp / "questions.md").is_file() else ""
+    if not design.strip():
+        die(f"{sp / 'design.md'} is empty: nothing to carry")
+    found = mentions(design + "\n" + qs)
+    if found:
+        die(f"design.md or questions.md names {', '.join(sorted(set(found)))}. ADO reads `#<id>` as a mention; "
+            f"write `ADO {found[0][1:]}` there first")
+    bad = scope.plan_problems(design, items, a.id, cfg["doneStates"]) if scope.under(items, a.id) else []
+    if bad:
+        die("the work item plan in design.md is not ready:\n  " + "\n  ".join(bad))
+    targets = scope.plan_targets(design, items, a.id, cfg["doneStates"])
+    _, plan = scope.item_plan(design)
+    order = [(p, q) for p, q in scope.edges(plan) if q in targets]  # a link goes on the item that waits
+    src = {"id": a.id, "type": data.get("type"), "title": data.get("title") or items[str(a.id)].get("title")}
+    out = sp / "plans"
+    out.mkdir(exist_ok=True)
+    blocks = {}
+    for t in targets:
+        md = scope.block_md(src, t, design, qs, agreed)
+        (out / f"{t}.md").write_text(md, encoding="utf-8")
+        html_text = scope.md_to_html(md)
+        if len(html_text) > scope.MAX_BLOCK and t == a.id:
+            md = scope.block_md(src, t, design.split("\n## ")[0] + f"\n\n(The rest is too long for the field: ask "
+                                f"the owner of ADO {a.id} for design.md.)", qs, agreed)
+            html_text = scope.md_to_html(md)
+        blocks[t] = html_text
+    if not a.post:
+        if a.json:
+            print(json.dumps({"targets": targets, "order": order, "folder": str(out)}, indent=2))
+            return
+        print(f"The design of {src['type']} ADO {a.id} goes into the {cfg['plan']['field']} field of {len(targets)} item(s):")
+        for t in targets:
+            it = items.get(str(t)) or {}
+            print(f"  ADO {t} {it.get('type', src['type'])}: {it.get('title', src['title'])}  ({out / f'{t}.md'})")
+        for p, q in order:
+            print(f"  ADO {p} before ADO {q} (a predecessor link on ADO {q})")
+        print(f"Show them to the user, then post with their words: env.py plan --id {a.id} --post --confirmed \"<their words>\"")
+        return
+    if not (a.confirmed or "").strip():
+        die("writing the plan onto the board is the user's choice: show them plans/, then pass their words with --confirmed")
+    field, written, errors = cfg["plan"]["field"], {}, []
+    for t in targets:
+        preds = [p for p, q in order if q == t]
+
+        def decide(w, t=t, preds=preds):
+            ops = []
+            have = (w.get("fields") or {}).get(field) or ""
+            new = scope.merge_block(have, a.id, blocks[t])
+            if scope.html_to_md(new) != scope.html_to_md(have):
+                ops.append(adowrite.add(field, new))
+            for p in preds:
+                ops += adowrite.link_op(w.get("relations"), adowrite.PREDECESSOR, adowrite.item_url(cfg, p),
+                                        f"sdd plan of ADO {a.id}")
+            return ops
+        try:
+            _, ops = adowrite.write(cfg, t, decide, whole=True)
+            written[t] = bool(ops)
+            links = sum(1 for o in ops if o["path"].startswith("/relations"))
+            print(f"  ADO {t}: " + ("plan written" if any(o["path"].startswith("/fields") for o in ops) else "plan unchanged")
+                  + (f", {links} predecessor link(s) added" if links else ""))
+        except (RuntimeError, adowrite.Refused, adowrite.Conflict) as e:
+            errors.append(f"ADO {t}: {str(e)[:200]}")
+    data["plans"] = {"at": now() if not errors else "", "confirmed": a.confirmed.strip(), "field": field,
+                     "items": sorted(written), "order": [list(e) for e in order]}
+    write_env(env_dir, data)
+    if errors:
+        die("some plans did not go out; fix what it says and run the same command again:\n  " + "\n  ".join(errors)
+            + (f"\n(a 400 on the field: is {field} the Implementation Plan field? Set plan.field in .claude/sdd.json)"))
+    print(f"{a.id}: the design is on the board ({len(targets)} item(s)). Any developer's /sdd on one of them starts from "
+          "its part, and /sdd next takes the order into account")
+
+
+def cmd_members(a):
+    """The items under a Feature or Epic that a whole build covers: listed, or recorded with the user's words."""
+    root = require_root()
+    cfg = load_config(root)
+    env_dir, data = ensure_env(root, cfg, a.id)
+    if data.get("type") not in scope.CONTAINERS:
+        die(f"{a.id} is a {data.get('type')}: members are for a Feature or Epic built as one piece of work")
+    items = metrics_items(root, cfg)
+    if str(a.id) not in items:
+        die(f"{a.id} is not synced yet: spec.py sync --id {a.id}")
+    work = [t for t in cfg["specTypes"] if t not in scope.CONTAINERS]
+    cands = scope.candidates(items, a.id, work, adowrite.my_email())
+    if a.set is None:
+        if a.json:
+            print(json.dumps({"members": data.get("members") or [], "candidates": cands}, indent=2, ensure_ascii=False))
+            return
+        print(f"Under {data.get('type')} {a.id} {data.get('title')}:")
+        for c in cands:
+            word = {"free": "free", "yours": "yours", "taken": f"{c['assigned']} is working on it", "done": "done"}[c["status"]]
+            mark = "*" if c["id"] in (data.get("members") or []) else " "
+            print(f" {mark} ADO {c['id']} {c['type']}: {c['title']} [{c['state']}] · {word}")
+        free = [c["id"] for c in cands if c["status"] in ("free", "yours")]
+        print(f"Free to build: {', '.join(map(str, free)) or 'none'}. Record the user's pick: env.py members --id {a.id} "
+              f"--set <ids> --confirmed \"<their words>\"")
+        return
+    if not (a.confirmed or "").strip():
+        die("which items a build covers is the user's choice: ask them, then pass their words with --confirmed")
+    want = sorted({int(x) for x in a.set.split(",") if x.strip()})
+    known = {c["id"]: c for c in cands}
+    bad = [str(m) for m in want if m not in known]
+    if bad:
+        die(f"not work under {a.id}: {', '.join(bad)}. env.py members --id {a.id} lists what is")
+    taken = [f"ADO {m} ({known[m]['assigned']})" for m in want if known[m]["status"] == "taken"]
+    if taken:
+        die(f"someone else is working on {', '.join(taken)}: leave it out, or settle it with them first")
+    if not want:
+        die("a build covers at least one item; to build none, choose the design path or /sdd next instead")
+    data["members"] = want
+    data["membersChosen"] = {"at": now(), "confirmed": a.confirmed.strip()}
+    write_env(env_dir, data)
+    print(f"{a.id}: this build covers {', '.join(f'ADO {m}' for m in want)}. Claim them with it: "
+          f"spec.py claim --id {a.id} " + " ".join(f"--id {m}" for m in want))
 
 
 def cmd_reopen(a):
@@ -1716,6 +2111,8 @@ def cmd_reopen(a):
              "gates": {"passed": [], "revoked": revoke}}
     for g in revoke:
         data["gates"].pop(g, None)
+    if flow == "spec" and "Design agreed" in revoke:
+        design_marker(root, cfg, data, False)  # the items below must not start from a design that is being redone
     data["stages"] = mark_stage(flow, data, key, entry)
     data["progress"] = entry
     data["history"] = (data.get("history") or [])[-49:] + [entry]
@@ -1951,10 +2348,24 @@ def main():
     s.add_argument("--flow", choices=["bug", "spec"])
     s.add_argument("--phase", help="with --op phase: the phase about to start; with --op reopen: the stage to go back to")
     s.add_argument("--json", action="store_true")
-    s = sp.add_parser("path", help="record the way through the flow the user chose (spec: full or short)")
+    s = sp.add_parser("path", help="record the way through the flow the user chose (spec: full, short, or design for a Feature or Epic)")
     s.add_argument("--id", type=int, required=True)
-    s.add_argument("--set", required=True, help="full or short")
+    s.add_argument("--set", required=True, help="full, short or design")
     s.add_argument("--confirmed", metavar="WORDS", help="the user's own words choosing it")
+    s = sp.add_parser("upstream", help="the designs agreed above an item (read off the board), and their questions that hold for it")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--cached", action="store_true", help="the plans last read; do not ask ADO")
+    s.add_argument("--json", action="store_true")
+    s = sp.add_parser("plan", help="carry a Feature's or Epic's agreed design to the board: Implementation Plan fields and predecessor links")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--post", action="store_true", help="write them (without it: write them to plans/ to show the user)")
+    s.add_argument("--confirmed", metavar="WORDS", help="with --post: the user's own words agreeing to it")
+    s.add_argument("--json", action="store_true")
+    s = sp.add_parser("members", help="the items under a Feature or Epic that a whole build covers: list, or --set with the user's words")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--set", help="the ids the user picked, comma-separated")
+    s.add_argument("--confirmed", metavar="WORDS", help="the user's own words picking them")
+    s.add_argument("--json", action="store_true")
     s = sp.add_parser("reopen", help="back to a done or waiting stage for the person's feedback")
     s.add_argument("--id", type=int, required=True)
     s.add_argument("--phase", required=True, help="the stage to go back to (Design, Phase 5, ...)")
@@ -2006,7 +2417,7 @@ def main():
     a = ap.parse_args()
     {"init": cmd_init, "help": cmd_help, "doctor": cmd_doctor, "progress": cmd_progress, "refs": cmd_refs, "can": cmd_can, "type": cmd_type, "new": cmd_new, "status": cmd_status, "view": cmd_view, "reopen": cmd_reopen, "graph": cmd_graph, "graph-focus": cmd_graph_focus,
      "pr": cmd_pr, "remove": cmd_remove, "upgrade-config": cmd_upgrade_config, "run": cmd_run,
-     "revert-check": cmd_revert_check, "verify": cmd_verify, "path": cmd_path, "cost": cmd_cost,
+     "revert-check": cmd_revert_check, "verify": cmd_verify, "path": cmd_path, "upstream": cmd_upstream, "plan": cmd_plan, "members": cmd_members, "cost": cmd_cost,
      "anchors": cmd_anchors, "stack": cmd_stack, "stack-gate": cmd_stack_gate}[a.cmd](a)
 
 

@@ -54,6 +54,9 @@ DEFAULTS = {
         "inProgress": {"states": ["Active"], "boards": ["Dev In Progress"]},  # someone else's work
         "pastDev": ["Dev Completed", "QA Deployed", "QA Testing Passed", "UAT Deployed"],
     },
+    # a Feature's or Epic's agreed design on the board (env.py plan): the rich-text field each item's part goes in, and
+    # whether claiming an item makes its feature and epic Active, and handing over the last one under them resolves them
+    "plan": {"field": "Custom.ImplementationPlan", "parents": True, "activeState": "Active", "resolvedState": "Resolved"},
     # the bug manager (/sdd-bugs): where it keeps the synced bugs and issues, and how it sorts them into categories
     "bugs": json.loads(BUGS_DEFAULTS.read_text(encoding="utf-8")),
     # the progress page (/sdd-progress): how far each epic is, from the synced specs (scripts/progress.py).
@@ -78,7 +81,8 @@ AGENT_MODELS = ("sonnet", "opus", "haiku")
 # A value already in the file is never changed.
 UPGRADE_KEYS = [("agents", "models", "investigator"), ("agents", "models", "skeptic"),
                 ("next", "weights", "priority"), ("next", "weights", "severity"), ("next", "weights", "complexity"),
-                ("next", "complexity"), ("bugs", "folder"), ("bugs", "categories"), ("progress", "measure")]
+                ("next", "complexity"), ("bugs", "folder"), ("bugs", "categories"), ("progress", "measure"),
+                ("plan", "field")]
 
 TYPE_SEGMENT = {
     "User Story": "story", "Product Backlog Item": "story", "Change Request": "story",
@@ -128,6 +132,8 @@ def load_config(root):
     merged["next"] = {**DEFAULTS["next"], **nxt,
                       "weights": {**DEFAULTS["next"]["weights"], **(nxt.get("weights") or {})},
                       "inProgress": {**DEFAULTS["next"]["inProgress"], **(nxt.get("inProgress") or {})}}
+    plan = cfg.get("plan") if isinstance(cfg.get("plan"), dict) else {}
+    merged["plan"] = {**DEFAULTS["plan"], **plan}
     merged["bugs"] = merge_bugs(cfg.get("bugs"))
     prog = cfg.get("progress") if isinstance(cfg.get("progress"), dict) else {}
     merged["progress"] = {**DEFAULTS["progress"], **prog,

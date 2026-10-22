@@ -1,0 +1,17 @@
+schema_version: "1.0"
+name: feature-asks-what
+description: >-
+  /sdd on a Feature with only its id: the router must ask whether to pick the next item under it, design it only, or
+  build it as one piece of work, before it syncs, claims or starts a flow, and must not choose for the user.
+tags: [router, feature, should-ask]
+runs: 3
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 20
+  timeout_seconds: 600
+  allowed_tools: [Skill, Read, Glob, Grep, Bash, Write, Edit, AskUserQuestion]
+  env:
+    SDD_FAKE_ADO: world.json
+  prompt: |
+    /sdd 504

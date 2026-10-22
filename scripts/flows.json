@@ -157,6 +157,17 @@
               "Design agreed"
             ]
           }
+        },
+        "design": {
+          "label": "Design only: the feature's design, which the stories under it point to. No claim, and the flow ends after Design",
+          "types": ["Feature", "Epic"],
+          "endsAfter": "Design",
+          "noClaim": true,
+          "dropNeeds": {
+            "Open Questions": ["Claimed"],
+            "Requirements": ["Claimed"],
+            "Design": ["Claimed"]
+          }
         }
       }
     },

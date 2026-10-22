@@ -229,7 +229,7 @@ def save():
             patch = next(x for x in w["writes"] if x["method"] == "PATCH" and x["id"] == 701)
             assert patch["ops"][0] == {"op": "test", "path": "/rev", "value": 4}      # rev-tested against the fresh read
             comment = next(x for x in w["writes"] if x["method"] == "COMMENT")
-            assert comment == {"method": "COMMENT", "id": 701, "text": "<div>Seen in ADO 702 too.<br>&lt;b&gt;not bold&lt;/b&gt;</div>"}
+            assert comment == {"method": "COMMENT", "id": 701, "commentId": 5001, "text": "<div>Seen in ADO 702 too.<br>&lt;b&gt;not bold&lt;/b&gt;</div>"}
             assert w["items"]["702"]["fields"]["System.State"] == "Active"
             left = {c["key"]: c for c in pending(f)}
             assert sorted(left) == ["k0", "k6", "k7", "k9"], left
