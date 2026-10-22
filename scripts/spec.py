@@ -46,6 +46,8 @@ How far each epic is (progress.py; read-only, from the index; the /sdd-progress 
     progress [--json]                    every epic's (and each feature's with no epic) done, in progress and to
                                          do, by work item count, story points and acceptance criteria; bugs and
                                          issues apart. Writes .index/progress.json and today's line of the trend
+    criteria --id N [--json]             one item's acceptance criteria, each with whether it was withdrawn (struck
+                                         through in ADO): what the progress page shows when a story is opened
     progress-rules --project P (--measure M --done CSV --todo CSV --ignore CSV [--rules-json JSON] | --reset)
                                          a project's rules in .claude/sdd.json "progress.projects" (the page's Rules
                                          panel). --rules-json: [{"field", "values", "as"[, "and"]}], first match wins
@@ -466,6 +468,23 @@ def cmd_progress(a):
         print(f"{t['id']} {t['type']} {t['title']}: {prog.pct(x)}% of {x['total']:g} {unit} done, {x['active']:g} in progress"
               f"{' (only part synced)' if t['partial'] else ''} · bugs and issues: {d['total'] - d['done']} open of {d['total']}")
     print(f"wrote {path}")
+
+
+def cmd_criteria(a):
+    ctx = Ctx()
+    row = ctx.item(a.id)
+    if not row:
+        die(f"{a.id} is not in the index. Sync it first: spec.py sync --id {a.id}")
+    out = {"id": a.id, "type": row["type"], "title": row["title"], "state": row["state"],
+           "criteria": prog.criteria_list(row["body"])}
+    if a.json:
+        print(json.dumps(out, ensure_ascii=False))
+        return
+    print(f"{a.id} {row['type']} {row['title']} [{row['state']}]")
+    for i, c in enumerate(out["criteria"], 1):
+        print(f"  {i}. {'(withdrawn) ' if c['withdrawn'] else ''}{c['text']}")
+    if not out["criteria"]:
+        print("  no acceptance criteria in ADO")
 
 
 def cmd_progress_rules(a):
@@ -1401,6 +1420,9 @@ def main():
     sp.add_parser("metrics", help="rebuild .index/metrics.json from the index (every sync writes it too)")
     s = sp.add_parser("progress", help="how far each epic is: .index/progress.json (every sync writes it too)")
     s.add_argument("--json", action="store_true")
+    s = sp.add_parser("criteria", help="one item's acceptance criteria, withdrawn ones marked")
+    s.add_argument("--id", type=int, required=True)
+    s.add_argument("--json", action="store_true")
     s = sp.add_parser("progress-rules", help="a project's progress rules in .claude/sdd.json")
     s.add_argument("--project", required=True)
     s.add_argument("--measure", choices=list(prog.MEASURES), default="count")
@@ -1441,7 +1463,7 @@ def main():
     {"sync": cmd_sync, "embed": cmd_embed, "query": cmd_query, "impact": cmd_impact, "claim": cmd_claim,
      "handover": cmd_handover, "sprint": cmd_sprint, "comment": cmd_comment, "next": cmd_next,
      "request": cmd_request, "route": cmd_route,
-     "next-judge": cmd_next_judge, "metrics": cmd_metrics, "progress": cmd_progress,
+     "next-judge": cmd_next_judge, "metrics": cmd_metrics, "progress": cmd_progress, "criteria": cmd_criteria,
      "progress-rules": cmd_progress_rules}[a.cmd](a)
 
 

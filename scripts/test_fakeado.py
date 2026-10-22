@@ -376,6 +376,13 @@ def progress_flow():
         states = {x["state"]: x["rule"] for x in data["projects"]["Proj"]["states"]}
         assert states == {"Active": "active", "Closed": "done", "New": "todo", "Removed": "ignored"}, states
         assert "40.0% of 5 items done" in run(root, "spec.py", "progress").stdout
+        crit = json.loads(run(root, "spec.py", "criteria", "--id", "811", "--json").stdout)       # a story opened on the page
+        assert [(c["text"], c["withdrawn"]) for c in crit["criteria"]] == [("Acceptance Criteria 1 - Totals Given a total", False),
+            ("Acceptance Criteria 2 - Cents", False), ("Acceptance Criteria 3 - Old", True)], crit
+        assert json.loads(run(root, "spec.py", "criteria", "--id", "813", "--json").stdout)["criteria"] == []
+        assert "no acceptance criteria in ADO" in run(root, "spec.py", "criteria", "--id", "813").stdout
+        r = run(root, "spec.py", "criteria", "--id", "99999", check=False)
+        assert r.returncode != 0 and "spec.py sync --id 99999" in r.stderr, r.stderr
         # a project's own rules: Active counts as not started, points first
         r = run(root, "spec.py", "progress-rules", "--project", "Proj", "--done", "Closed", "--todo", "Closed,New", check=False)
         assert r.returncode != 0 and "both done and todo" in r.stderr and "Nothing was written" in r.stderr, r.stderr

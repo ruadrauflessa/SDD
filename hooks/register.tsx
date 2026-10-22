@@ -7,7 +7,7 @@
 import { update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { ProgressData, ProgressMeasureKey, ProgressNode, ProgressRulesDraft } from '../types'
+import type { ProgressCriteria, ProgressData, ProgressMeasureKey, ProgressNode, ProgressRulesDraft } from '../types'
 import type { BugAnalysis, BugCategory, BugChange, BugCondition, BugSettings, BugSettingsDraft, BugDetail, BugEvidence, BugFilter, BugIndex, BugRecord, BugsConfig, SddAsk, SddColors, SddLiveState, SddDoc, SddItem, SddQuestion, SddSnapshot, SddStage } from '../types'
 import { GLYPH, agentRows, contextTone, moneyText, spendHead, SPEND_ICON, spendTokens, spendTotal, tokensLine, answerMessage, answersFor, approveAnswers, approveFor, approveMessage,decidedGates, fileLinks, defaultStage, flowFinished, railSlice, railBarColor, clipboardArgv, NO_PYTHON, isPythonStub, pythonCandidates, stageWord, shortStamp, flowTag, MARK_WORD, idFromArgs, idFromScript, itemOptions, itemSuggestions, startPage, pendingGate, reviewLinks, stamp, fileTarget, gateStory, phaseKey, phaseLabel, refLink, stageDocs, stageHistory, stageRows, stageSummary, spinnerNote, statusWord, when, yourTurn } from './view/model'
 import type { AgentInfoLike, AgentTone, Mark, StageRow } from './view/model'
@@ -19,8 +19,8 @@ import { CATEGORY_TEXT_FIELDS, SECTIONS, addAlternative, addCategory, addToField
   filesToWrite, freeKeys, getAt, isDirty, moveCategory, needsSync, removeAlternative, removeCategory, removeConditionKey, removeFromField, resetSection, revertDraft, sectionDirty,
   seedFor, setCategoryText, setConditionKey, setField, settingsProblems, startDraft, updateCategory, valueText, withCondition } from './view/settings'
 import type { CategoryTextField, Field } from './view/settings'
-import { AUTO_STEPS, MEASURE_KEYS, MEASURE_LABEL, RULE_WORD, addRule, autoNext, barLabel, defectBar, defectText, dropRule, fieldLabel, fieldValues, hiddenFinished,
-  leafLine, measureFor, moveRule, nextRule, pct, pickField, projectsOf, ruleText, rulesArgs, rulesDraft, syncedText, textBar, toggleValue, trendText, visibleTops,
+import { AUTO_STEPS, MEASURE_KEYS, MEASURE_LABEL, RULE_WORD, addRule, autoNext, barLabel, criteriaHead, criterionMark, defectBar, defectText, dropRule, fieldLabel,
+  fieldValues, hiddenFinished, leafLine, measureFor, storyAction, moveRule, nextRule, pct, pickField, projectsOf, ruleText, rulesArgs, rulesDraft, syncedText, textBar, toggleValue, trendText, visibleTops,
   workBar } from './view/progress'
 import type { Rule } from './view/progress'
 
@@ -737,6 +737,7 @@ const progFinishedS = { plugin: 'sdd', key: 'progFinished' } as const
 const progAutoS = { plugin: 'sdd', key: 'progAuto' } as const
 const progBusyS = { plugin: 'sdd', key: 'progBusy' } as const
 const progRulesS = { plugin: 'sdd', key: 'progRules' } as const
+const progCritS = { plugin: 'sdd', key: 'progCriteria' } as const
 let progPaneOpen = false
 let progTimer = false
 let progRunning = false
@@ -783,7 +784,10 @@ async function progAct($: EngineInterface, busy: string, args: string[], timeout
     const r = await progRun($, args, timeoutMs)
     progActErr = r.why
     ok = !r.why
-    if (args[0] === 'sync' && ok) progLastSync = Date.now()
+    if (args[0] === 'sync' && ok) {
+      progLastSync = Date.now()
+      await $.state.set(progCritS, {})  // a sync may have changed a story's criteria: read again when it is opened
+    }
     await progRead($)
   } catch (err) {
     progActErr = String(err instanceof Error ? err.message : err).slice(0, 300)
@@ -793,6 +797,20 @@ async function progAct($: EngineInterface, busy: string, args: string[], timeout
     await $.state.set(progBusyS, null)
   }
   return ok
+}
+
+/** A story opened on the progress page: its acceptance criteria (`spec.py criteria`: the index only), once. */
+async function progCriteria($: EngineInterface, id: number): Promise<void> {
+  const have = (await $.state.get(progCritS)).value ?? {}
+  if (have[String(id)] && !('why' in (have[String(id)] as object))) return
+  const r = await progRun($, ['criteria', '--id', String(id), '--json'], 60_000)
+  let got: ProgressCriteria | { why: string }
+  try {
+    got = r.why ? { why: r.why } : (JSON.parse(r.out) as ProgressCriteria)
+  } catch {
+    got = { why: 'spec.py criteria did not answer with JSON.' }
+  }
+  await $.state.set(progCritS, { ...((await $.state.get(progCritS)).value ?? {}), [String(id)]: got })
 }
 
 /** Opens the progress page. The numbers are read at once and every minute while it is open (a sync another chat
@@ -1952,6 +1970,7 @@ export const register: Register = (on, options) => {
     const auto = (await $.state.get(progAutoS)).value ?? data?.syncMinutes ?? 0
     const busy = (await $.state.get(progBusyS)).value ?? null
     const draft = (await $.state.get(progRulesS)).value ?? null
+    const crits = (await $.state.get(progCritS)).value ?? {}
     const now = Math.floor(Date.now() / 1000)
     const projects = projectsOf(data)
     const tops = visibleTops(data, project, finished, chosen)
@@ -1977,13 +1996,68 @@ export const register: Register = (on, options) => {
         <Text color={n.defects.todo ? C.revoked : C.dim} dimColor={!n.defects.todo} wrap="wrap">{defectText(n.defects)}</Text>
       </Box>
     )
-    const leaf = (n: ProgressNode, depth: number) => (
-      <Box key={`leaf-${n.id}`} flexDirection="row" gap={1} marginLeft={depth * 2}>
-        <Text color={n.status === 'done' ? C.done : n.status === 'active' ? C.work : C.dim}>{n.status === 'done' ? '●' : n.status === 'active' ? '◐' : '○'}</Text>
-        <Box flexShrink={1} minWidth={0}>{n.url ? <Link href={n.url} label={`${n.id} ${n.title}`} /> : <Text wrap="truncate-end">{`${n.id} ${n.title}`}</Text>}</Box>
-        <Box flexShrink={1} minWidth={0}><Text dimColor wrap="truncate-end">{leafLine(n, s?.items ?? [])}</Text></Box>
-      </Box>
-    )
+    // a story: its row, and once pressed its acceptance criteria, its own bugs and issues, and the way into sdd
+    const openStory = (id: number) => async () => {
+      const opening = !opened.includes(id)
+      await $.state.set(progOpenS, opening ? [...opened, id] : opened.filter(x => x !== id))
+      if (opening) await progCriteria($, id)
+    }
+    const openInView = (id: number) => async () => {
+      await $.state.set(selected, id)
+      await $.state.set(stage, null)
+      await $.state.set(doc, null)
+      await $.ui.open({ id: PANE, title: `sdd ${id}`, closeOnEscape: true, columns: 100 })
+    }
+    const storyDetail = (n: ProgressNode) => {
+      const crit = crits[String(n.id)]
+      const act = storyAction(n, s?.items ?? [])
+      const openBugs = n.defects.items.filter(d => d.status !== 'done')
+      return (
+        <Box key={`story-detail-${n.id}`} flexDirection="column" marginLeft={4} marginBottom={1}>
+          {!crit && <Text dimColor>Reading the acceptance criteria…</Text>}
+          {crit && 'why' in crit && <Text color={C.revoked} wrap="wrap">{crit.why}</Text>}
+          {crit && !('why' in crit) && crit.criteria.length === 0 && <Text color={C.now}>No acceptance criteria in ADO: it counts as one criterion.</Text>}
+          {crit && !('why' in crit) && crit.criteria.length > 0 && (
+            <Box flexDirection="column">
+              <Text dimColor>{criteriaHead(n, crit.criteria)}</Text>
+              {crit.criteria.map((c, i) => (
+                <Box key={`crit-${n.id}-${i}`} flexDirection="row" gap={1}>
+                  <Text color={c.withdrawn ? C.dim : n.status === 'done' ? C.done : C.dim}>{criterionMark(n, c)}</Text>
+                  <Box flexShrink={1} minWidth={0}><Text wrap="wrap" strikethrough={c.withdrawn} dimColor={c.withdrawn}>{`${i + 1}. ${c.text}`}</Text></Box>
+                </Box>
+              ))}
+            </Box>
+          )}
+          {n.defects.total > 0 ? defects(`story-def-${n.id}`, n) : <Text dimColor>No bugs or issues under it.</Text>}
+          {openBugs.map(d => (
+            <Box key={`story-bug-${n.id}-${d.id}`} flexDirection="row" gap={1} marginLeft={2}>
+              <Text color={d.high ? C.revoked : C.now}>{d.high ? '▲' : '•'}</Text>
+              <Box flexShrink={1} minWidth={0}>{d.url ? <Link href={d.url} label={`${d.type} ${d.id} ${d.title}`} /> : <Text>{`${d.type} ${d.id} ${d.title}`}</Text>}</Box>
+              <Text dimColor>{d.state}{d.assigned ? ` · ${d.assigned}` : ''}</Text>
+            </Box>
+          ))}
+          <Box flexDirection="row" gap={1} alignItems="center" marginTop={1}>
+            {act.kind === 'view'
+              ? <Button key={`story-view-${n.id}`} label={act.label} onPress={openInView(n.id)} />
+              : <Button key={`story-start-${n.id}`} label={act.label} onPress={() => $.prompt.fill({ text: act.text })} />}
+            {n.url && <Link href={n.url} label="Open in ADO" />}
+          </Box>
+        </Box>
+      )
+    }
+    const leaf = (n: ProgressNode, depth: number) => {
+      const isOpen = opened.includes(n.id)
+      return (
+        <Box key={`leaf-${n.id}`} flexDirection="column" marginLeft={depth * 2}>
+          <Box flexDirection="row" gap={1} alignItems="center">
+            <Text color={n.status === 'done' ? C.done : n.status === 'active' ? C.work : C.dim}>{n.status === 'done' ? '●' : n.status === 'active' ? '◐' : '○'}</Text>
+            <Box flexShrink={1} minWidth={0}><Button key={`story-${n.id}`} label={`${isOpen ? '▾' : '▸'} ${n.id} ${n.title}`} onPress={openStory(n.id)} /></Box>
+            <Box flexShrink={1} minWidth={0}><Text dimColor wrap="truncate-end">{leafLine(n, s?.items ?? [])}</Text></Box>
+          </Box>
+          {isOpen && storyDetail(n)}
+        </Box>
+      )
+    }
     const branch = (n: ProgressNode, measure: ProgressMeasureKey, depth: number): ReturnType<typeof leaf> => {
       if (!n.kids.length) return leaf(n, depth)
       const isOpen = opened.includes(n.id)

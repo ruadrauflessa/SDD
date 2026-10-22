@@ -3,7 +3,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { ProgressData, ProgressNode } from '../types'
-import { addRule, barLabel, barSvg, defectText, dropRule, fieldLabel, leafLine, measureFor, moveRule, nextRule, pct, pickField, ruleText, rulesArgs, rulesDraft, textBar,
+import { addRule, barLabel, barSvg, criteriaHead, criterionMark, defectText, storyAction, dropRule, fieldLabel, leafLine, measureFor, moveRule, nextRule, pct, pickField, ruleText, rulesArgs, rulesDraft, textBar,
   toggleValue, trendText, visibleTops, workBar } from './view/progress'
 
 const C = { done: '#3f9a63', now: '#c98a12', work: '#4a7fc4', revoked: '#c0503f', gate: '#8a73c9', dim: '#7b8794', line: '#5c6670', hoverText: '#ffffff' }
@@ -32,7 +32,10 @@ const DATA: ProgressData = {
         { id: 840, type: 'Bug', title: 'CSV drops cents', state: 'New', status: 'todo', high: true, assigned: 'Ann', url: 'https://dev.azure.com/Org/Proj/_workitems/edit/840' }] },
       kids: [{ id: 810, type: 'Feature', title: 'Export', state: 'Active', status: 'active', project: 'Proj', assigned: '', board: '', url: '',
         measures: { count: M(3, 1, 1), points: M(8, 3, 5, 1), criteria: M(6, 2, 3, 1) }, defects: NONE,
-        kids: [story(811, 'CSV', 'done'), story(812, 'PDF', 'active', { withdrawn: 1 })] }] },
+        kids: [story(811, 'CSV', 'done', { defects: { total: 2, done: 1, active: 0, todo: 1, high: 1, items: [
+          { id: 845, type: 'Bug', title: 'CSV header misspelt', state: 'New', status: 'todo', high: true, assigned: 'Ann', url: 'https://dev.azure.com/Org/Proj/_workitems/edit/845' },
+          { id: 846, type: 'Bug', title: 'Old CSV bug', state: 'Closed', status: 'done', high: false, assigned: '', url: '' }] } }),
+          story(812, 'PDF', 'active', { withdrawn: 1 })] }] },
     { id: 900, type: 'Epic', title: 'Old platform', state: 'Closed', status: 'done', project: 'Proj', assigned: '', board: '', url: '',
       measures: { count: M(2, 2, 0), points: M(4, 4, 0), criteria: M(2, 2, 0) }, defects: NONE, kids: [] },
   ],
@@ -104,20 +107,36 @@ test('field rules: put one together from a field and its values, order them, tak
   expect(rulesArgs({ ...d, states: {} }).problem).toBe(null)          // a done rule is enough
 })
 
+test('an opened story: how many criteria, when they count as met, and the way into sdd', () => {
+  const crit = [{ text: 'a', withdrawn: false }, { text: 'b', withdrawn: false }, { text: 'c', withdrawn: true }]
+  expect(criteriaHead(story(811, 'CSV', 'done'), crit)).toBe('2 acceptance criteria, 1 withdrawn · met: the story is done')
+  expect(criteriaHead(story(812, 'PDF', 'active'), crit.slice(0, 1))).toBe('1 acceptance criterion · met when the story is done')
+  expect(crit.map(c => criterionMark(story(811, 'CSV', 'done'), c))).toEqual(['✓', '✓', '–'])
+  expect(crit.map(c => criterionMark(story(812, 'PDF', 'active'), c))).toEqual(['○', '○', '–'])
+  expect(storyAction(story(812, 'PDF', 'active'), [{ id: 812 }] as never)).toEqual({ kind: 'view', label: 'Open in sdd view', text: '' })
+  expect(storyAction(story(811, 'CSV', 'done'), [])).toEqual({ kind: 'start', label: 'Start /sdd 811', text: '/sdd 811' })
+})
+
 // ---------------------------------------------------------------- the page, mounted
 
 const PROPS = { title: 'sdd progress', isFocused: true, bodyColumns: 120, placement: 'dock', scroll: { offset: 0, bodyRows: 60 }, view: {} } as never
 const ok = (value: unknown) => ({ value })
-const SNAP = { root: '/ws', specRoot: 'docs/spec', flows: {}, derived: [], done: [], items: [] }
+const SNAP = { root: '/ws', specRoot: 'docs/spec', flows: {}, derived: [], done: [], items: [{
+  id: 812, type: 'User Story', title: 'PDF', state: 'Active', project: 'Proj', flow: 'spec', slug: 'pdf', created: '2026-10-01T00:00:00Z',
+  folder: '/ws/.claude/worktrees/812-pdf', gates: {}, met: [], url: null, spec: null, repos: {},
+  progress: { at: '2026-10-01T00:00:00Z', flow: 'spec', phase: 'Implement', status: 'active' } }] }
+const CRITERIA = (id: number) => ({ id, type: 'User Story', title: 'CSV', state: 'Closed', criteria: id === 811
+  ? [{ text: 'Acceptance Criteria 1 - Totals are rounded', withdrawn: false }, { text: 'Acceptance Criteria 2 - Old layout', withdrawn: true }] : [] })
 
 function engine(on: any) {
   const runs: string[][] = []
   const filled: string[] = []
+  const opened: string[] = []
   on('process.run', ((_$: unknown, e: { argv: string[] }) => {
     const spec = e.argv.findIndex(a => a.endsWith('spec.py'))
     const args = spec >= 0 ? e.argv.slice(spec + 1) : []
     if (spec >= 0) runs.push(args)
-    const out = args[0] === 'progress' ? JSON.stringify(DATA) : spec >= 0 ? 'done' : JSON.stringify(SNAP)
+    const out = args[0] === 'progress' ? JSON.stringify(DATA) : args[0] === 'criteria' ? JSON.stringify(CRITERIA(Number(args[2]))) : spec >= 0 ? 'done' : JSON.stringify(SNAP)
     return ok({ exitCode: 0, stdout: out, stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
   }) as never)
   on('fs.read', (() => { throw new Error('ENOENT') }) as never)
@@ -126,10 +145,10 @@ function engine(on: any) {
   on('session.start', ((_$: unknown, e: { cwd: string }) => ({ cwd: e.cwd })) as never)
   on('command.register', (() => ok({ isRegistered: true })) as never)
   on('clock.every', (() => ok({ id: 'tick' })) as never)
-  on('ui.open', (() => ok({ isPlaced: true })) as never)
+  on('ui.open', ((_$: unknown, e: { id: string }) => { opened.push(e.id); return ok({ isPlaced: true }) }) as never)
   on('ui.toast', (() => ok(undefined)) as never)
   on('prompt.fill', ((_$: unknown, e: { text: string }) => { filled.push(e.text); return { isFilled: true } }) as never)
-  return { runs, filled }
+  return { runs, filled, opened }
 }
 
 const texts = async (ui: { findAll: (q: { type: string }) => Promise<Array<{ text?: string }>> }) =>
@@ -187,4 +206,31 @@ test('desktop: a sync runs on a press, a partly synced epic syncs whole, and the
   expect(await texts(ui)).not.toContain('Rules for Proj')               // saved: the panel closes
   await ui.press({ key: 'prog-auto' })
   expect((await ui.find({ key: 'prog-auto' }))?.props.label).toBe('Auto sync: 15 min')
+})
+
+test('desktop: a story opens to its criteria, its own bugs and the way into sdd', async ($: any, on: any) => {
+  const world = engine(on)
+  const ui = await mountPage($)
+  await ui.press({ key: 'prog-800' })
+  await ui.press({ key: 'prog-810' })
+  expect(world.runs.some(r => r[0] === 'criteria')).toBe(false)           // read only when a story is opened
+  await ui.press({ key: 'story-811' })
+  expect(world.runs).toContainEqual(['criteria', '--id', '811', '--json'])
+  let t = await texts(ui)
+  expect(t).toContain('1 acceptance criterion, 1 withdrawn · met: the story is done')
+  expect(t).toContain('1. Acceptance Criteria 1 - Totals are rounded')
+  expect(t).toContain('2. Acceptance Criteria 2 - Old layout')
+  expect(t).toContain('Bugs and issues: 1 open (1 high) · 1 closed')
+  expect(await ui.find({ key: 'story-view-811' })).toBe(undefined)
+  await ui.press({ key: 'story-start-811' })
+  expect(world.filled).toContain('/sdd 811')
+  await ui.press({ key: 'story-812' })                                      // sdd works on 812 here: its view opens
+  t = await texts(ui)
+  expect(t).toContain('No acceptance criteria in ADO: it counts as one criterion.')
+  expect(t).toContain('No bugs or issues under it.')
+  await ui.press({ key: 'story-view-812' })
+  expect(world.opened).toContain('sdd-view')
+  await ui.press({ key: 'story-811' })                                      // closed again; opened again reads nothing new
+  await ui.press({ key: 'story-811' })
+  expect(world.runs.filter(r => r[0] === 'criteria' && r[2] === '811').length).toBe(1)
 })

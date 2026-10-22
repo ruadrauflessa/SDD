@@ -110,6 +110,12 @@ no ADO, no tokens). Sync an epic first with `/sdd sync <epic id>`.
     are withdrawn, and a story with none counts as 1. A story is done when its state says so.
 - **Open an epic** to see its features, each with its own bar. Open a feature to see its stories: state,
   points, criteria, who has it and its sdd stage. Open bugs are listed too, with links to ADO.
+- **Open a story** to see:
+  - its acceptance criteria, numbered, with the withdrawn ones struck through. They are read from the mirror
+    with `spec.py criteria`. They count as met when the story is done: sdd keeps no verdict per criterion.
+  - its own bugs and issues;
+  - **Open in sdd view** when an sdd flow works on it here, or **Start /sdd \<id>** when none does;
+  - **Open in ADO**.
 - **Rules…** sets one project's rules and the measure it shows first.
   - **Field rules** test any field of the item, for example a custom board column:
     "Board Column Title is Dev Completed or QA Deployed → done". You pick the field from the ones the

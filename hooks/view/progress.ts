@@ -1,7 +1,7 @@
 // Pure helpers of the progress page (/sdd-progress): the bars, what a row says, which epics show, the trend, and the
 // Rules panel's edit. The numbers come from `spec.py progress` (scripts/progress.py); nothing here counts work.
 // No `$` here: the Desktop app's older engine refuses a mod that passes `$` into another file.
-import type { ProgressData, ProgressDefects, ProgressMeasure, ProgressMeasureKey, ProgressNode, ProgressRule, ProgressRulesDraft, SddColors, SddItem } from '../../types'
+import type { ProgressCriteria, ProgressData, ProgressDefects, ProgressMeasure, ProgressMeasureKey, ProgressNode, ProgressRule, ProgressRulesDraft, SddColors, SddItem } from '../../types'
 
 export const MEASURE_KEYS: ProgressMeasureKey[] = ['count', 'points', 'criteria']
 export const MEASURE_LABEL: Record<ProgressMeasureKey, string> = { count: 'Work items', points: 'Story points', criteria: 'Acceptance criteria' }
@@ -122,6 +122,27 @@ export function leafLine(n: ProgressNode, items: SddItem[] = []): string {
   const sdd = items.find(i => i.id === n.id)?.progress
   if (sdd) bits.push(`sdd: ${sdd.phase}${sdd.status === 'waiting' ? ', waiting on you' : ''}`)
   return bits.join(' · ')
+}
+
+/** The head of an opened story's criteria: how many, how many withdrawn, and when they count as met (sdd keeps no
+ *  verdict per criterion: they are met when the story is done by the project's rules). */
+export function criteriaHead(n: ProgressNode, c: ProgressCriteria['criteria']): string {
+  const live = c.filter(x => !x.withdrawn).length
+  const gone = c.length - live
+  const head = `${live} acceptance criteri${live === 1 ? 'on' : 'a'}${gone ? `, ${gone} withdrawn` : ''}`
+  return `${head} · ${n.status === 'done' ? 'met: the story is done' : 'met when the story is done'}`
+}
+
+/** The mark of one criterion: ✓ when its story is done, ○ while it is not, – when it was withdrawn. */
+export function criterionMark(n: ProgressNode, c: { withdrawn: boolean }): string {
+  return c.withdrawn ? '–' : n.status === 'done' ? '✓' : '○'
+}
+
+/** What an opened story offers: its sdd view when an sdd flow works on it here, else the command that starts one. */
+export function storyAction(n: ProgressNode, items: SddItem[] = []): { kind: 'view' | 'start'; label: string; text: string } {
+  return items.some(i => i.id === n.id)
+    ? { kind: 'view', label: 'Open in sdd view', text: '' }
+    : { kind: 'start', label: `Start /sdd ${n.id}`, text: `/sdd ${n.id}` }
 }
 
 /** `synced from ADO 3h ago`. */
