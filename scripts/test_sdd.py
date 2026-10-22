@@ -563,7 +563,7 @@ def feature_scope():
     assert md.rstrip().endswith("end of sdd plan from ADO 900") and "the writer" in md and "- cents" in md, md
     assert "One exporter" not in md and "Arial" not in md and "Rounding" not in md and "Quotes?" in md, md
     md902 = scope.block_md(src, 902, design, qs, "2026-10-22")
-    assert "ADO 901 (its plan needs ADO 902 (the interface))" in md902, md902      # 901's need shows as 902's give
+    assert "- ADO 901 (the interface)" in md902.split("Required by other work items")[1], md902      # 901's need shows as 902's give
     whole = scope.block_md(src, 900, design, qs, "2026-10-22")
     assert "One exporter" in whole and "Arial" in whole and "Rounding" in whole, whole
     html_text = scope.md_to_html(whole)

@@ -462,7 +462,7 @@ def feature_flow():
         assert "ADO 902 before ADO 901 (a predecessor link on ADO 901)" in out, out
         p901 = (feat / "plans" / "901.md").read_text()
         assert "sdd plan: Feature ADO 900 for ADO 901" in p901 and "the CSV writer" in p901 and "PDF output (ADO 902)" in p901, p901
-        assert "ADO 902 (its plan gives ADO 901 (the exporter interface))" in p901, p901      # 902's Gives, seen from 901
+        assert "- ADO 902 (the exporter interface)" in p901.split("Needs from other work items")[1], p901      # 902's Gives, seen from 901
         assert "the exporter interface and PDF output" not in p901 and "Arial" not in p901, p901     # 902's own part stays off
         assert "Q2: Header row?" in p901 and "Q4: Quote text cells?" in p901 and "Rounding" not in p901, p901
         assert "One exporter for all formats" in (feat / "plans" / "900.md").read_text()      # the feature: the whole design
@@ -499,7 +499,7 @@ def feature_flow():
         assert [(u["id"], u["source"]) for u in ups] == [(900, "ado"), (890, "local")], ups
         p = ups[0]["plan"]
         assert p["in"] == ["the CSV writer"] and p["out"] == ["PDF output (ADO 902)", "scheduled exports (not planned)"], p
-        assert p["needs"] == ["ADO 902 (its plan gives ADO 901 (the exporter interface))"] and p["decisions"] == ["amounts in rands"], p
+        assert p["needs"] == ["ADO 902 (the exporter interface)"] and p["decisions"] == ["amounts in rands"], p
         assert ups[0]["answered"] == ["Q2: Header row? (ADO 901) Answer: yes"] and ups[0]["open"] == ["Q4: Quote text cells? (ADO 901)"]
         out = run(root, "env.py", "upstream", "--id", "901", "--cached").stdout
         assert "out of scope: PDF output (ADO 902)" in out and "where the work starts: the exporter interface" in out, out

@@ -2572,7 +2572,11 @@ export const register: Register = (on, options) => {
             <Text bold>Start something</Text>
             <Box flexDirection="row" gap={1} alignItems="center">
               <Button key="start-id" variant="primary" label="Work an item" onPress={() => fill('/sdd ')} />
-              <Text dimColor wrap="wrap">Type its id after /sdd. A bug or issue starts the bug flow; a story or feature, the spec flow.</Text>
+              <Text dimColor wrap="wrap">Type its id after /sdd. A bug or issue starts the bug flow; a story, the spec flow; a feature or epic asks what to do.</Text>
+            </Box>
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Button key="start-design" label="Design a feature" onPress={() => fill('/sdd design ')} />
+              <Text dimColor wrap="wrap">Type a feature or epic id. sdd designs it once and writes each item's part to its Implementation Plan in ADO, so the stories start with their questions answered.</Text>
             </Box>
             <Box flexDirection="row" gap={1} alignItems="center">
               <Button key="start-next" label="Take the next item" onPress={() => fill('/sdd next ')} />

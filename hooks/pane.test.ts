@@ -38,11 +38,11 @@ const AGENTS = [
 
 type Cost = { id: number; stage: string; usd: number; session: string; turns: number; input: number; output: number; cacheRead: number; cacheWrite: number }
 type Row = { usd: number; turns: number; input: number; output: number; cacheRead: number; cacheWrite: number }
-type Fake = { registered: string[]; usd: number | null; costs: Cost[]; costFails: boolean; toasts: string[]
+type Fake = { filled: string[]; registered: string[]; usd: number | null; costs: Cost[]; costFails: boolean; toasts: string[]
   ran: string[]; opened: string[]; runs: string[][]; finishFirst?: boolean; noAutoOpen?: boolean; graphOk?: boolean; surfaces: string[]; sid: string; spend: Record<string, Row>; spendOther: Record<string, Row> }
 
 function fake(on: (event: any, hook: (...a: never[]) => unknown) => void, agents = AGENTS): Fake {
-  const f: Fake = { registered: [], usd: 1, costs: [], costFails: false, toasts: [], ran: [], opened: [], runs: [], sid: 's1', surfaces: ['desktop'], spend: {}, spendOther: {} }
+  const f: Fake = { filled: [], registered: [], usd: 1, costs: [], costFails: false, toasts: [], ran: [], opened: [], runs: [], sid: 's1', surfaces: ['desktop'], spend: {}, spendOther: {} }
   // env.py: `cost` records a turn (and the totals the next `view` reports); anything else is the view
   on('process.run', ((_$: unknown, e: { argv: string[] }) => {
     f.runs.push(e.argv)
@@ -79,6 +79,7 @@ function fake(on: (event: any, hook: (...a: never[]) => unknown) => void, agents
   }) as never)  // /sdd is the skill's: the plugin only watches it run
   on('turn.start' as never, ((_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId })) as never)           // the engine echoes both
   on('session.measure' as never, ((_$: unknown, e: { changed: string[] }) => ({ changed: e.changed })) as never)
+  on('prompt.fill' as never, ((_$: unknown, e: { text: string }) => { f.filled.push(e.text); return { isFilled: true } }) as never)
   on('prompt.autocomplete' as never, (() => ({ suggestions: [] })) as never)  // the engine's own answer: no rows
   // the engine's session id and usage, and a store that keeps what is set
   on('session.attach' as never, ((_$: unknown, e: { clientId: string }) => ({ clientId: e.clientId })) as never)
@@ -123,7 +124,10 @@ test('desktop: with no work item the pane is a start page: what to start, and th
   expect(t).toContain('Start something')
   expect(t).toContain('Open in this workspace (2)')
   const labels = (await ui.findAll({ type: 'Button' })).map((b: any) => b.props?.label ?? '')
-  expect(labels).toEqual(expect.arrayContaining(['Work an item', 'Take the next item', 'Pull the specs', 'Triage bugs', 'Help', '● 92100 Second thing · Design · waiting on you', '▸ 92012 Author tags · Design · active']))
+  expect(labels).toEqual(expect.arrayContaining(['Work an item', 'Design a feature', 'Take the next item', 'Pull the specs', 'Triage bugs', 'Help', '● 92100 Second thing · Design · waiting on you', '▸ 92012 Author tags · Design · active']))
+  await ui.press({ key: 'start-design' })                                  // the id goes after it: /sdd design 900
+  for (let i = 0; i < 100 && !f.filled.length; i++) await new Promise(r => setTimeout(r, 10))
+  expect(f.filled).toEqual(['/sdd design '])
   // a press on an open item shows it
   await ui.press({ key: 'start-open-92012' })
   for (let i = 0; i < 100 && (await texts(ui)).includes('Start something'); i++) await new Promise(r => setTimeout(r, 10))
