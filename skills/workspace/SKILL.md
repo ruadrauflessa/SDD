@@ -26,6 +26,7 @@ ADO access uses the `az` login (`az account get-access-token`), never a PAT. If 
     CLAUDE.md        generated; says "work only here" and lists the paths
     src/{Repo}/      a git worktree per repo, with a copy of that repo's CLAUDE.md
     graph/           graphify code graph of src/ (graph.json, GRAPH_REPORT.md, graph.html)
+    tmp/             the item's throwaway files; removed with the folder once the PR is merged
 
 <workspace>/{specRoot}/**/{id}-{TYPE}-{slug}/  ADO mirror, see sdd:sync (TYPE: EPIC, FEAT, US, TS, CR, PBI, BUG, ISSUE, AIR)
     requirements.md  written by the sync, never by hand
@@ -86,8 +87,8 @@ take.
 | `pr --id N --title T --description-file F` | For each repo with commits ahead and a clean tree: `git push -u origin <branch>`, opens the PR against its base, links the work items, records the PR in `workitem.json` | `--repos A` limits it, `--work-items 1,2` links more items (default `--id`), `--draft`. Refuses a description over 4,000 chars. Re-running is safe: repos with a PR are skipped, and an already-open PR is picked up |
 | `refs --id N --ref <file[:line[-end]]\|ado> ...` | The "Links" block for a question to the user: ADO item, `requirements.md`, each ref (ADO web link for code on a pushed branch), and the files to send | Errors on a ref that does not exist |
 | `can --id N --op start\|resume\|phase\|pr\|done\|abandon [--flow F --phase P] [--json]` | Is the operation allowed in the item's current state? Exit 0 yes, 3 no, with reasons and notes | Read-only. The single source of truth for state guards — `pr` and `remove` enforce it themselves |
-| `remove --id N` | **Dry run.** Lists what it would remove | |
-| `remove --id N --yes` | Removes each worktree, prunes, deletes the local branch, deletes the folder | Refuses unless `can --op done` allows it: clean, every PR merged, ADO item in `doneStates` |
+| `remove --id N` | **Dry run.** Lists what it would remove: the worktrees, the untracked files in them (throwaway: in no commit), the scratch folders (`tmp/`, `.claude/tmp/<id>/`) | |
+| `remove --id N --yes` | Removes each worktree with its untracked files, prunes, deletes the local branch, deletes the folder with its `tmp/`, and `.claude/tmp/<id>/` | Refuses unless `can --op done` allows it: no change to a tracked file, every PR merged, ADO item in `doneStates`. Refuses while a stack Gate D proved still runs from the worktrees (it asks the run script's `-Status` again) |
 | `remove --id N --abandon --yes` | Same, but without the merged-PR check | Leaves pushed remote branches and open PRs alone and says so — deleting those is the user's call |
 
 Version resolution is case-insensitive (`HealthCodeIndex_V2` uses `Team/1.1.0`). When a

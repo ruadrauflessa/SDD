@@ -187,8 +187,13 @@ now: an edit after the run voids it, a commit of the same files does not. `progr
 ## The workspace is the boundary (enforced)
 
 Everything a flow runs, builds or writes stays inside the workspace (the folder with `.claude\sdd.json`):
-the item's worktree, its folder under `.claude\worktrees\`, the spec folder, `.claude\scripts\` and
-`.claude\tmp\` for scratch files. Never copy the code to another folder, never `cd` out of the workspace,
+the item's worktree, its folder under `.claude\worktrees\`, the spec folder and `.claude\scripts\`.
+
+**Throwaway files** (notes, captured output, a one-off script, a test payload) go in the item's own
+`tmp\` folder: `.claude\worktrees\<id>-<slug>\tmp\`. Never in a worktree (an untracked file there is in
+no commit) and never in a repo's main checkout. `env.py remove`, run once the PR is merged, deletes the
+item folder with its `tmp\`, `.claude\tmp\<id>\`, and any untracked file left in its worktrees; its
+dry run lists them first. Work with no item uses `.claude\tmp\`. Never copy the code to another folder, never `cd` out of the workspace,
 never run a build or a service from a path outside it, never map a drive (`subst`) or a link onto it.
 
 `hooks/bounds_guard.py` refuses an edit outside, and a command that writes, copies, runs or moves the shell

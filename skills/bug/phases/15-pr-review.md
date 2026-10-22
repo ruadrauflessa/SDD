@@ -18,7 +18,9 @@ clickable ADO link, then ask with `AskUserQuestion`: "Not yet approved" / "Appro
 2. **"Approved"** — `env.py progress --id <id> --flow bug --phase "Phase 15" --status done --passed
    "PR approved"`. Phase 13 already handed it to QA; nothing more in ADO.
 3. **"Merged"** — the same `--passed "PR approved"`, then `env.py remove --id <id>` (dry run), show
-   the user what it lists, and run it with `--yes` only after they agree. It refuses while any PR is
+   the user what it lists (the worktrees, the throwaway files it deletes with them, the scratch folders),
+   and run it with `--yes` only after they agree. It refuses while the stack still runs from the
+   worktrees (pre-pr-verify): stop it as its "Teardown" says, then run it again. It refuses while any PR is
    not `completed` — see `references/branch-and-pr.md`.
 4. **"Rejected"** — the reason is the feedback. `env.py reopen --id <id> --phase "Phase 8" --note
    "PR rejected: <why>"` (Red test stays; Verified, Manual verification and PR approved fall). Read

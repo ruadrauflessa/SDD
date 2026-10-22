@@ -334,7 +334,8 @@ def bounds_for(root, cwd, home=None):
 
 def hint(root, what):
     temp = norm(tempfile.gettempdir())
-    tmp_note = (f" For scratch files use {Path(root) / '.claude' / 'tmp'} (or the work item's folder under .claude/worktrees)."
+    tmp_note = (f" Scratch files for a work item go in its folder's tmp/ ({Path(root) / '.claude' / 'worktrees' / '<id>-<slug>' / 'tmp'}),"
+                f" or {Path(root) / '.claude' / 'tmp' / '<id>'}: both are removed once its PR is merged."
                 if temp in norm(what) or "/tmp" in norm(what) else "")
     return (f"sdd: this {what}, outside the trusted workspace {root}. In an sdd workspace nothing runs from, is written to "
             f"or moves into a folder outside it.{tmp_note} Work in the item's worktree. If a path is too long for a tool, "

@@ -83,6 +83,9 @@ build by hand and it passed; a work item is `ADO 80459`, never `#80459`); a prob
 or 8, then Phase 9, then this gate again. **Can't reach the screen** is usually a missing dependency or
 the wrong database: your problem, not the fix's. Fix the environment and brief again.
 
+`env.py remove` (after the merge) refuses while a service still runs from this item's worktrees: Gate D
+recorded the stack, and remove asks `-Status` again. So the merge is when the user is finished at the latest.
+
 Teardown only when the user says they are finished: `<run-script> -Stop`, then `<run-script> -Only
 <keys>`, and `-Status` shows no worktree tag. Leave the worktree on disk.
 

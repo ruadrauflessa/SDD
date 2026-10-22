@@ -341,7 +341,24 @@ Everything for this work item happens in this folder. Do not edit the main check
 - `workitem.json` — which repo is on which base branch, its dev branch and its PR.
 - Spec for this item: `{spec_root}/**/{info['id']}-*/` at the workspace root (read-only mirror of ADO).
 - Each worktree has a copy of its repo's `CLAUDE.md` when the repo has one.
+- `tmp/` — scratch files for this item (notes, captured output, a throwaway script). Never put them in a
+  worktree or outside the workspace. The whole folder, `tmp/` with it, is removed once the PR is merged.
 """, encoding="utf-8")
+
+
+SCRATCH = "tmp"   # in the work item folder: the item's throwaway files, removed with the folder after the merge
+WS_SCRATCH = ".claude/tmp"  # the workspace's: an item's own under <id>/, which its remove clears too
+
+
+def stray_files(path):
+    """Untracked files in a worktree (not ignored): throwaway, since they are in no commit. [] when none."""
+    out = git(["ls-files", "--others", "--exclude-standard"], path, check=False) or ""
+    return [ln for ln in out.splitlines() if ln.strip()]
+
+
+def tracked_changes(path):
+    """Changes to tracked files in a worktree: real uncommitted work, never thrown away silently."""
+    return bool(git(["status", "--porcelain", "--untracked-files=no"], path, check=False))
 
 
 FOLDER_SLUG = 24  # the title's share of a work item folder's name: Windows tools still trip on paths over 260 characters
@@ -355,6 +372,7 @@ def ensure_env(root, cfg, wid, info=None):
     info = info or item_info(cfg, wid)
     env_dir = wt_root(root, cfg) / f"{wid}-{slug(info['title'], FOLDER_SLUG)}"
     (env_dir / "src").mkdir(parents=True, exist_ok=True)
+    (env_dir / SCRATCH).mkdir(exist_ok=True)
     data = {**info, "slug": env_dir.name.split("-", 1)[1], "created": now(), "repos": {}}
     if (root / ".git").exists():
         ensure_ignored(root, cfg["worktreeRoot"].replace("\\", "/"))
@@ -1787,8 +1805,9 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
         # a folder with no .git is what a half-failed remove leaves; git run there would read the
         # workspace root repo instead, so treat it as already removed
         exists = (pth / ".git").exists()
+        # done and abandon throw untracked files away with the worktree (remove lists them first); a PR must not miss one
         repos.append((n, r, pth, exists,
-                      exists and bool(git(["status", "--porcelain"], pth, check=False)),
+                      exists and (tracked_changes(pth) if op in ("done", "abandon") else bool(git(["status", "--porcelain"], pth, check=False))),
                       git(["rev-list", "--count", f"origin/{r['base']}..HEAD"], pth, check=False) if exists else "0"))
 
     if op == "abandon":
@@ -2217,6 +2236,30 @@ def cmd_stack(a):
     print(facts_section(root) or "No workspace facts in CLAUDE.md yet.")
 
 
+def stack_status(root, script):
+    """The run script's -Status lines, or None when it cannot be asked (no script, no PowerShell)."""
+    ps = shutil.which("pwsh") or shutil.which("powershell")
+    if not ps or not Path(script).is_file():
+        return None
+    r = subprocess.run([ps, "-NoProfile", "-NonInteractive", "-File", str(script), "-Status"], cwd=str(root),
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", env={**os.environ, "NO_COLOR": "1"})
+    return [ln.rstrip() for ln in (r.stdout or "").splitlines() if ln.strip()]
+
+
+def stack_mine(lines, names):
+    """The services up and tagged with one of this item's worktrees."""
+    return [ln for ln in lines if re.search(r"\bUP\b", ln) and "worktree:" in ln.lower() and any(n in ln.lower() for n in names)]
+
+
+def stack_running(root, wid, data):
+    """The services still running from this item's worktrees, when Gate D once proved they did; [] otherwise."""
+    st = data.get("stack") or {}
+    if not st.get("script"):
+        return []
+    lines = stack_status(root, st["script"])
+    return stack_mine(lines, set(st.get("names") or [str(wid)])) if lines else []
+
+
 def cmd_stack_gate(a):
     """Gate D: the run script's -Status shows a running service tagged with this work item's worktree."""
     root = require_root()
@@ -2225,15 +2268,12 @@ def cmd_stack_gate(a):
     script = Path(a.script) if a.script else run_script(root)
     if not script or not script.is_file():
         die("no run script found: pass --script")
-    ps = shutil.which("pwsh") or shutil.which("powershell")
-    if not ps:
+    if not (shutil.which("pwsh") or shutil.which("powershell")):
         die("PowerShell not found: the run script needs it")
-    r = subprocess.run([ps, "-NoProfile", "-NonInteractive", "-File", str(script), "-Status"], cwd=str(root),
-                       capture_output=True, text=True, encoding="utf-8", errors="replace", env={**os.environ, "NO_COLOR": "1"})
-    lines = [ln.rstrip() for ln in (r.stdout or "").splitlines() if ln.strip()]
+    lines = stack_status(root, script) or []
     up = [ln for ln in lines if re.search(r"\bUP\b", ln)]
     names = {folder.lower() for _, _, folder, _ in wts} | {str(a.id)}
-    mine = [ln for ln in up if "worktree:" in ln.lower() and any(n in ln.lower() for n in names)]
+    mine = stack_mine(lines, names)
     for ln in mine:
         print(f"  from the worktree: {ln.strip()}")
     for ln in up:
@@ -2242,6 +2282,11 @@ def cmd_stack_gate(a):
     if not wts:
         print("No .NET worktree to prove (a UI only): confirm from the start-up header that it started from the worktree path.")
         return
+    if mine:
+        rec = read_env(find_env(root, cfg, a.id)) if find_env(root, cfg, a.id) else None
+        if rec is not None:  # remove checks this stack is down before it deletes the worktrees
+            rec["stack"] = {"at": now(), "script": str(script.resolve()), "names": sorted(names)}
+            write_env(find_env(root, cfg, a.id), rec)
     if not mine:
         print("Gate D: FAIL. No running service carries this item's worktree tag: the main checkout is answering. "
               "Check -Stop freed the port, read the service's error log for a bind failure, check the -Only keys cover "
@@ -2258,9 +2303,21 @@ def cmd_remove(a):
     ok, blockers, notes = check_op(root, cfg, a.id, "abandon" if a.abandon else "done")
     if not ok:
         die("not removing:\n  " + "\n  ".join(blockers))
+    running = stack_running(root, a.id, data)
+    if running:
+        die("not removing: the stack still runs from this item's worktrees (its files are locked, and the services would "
+            "lose their code):\n  " + "\n  ".join(running) + f"\n  Stop it first: & '{data['stack']['script']}' -Stop "
+            "(then start the services the user wants again from the main checkout, -Only <keys>).")
     print(f"will remove {env_dir}")
     for n, r in data["repos"].items():
         print(f"  {n}: worktree {r['path']}, local branch {r['branch']}")
+        p = env_dir / r["path"]
+        stray = stray_files(p) if (p / ".git").exists() else []
+        if stray:
+            print(f"    throwaway, in no commit, deleted with it: {', '.join(stray[:12])}" + (f" and {len(stray) - 12} more" if len(stray) > 12 else ""))
+    scratch = [q for q in (env_dir / SCRATCH, *sorted((root / WS_SCRATCH).glob(f"{a.id}"))) if q.exists() and any(q.iterdir())]
+    for q in scratch:
+        print(f"  scratch files: {q} ({sum(1 for f in q.rglob('*') if f.is_file())} files), deleted")
     for x in notes:
         print(f"  note: {x}")
     if not a.yes:
@@ -2275,7 +2332,7 @@ def cmd_remove(a):
                   for line in git(["worktree", "list", "--porcelain"], src).splitlines()
                   if line.startswith("worktree ")}
         if p.exists() and p.resolve() in listed:
-            git(["worktree", "remove", str(p)], src)
+            git(["worktree", "remove", "--force", str(p)], src)  # check_op refused tracked changes; untracked files are throwaway
         git(["worktree", "prune"], src)
         if git(["branch", "--list", r["branch"]], src):
             git(["branch", "-D", r["branch"]], src)
@@ -2295,6 +2352,10 @@ def cmd_remove(a):
     done_dir(root, cfg).mkdir(parents=True, exist_ok=True)
     (done_dir(root, cfg) / f"{data['id']}.json").write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     shutil.rmtree(env_dir, onerror=_force)
+    ws_scratch = root / WS_SCRATCH / str(a.id)
+    if ws_scratch.exists():
+        shutil.rmtree(ws_scratch, onerror=_force)
+        print(f"removed {ws_scratch}")
     print(f"removed {env_dir} (record kept in {done_dir(root, cfg) / (str(data['id']) + '.json')})")
 
 
