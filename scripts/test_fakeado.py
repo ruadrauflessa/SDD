@@ -138,7 +138,7 @@ def main():
 
         (root / "c.html").write_text("<div>PR is up. Check the export shows 12.40.</div>")
         run(root, "spec.py", "comment", "--id", "501", "--file", "c.html")
-        kinds = [x["method"] for x in json.loads(world.read_text())["writes"]]
+        kinds = [x["method"] for x in json.loads(world.read_text()).get("writes", [])]
         assert kinds == ["PATCH", "PATCH", "PATCH", "COMMENT"], kinds
 
         # the spec flow's path: asked at the start; no stage after Specify runs until it is chosen
@@ -318,7 +318,7 @@ def main():
         assert f["System.AreaPath"] == "Proj\\Export" and f["System.IterationPath"] == "Proj\\2026\\Sprint 20"
         rels = {(x["rel"].split(".")[-1], x["url"].split("/")[-1]) for x in w["items"][str(new)]["relations"]}
         assert rels == {("Related", "700"), ("Hierarchy-Reverse", "600"), ("Related", "601")}, rels
-        assert w["writes"][-1] == {"method": "COMMENT", "id": 700, "text": w["writes"][-1]["text"]}
+        assert {k: v for k, v in w["writes"][-1].items() if k != "commentId"} == {"method": "COMMENT", "id": 700, "text": w["writes"][-1]["text"]}
         assert f"ADO {new} (Bug" in w["writes"][-1]["text"]
         r = run(root, "spec.py", "route", "--id", "700", "--flow", "bug", "--to", "601", check=False)
         assert r.returncode == 3 and f"ADO {new}" in r.stdout, r.stdout                # once only
@@ -424,9 +424,64 @@ def feature_flow():
         assert (up["id"], up["type"]) == (890, "Epic") and up["design"].endswith("design.md"), up
         assert up["answered"] == ["Q1: Which currency? (context: all exports) Answer: ZAR", "Q2 (ADO 901): CSV delimiter? Answer: semicolon"], up
         out = run(root, "env.py", "upstream", "--id", "901").stdout
-        assert "Epic ADO 890 Billing: design agreed 2026-10-22" in out and "answered: Q2 (ADO 901)" in out, out
+        assert "Epic ADO 890 Billing: design agreed 2026-10-22" in out and "settled: Q2 (ADO 901)" in out, out
+        assert "open: Q4: Open still" in out, out
         r = can("phase", "--flow", "spec", "--phase", "Requirements", check=False)
-        assert "Epic ADO 890's design is agreed: start from" in r.stdout and "(1 of its answered questions hold" in r.stdout, r.stdout
+        assert "Epic ADO 890's design is agreed: start from" in r.stdout and "(1 settled question(s) hold for this item" in r.stdout, r.stdout
+
+        # the feature's agreed design goes up to the board, and a story's flow (anyone's) reads it back from there
+        wi = next((root / ".claude" / "worktrees").glob("900-*/workitem.json"))
+        rec = json.loads(wi.read_text())
+        agreed = (datetime.now(timezone.utc) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        rec["gates"]["Design agreed"] = agreed       # agreed in this workspace, with no design-agreed.json: as if elsewhere
+        wi.write_text(json.dumps(rec))
+        (feat / "design.md").write_text("# Export design (Epic ADO 890)\n\n## Approach\nOne exporter for all formats.\n\n"
+                                        "- ADO 901 writes CSV with a semicolon.\n- ADO 902 renders PDF on the server.\n\n"
+                                        "## PDF layout (ADO 902)\nA4, one invoice a page.\n")
+        (feat / "questions.md").write_text("- [x] Q1: Rounding? Answer: half up\n- [x] Q2: Header row? (ADO 901) Answer: yes\n"
+                                           "- [x] Q3: Fonts? (ADO 902) Answer: Arial\n- [ ] Q4: Quote text cells? (ADO 901)\n")
+        r = can("phase", "--flow", "spec", "--phase", "Implement", check=False)
+        assert "is not on the board yet" in r.stdout and "env.py brief --id 900" in r.stdout, r.stdout
+        out = run(root, "env.py", "brief", "--id", "900").stdout
+        assert "goes to 3 item(s)" in out and "ADO 903" not in out, out          # itself, 901 and 902; 903 is closed
+        b901 = (feat / "briefs" / "901.md").read_text()
+        assert "sdd design brief**: Feature ADO 900 for ADO 901" in b901 and "semicolon" in b901 and "One exporter" in b901, b901
+        assert "server" not in b901 and "A4" not in b901 and "Arial" not in b901, b901       # 902's part stays on 902
+        assert "Q2: Header row?" in b901 and "Q1: Rounding?" in b901 and "Q4: Quote text cells?" in b901, b901
+        assert "A4" in (feat / "briefs" / "900.md").read_text()                              # the feature: all of it
+        assert not [x for x in json.loads(world.read_text()).get("writes", []) if x["method"] == "COMMENT" and x["id"] == 901]
+        r = run(root, "env.py", "brief", "--id", "900", "--post", check=False)
+        assert r.returncode != 0 and "--confirmed" in r.stderr, r.stderr
+        out = run(root, "env.py", "brief", "--id", "900", "--post", "--confirmed", "yes, post it").stdout
+        assert out.count("brief posted") == 3, out
+        posted = {x["id"]: x for x in json.loads(world.read_text()).get("writes", []) if x["method"] == "COMMENT"}
+        assert set(posted) >= {900, 901, 902} and "<h3>Settled: do not ask again</h3>" in posted[901]["text"], posted
+        r = can("phase", "--flow", "spec", "--phase", "Implement", check=False)
+        assert "not on the board" not in r.stdout, r.stdout
+        out = run(root, "env.py", "brief", "--id", "900", "--post", "--confirmed", "again").stdout
+        assert out.count("brief unchanged") == 3, out                                       # the same text: no new comment
+        (feat / "design.md").write_text((feat / "design.md").read_text() + "\n## Errors\nA failed export is retried once.\n")
+        out = run(root, "env.py", "brief", "--id", "900", "--post", "--confirmed", "post the change").stdout
+        assert out.count("brief updated") == 3, out
+        w = json.loads(world.read_text()).get("writes", [])
+        assert len([x for x in w if x["method"] == "COMMENT"]) == len(posted) and [x for x in w if x["method"] == "COMMENT_EDIT"]
+        # story 901, in any workspace: its flow reads the board before Requirements, then starts from the brief
+        sprog = lambda *a, **kw: run(root, "env.py", "progress", "--id", "901", "--flow", "spec", *a, **kw)
+        sprog("--phase", "Specify", "--status", "done")
+        story = next((root / "docs" / "spec").glob("890-*/900-*/901-*"))
+        (story / "upstream.json").write_text(json.dumps({"fetched": "2026-01-02T00:00:00Z", "briefs": []}))  # read long ago
+        r = run(root, "env.py", "can", "--id", "901", "--op", "phase", "--flow", "spec", "--phase", "Requirements", check=False)
+        assert "read the board for a design agreed above 901 first (last read 2026-01-02" in r.stdout, r.stdout
+        ups = json.loads(run(root, "env.py", "upstream", "--id", "901", "--json").stdout)
+        assert [(u["id"], u["source"]) for u in ups] == [(900, "ado"), (890, "local")], ups
+        assert ups[0]["answered"] == ["Q1: Rounding? Answer: half up", "Q2: Header row? (ADO 901) Answer: yes"], ups[0]
+        assert ups[0]["open"] == ["Q4: Quote text cells? (ADO 901)"] and "retried once" in (story / "upstream-900.md").read_text()
+        r = run(root, "env.py", "can", "--id", "901", "--op", "phase", "--flow", "spec", "--phase", "Requirements", check=False)
+        assert "read the board" not in r.stdout and "Feature ADO 900's design is agreed: start from" in r.stdout, r.stdout
+        assert "2 settled question(s) hold for this item: do not ask them again; 1 left open for it" in r.stdout, r.stdout
+        # bug 904 under 901 has no brief of its own: the one for its parent holds
+        (b,) = [u for u in json.loads(run(root, "env.py", "upstream", "--id", "904", "--json").stdout) if u["id"] == 900]
+        assert b["for"] == 901 and b["source"] == "ado", b
 
 
 def progress_flow():

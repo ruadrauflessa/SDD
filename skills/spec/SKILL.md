@@ -66,6 +66,12 @@ to this one.
   settled, and `env.py` refuses the item's own "Design agreed" until `design.md` names the design
   above (`ADO <id>`). The design path exists for this: design and question a feature once, and every
   story under it starts with its questions answered.
+- **On the board, for everyone.** Another developer's workspace has none of these files. So a
+  Feature's or Epic's agreed design goes to ADO (Design step 9): `env.py brief` posts a comment on
+  it and on each open item under it, with what the design decides for that item and which
+  questions are settled or still open. `env.py upstream` reads them back on the other side; `env.py
+  can` refuses Open Questions, Requirements and Design until the board was read that day, and
+  refuses the feature's own flow past Design until its agreed design is posted.
 - **A feature or epic built whole** (full or short path). The user picks which items under it the
   build covers (`env.py members`, Specify step 2); no stage after Specify starts without that.
   They are claimed with it, each has a task that names it (`env.py` refuses "Tasks written"

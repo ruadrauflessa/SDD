@@ -15,7 +15,7 @@ so a new call cannot slip through unnoticed.
     }
 
 An item may hold "comments": [{"text": "<div>…</div>", "createdBy": {"displayName": "…"}}], read back
-with the ones the flow posts, and "reject": {"<field>": "<value>"}: a patch setting that field to that
+with the ones the flow posts (and edits: PATCH .../comments/<id>), and "reject": {"<field>": "<value>"}: a patch setting that field to that
 value fails with HTTP 400, as an ADO rule does; "ignore": ["<field>"] accepts a patch but does not apply that field (the reply shows it); "race": true makes the next patch find a newer revision
 (someone else wrote between the read and the write), once. "repositories": {"<repo id>": {"name": …, "webUrl": …}}
 answers the bug manager's repository reads.
@@ -168,14 +168,26 @@ def request(method, url, body=None):
 
     m = re.search(r"/_apis/wit/workItems/(\d+)/comments$", path, re.I)
     if method == "POST" and m:
-        writes.append({"method": "COMMENT", "id": int(m.group(1)), "text": body["text"]})
+        cid = 5000 + sum(1 for x in writes if x.get("method") == "COMMENT") + 1
+        writes.append({"method": "COMMENT", "id": int(m.group(1)), "commentId": cid, "text": body["text"]})
         _save(p, world)
-        return {"id": len(writes)}
+        return {"id": cid}
     if method == "GET" and m:
         wid = int(m.group(1))
-        posted = [{"text": x["text"], "createdBy": {"displayName": "sdd"}} for x in writes
+        seeded = [dict(c, id=c.get("id", 1000 + n)) for n, c in enumerate((items.get(str(wid)) or {}).get("comments") or [])]
+        posted = [{"id": x.get("commentId"), "text": x["text"], "createdBy": {"displayName": "sdd"}} for x in writes
                   if x.get("method") == "COMMENT" and x.get("id") == wid]
-        return {"comments": list((items.get(str(wid)) or {}).get("comments") or []) + posted}
+        return {"comments": seeded + posted}
+    m = re.search(r"/_apis/wit/workItems/(\d+)/comments/(\d+)$", path, re.I)
+    if method == "PATCH" and m:
+        hit = [x for x in writes if x.get("method") == "COMMENT" and x.get("id") == int(m.group(1))
+               and x.get("commentId") == int(m.group(2))]
+        if not hit:
+            raise RuntimeError(f"ADO PATCH {url} -> HTTP 404: comment {m.group(2)} not found on {m.group(1)}")
+        hit[0]["text"] = body["text"]
+        writes.append({"method": "COMMENT_EDIT", "id": int(m.group(1)), "commentId": int(m.group(2)), "text": body["text"]})
+        _save(p, world)
+        return {"id": int(m.group(2))}
 
     m = re.search(r"/_apis/git/repositories/([^/]+)$", path, re.I)
     if method == "GET" and m and m.group(1) in (world.get("repositories") or {}):

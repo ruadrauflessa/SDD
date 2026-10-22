@@ -27,8 +27,9 @@ usually lives on a **User Story** (`Microsoft.VSTS.Common.AcceptanceCriteria`, G
 **Change Request** (`System.Description`, numbered Functional Requirements). Features in this project
 are typically title-only — don't expect a spec there.
 
-A design agreed on the feature or epic above the bug governs too: `env.py upstream --id <id>` names
-it, with the questions it already answered for this item. Read it before you classify, and treat
+A design agreed on the feature or epic above the bug governs too: `env.py upstream --id <id>` reads
+it off the board (the brief `env.py brief` posted, whoever designed it) and names it, with the
+questions it already settled for this item. Read it before you classify, and treat
 what it settled as the spec.
 
 Read the governing requirement, then classify the ticket against it:

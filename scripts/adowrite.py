@@ -323,5 +323,13 @@ def comments(cfg, project, wid):
     q = urllib.parse.quote
     r = ado("GET", f"{org_url(cfg)}/{q(project)}/_apis/wit/workItems/{wid}/comments?order=asc"
                    f"&api-version=7.1-preview.4")
-    return [{"by": ((c.get("createdBy") or {}).get("displayName") or ""), "at": c.get("createdDate") or "",
-             "text": c.get("text") or ""} for c in (r or {}).get("comments") or []]
+    return [{"id": c.get("id"), "by": ((c.get("createdBy") or {}).get("displayName") or ""),
+             "at": c.get("createdDate") or "", "text": c.get("text") or ""} for c in (r or {}).get("comments") or []]
+
+
+def edit_comment(cfg, project, wid, comment_id, html_text):
+    """Replace the text of a comment this flow posted (a design brief, posted again after the design changed)."""
+    refuse_mentions(html_text, "the comment")
+    q = urllib.parse.quote
+    return ado("PATCH", f"{org_url(cfg)}/{q(project)}/_apis/wit/workItems/{wid}/comments/{int(comment_id)}"
+                        f"?format=html&api-version=7.1-preview.4", {"text": html_text})

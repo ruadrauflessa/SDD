@@ -534,6 +534,31 @@ def feature_scope():
     assert scope.candidates(items, 890, ["User Story"])[0]["id"] == 901                     # a container never counts
     assert scope.mentions("covers ADO 901 and AB#902", 902) and not scope.mentions("ADO 9010", 901)
     assert scope.uncovered("1. CSV (ADO 901)\n2. PDF", [901, 902]) == [902]
+    # the design brief: what goes to each item on the board, and what comes back off it
+    assert scope.brief_targets(items, 900, "", ["Closed"]) == [901, 902]
+    assert scope.brief_targets(items, 890, "see ADO 901", ["Closed"]) == [900, 901]       # a child, and one it names
+    design = ("# Export\n\n## Approach\nOne exporter.\n\n- ADO 901: CSV.\n- ADO 902: PDF.\n\n"
+              "## PDF (ADO 902)\nA4.\n\n```\nPOST /x <a>\n```\n")
+    qs = "- [x] Q1: Rounding? Answer: up\n- [x] Q2 (ADO 902): Font? Answer: Arial\n- [ ] Q3 (ADO 901): Quotes?\n"
+    src = {"id": 900, "type": "Feature", "title": "Export"}
+    md = scope.brief_md(src, 901, design, qs, "2026-10-22T08:00:00Z", [901, 902])
+    assert md.startswith("**sdd design brief**: Feature ADO 900 for ADO 901 · agreed 2026-10-22"), md
+    assert "ADO 901: CSV" in md and "One exporter" in md and "A4" not in md and "Arial" not in md and "PDF." not in md, md
+    whole = scope.brief_md(src, 900, design, qs, "2026-10-22", [901, 902])
+    assert "A4" in whole and "Arial" in whole and "Quotes?" in whole, whole
+    html_text = scope.md_to_html(whole)
+    assert "<pre>POST /x &lt;a&gt;</pre>" in html_text and "<h4>PDF (ADO 902)</h4>" in html_text, html_text
+    assert scope.brief_head(html_text) == ("Feature", 900, 900, "2026-10-22")
+    assert scope.brief_head("<div>a comment about ADO 900</div>") is None
+    ado_html = html_text.replace("<div>", '<div style="x">').replace("·", "&middot;")      # ADO's own rewrite of it
+    assert scope.brief_head(ado_html) == ("Feature", 900, 900, "2026-10-22")
+    settled, still = scope.brief_parts(scope.html_to_md(ado_html))
+    assert settled == ["Q1: Rounding? Answer: up", "Q2 (ADO 902): Font? Answer: Arial"] and still == ["Q3 (ADO 901): Quotes?"]
+    flat = html_text.replace("<h3>", "<div><b>").replace("</h3>", "</b></div>")             # headings dropped to bold
+    assert scope.brief_parts(scope.html_to_md(flat)) == (settled, still)
+    b = lambda src_id, for_id: {"head": ("Feature", src_id, for_id, ""), "id": (src_id, for_id)}
+    got = scope.pick_briefs([904, 901, 900, 890], [b(900, 900), b(900, 901), b(890, 900), b(901, 904), b(904, 904), b(777, 904)])
+    assert [(k, v["id"]) for k, v in got.items()] == [(901, (901, 904)), (900, (900, 901)), (890, (890, 900))], got
     q = "- [x] Q1: general\n- [X] Q2 (ADO 901): mine\n* [x] Q3 (ADO 902): theirs\n- [ ] Q4: open"
     assert scope.answered_for(q, 901) == ["Q1: general", "Q2 (ADO 901): mine"]
     with scratch() as tmp:

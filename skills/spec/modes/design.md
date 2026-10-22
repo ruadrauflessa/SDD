@@ -62,8 +62,19 @@
    Record Design `done` with `--passed "Design agreed"`; `env.py` records the later stages skipped.
    Tell the user the design is ready for the stories under it, each through the flow on its own
    with `/sdd next <id>`, and that `/sdd done <id>` cleans up the folder when they want.
+   **A Feature or Epic** (any path): once "Design agreed" passes, carry the design to the board
+   (step 9) before anything else.
 8. **"Needs changes"?** Revise `design.md` to address what was asked for, run `env.py anchors`
    again (step 4), then re-run step 7 —
    present what changed and run the same gate again. Never guess at the fix and move on to
    Decompose without a fresh approval; a design that changed since it was last agreed to hasn't
    actually been agreed to.
+9. **Carry the design to the board** (a Feature or Epic). The other developers' flows read ADO, not
+   this workspace. `env.py brief --id <id>` writes one brief per item to `briefs/` in the spec
+   folder: the whole design for this item, and for each open item under it what the design decides
+   for that item, what holds for all of them, the questions settled (not to be asked again) and the
+   ones still open for it. Send the briefs, then ask with `AskUserQuestion`: "Post the design to
+   these <N> items as an ADO comment each?" Post on Yes: `env.py brief --id <id> --post --confirmed
+   "<their words>"`. A brief already there is updated, not posted twice. `env.py can` refuses every
+   stage after Design, and `/sdd done`, until the agreed design is on the board; a design agreed
+   again after a change needs posting again.
