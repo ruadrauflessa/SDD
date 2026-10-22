@@ -23,6 +23,10 @@ It is the answer to the bug flow's Phase 11 gate ("start the environment"), and 
 6. Say what you could not set up: a service left out, a database gap, a dependency down.
 7. Anything you generate goes in `.claude/scripts/`, never `scripts/` (the guard refuses).
 8. The brief is plain English: one idea per sentence; paths, ports and commands exact.
+9. Everything runs from the workspace: the worktree, never a copy of it elsewhere (the guard refuses
+   a copy, a run or a `cd` outside). A path too long for a tool (SQL, MSBuild): say which tool failed
+   on which path, and stop. Do not move the code to a shorter folder. See "The workspace is the
+   boundary" in `${CLAUDE_PLUGIN_ROOT}/skills/sdd/references/flow-rules.md`.
 
 ## Steps
 
@@ -63,11 +67,13 @@ It is the answer to the bug flow's Phase 11 gate ("start the environment"), and 
    - {a service that is off, a shared live database, anything this stack cannot show}
    - Logs: {log path}
 
-   **When you are done, tell me:** **verified** (I raise the PR) or **what went wrong** (I go back to the cause).
+   **When you are done:** pick **Verified — raise the PR**, or **Found a problem** and say what went wrong.
    ```
 
    For a UI fix add: open the browser console too (a dev server does not typecheck, so a missing import
-   shows only there). Then wait.
+   shows only there). Then, in the bug flow, ask the Phase 11 question again with `AskUserQuestion`
+   ("Verified — raise the PR" / "Start the environment" / "Found a problem"), after a `--status waiting`
+   checkpoint, and wait. Never wait on a reply typed in prose.
 
 ## On the verdict
 
@@ -76,6 +82,9 @@ Back to the bug flow's Phase 11 table (`${CLAUDE_PLUGIN_ROOT}/skills/bug/phases/
 build by hand and it passed; a work item is `ADO 80459`, never `#80459`); a problem goes back to Phase 5
 or 8, then Phase 9, then this gate again. **Can't reach the screen** is usually a missing dependency or
 the wrong database: your problem, not the fix's. Fix the environment and brief again.
+
+`env.py remove` (after the merge) refuses while a service still runs from this item's worktrees: Gate D
+recorded the stack, and remove asks `-Status` again. So the merge is when the user is finished at the latest.
 
 Teardown only when the user says they are finished: `<run-script> -Stop`, then `<run-script> -Only
 <keys>`, and `-Status` shows no worktree tag. Leave the worktree on disk.

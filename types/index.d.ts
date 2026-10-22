@@ -359,6 +359,9 @@ export type ProgressData = {
     fields: Array<{ field: string; values: Array<{ value: string; count: number }> }> }>
   tops: ProgressNode[]
   orphans: { defects: number }
+  /** The area paths counted (sdd.json "bugs.query.areaPaths"; none: every area), and how many synced items sit outside them. */
+  areas?: string[]
+  outsideAreas?: number
   /** The change of each top since about a week ago, per measure. */
   trend: Record<string, Partial<Record<ProgressMeasureKey, { delta: number; since: string }>>>
 }

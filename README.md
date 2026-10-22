@@ -107,7 +107,9 @@ no ADO, no tokens). Sync an epic first with `/sdd sync <epic id>`.
   "31 of 50 items done · 4 in progress" and the change since about a week ago (▲ 4% since 2026-10-14).
   A feature with no epic above it gets one too.
 - **What counts:** features and stories. A feature with stories counts through its stories; one with none
-  counts as itself. Bugs and issues are their own line under each bar (open, high, in progress, closed),
+  counts as itself. With area paths in `.claude/sdd.json` (`"bugs.query.areaPaths"`, the bug manager's ⚙ Config),
+  only items under them count; an epic in a higher area stays as the frame of its features there. The sync keeps
+  to the same area paths. Bugs and issues are their own line under each bar (open, high, in progress, closed),
   never part of the completion.
 - **Three measures**, switched at the top:
   - **Work items:** each story is 1.
@@ -243,7 +245,7 @@ values already set are kept. `skills/workspace/SKILL.md` lists every key.
 | `skills/` | `sdd` (entry; `references/flow-rules.md` holds the rules both flows share), `spec` (outline + `modes/`), `bug` (outline + `phases/`), `next` (what to take next), `request` (Ai Agent Request triage), `pre-pr-verify` (the stack from a bug's worktrees for your manual test), `sync`, `impact`, `harness`, `visual`, `workspace` |
 | `agents/` | `investigator` (read-only code search) and `skeptic` (independent review of a root cause, a test or a design), used by the bug and spec flows; models from `agents.models` |
 | `scripts/` | `env.py` (work item folders, state guards, progress, config upgrades), `spec.py` (ADO mirror, impact, rev-tested writes: claim, handover, sprint, comment, route; an Ai Agent Request's report), `adowrite.py` (those writes), `proof.py` (recorded test runs that gates need), `nextpick.py` (the next-item rules), `metrics.py` (`.index/metrics.json`: every item's decision facts and what the last sync changed), `scope.py` (the feature or epic around an item: the designs agreed above it, the items a whole build covers), `flows.json` (the stages of each flow) |
-| `hooks/` | `hooks.json`, `question_guard.py` (links before every question), `agent_guard.py` (keeps the sdd agents read-only: no git writes, no `env.py` / `spec.py` runs), `edit_guard.py` (no edits in the main checkout during a flow), `graph_use.py` (code is explored from its graph first), `spec_use.py` (specs are searched by meaning first while Ollama is on), `register.tsx` + `view/` (the sdd view) |
+| `hooks/` | `hooks.json`, `question_guard.py` (links before every question), `agent_guard.py` (keeps the sdd agents read-only: no git writes, no `env.py` / `spec.py` runs), `edit_guard.py` (no edits in the main checkout during a flow), `bounds_guard.py` (nothing runs from, is written to or moves into a folder outside the workspace; `bounds.allow` in `sdd.json` lists folders the user trusts too), `graph_use.py` (code is explored from its graph first), `spec_use.py` (specs are searched by meaning first while Ollama is on), `register.tsx` + `view/` (the sdd view) |
 | `assets/output-styles/` | `ELI5.md`, the output style the plugin installs globally |
 | `types/` | The view's state contract |
 
@@ -254,6 +256,7 @@ python scripts/test_sdd.py
 python hooks/test_question_guard.py
 python hooks/test_agent_guard.py
 python hooks/test_edit_guard.py
+python hooks/test_bounds_guard.py
 python hooks/test_graph_use.py
 python hooks/test_spec_use.py
 python scripts/test_proof.py

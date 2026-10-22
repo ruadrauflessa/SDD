@@ -9,8 +9,8 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { ProgressCriteria, ProgressData, ProgressMeasureKey, ProgressNode, ProgressRulesDraft } from '../types'
 import type { BugAnalysis, BugCategory, BugChange, BugCondition, BugSettings, BugSettingsDraft, BugDetail, BugEvidence, BugFilter, BugIndex, BugRecord, BugsConfig, SddAsk, SddColors, SddLiveState, SddDoc, SddItem, SddQuestion, SddSnapshot, SddStage } from '../types'
-import { GLYPH, agentRows, contextTone, moneyText, spendHead, SPEND_ICON, spendTokens, spendTotal, tokensLine, answerMessage, answersFor, approveAnswers, approveFor, approveMessage,decidedGates, fileLinks, defaultStage, flowFinished, railSlice, railBarColor, clipboardArgv, NO_PYTHON, isPythonStub, pythonCandidates, stageWord, shortStamp, flowTag, MARK_WORD, idFromArgs, idFromScript, itemOptions, itemSuggestions, startPage, pendingGate, reviewLinks, stamp, fileTarget, gateStory, phaseKey, phaseLabel, refLink, stageDocs, stageHistory, stageRows, stageSummary, spinnerNote, statusWord, when, yourTurn } from './view/model'
-import type { AgentInfoLike, AgentTone, Mark, StageRow } from './view/model'
+import { GLYPH, agentRows, contextTone, moneyText, spendHead, SPEND_ICON, spendTokens, spendTotal, tokensLine, answerMessage, answersFor, approveAnswers, goAheads, approveMessage, decidedGates, fileLinks, defaultStage, flowFinished, railSlice, railBarColor, clipboardArgv, NO_PYTHON, isPythonStub, pythonCandidates, stageWord, shortStamp, flowTag, MARK_WORD, idFromArgs, idFromScript, itemOptions, itemSuggestions, startPage, pendingGate, reviewLinks, stamp, fileTarget, gateStory, phaseKey, phaseLabel, refLink, stageDocs, stageHistory, stageRows, stageSummary, spinnerNote, statusWord, when, yourTurn } from './view/model'
+import type { AgentInfoLike, AgentTone, GoAhead, Mark, StageRow } from './view/model'
 import { ageShort, agoText, cleanupNote, conflictNote, counts, groupByItem, historyArgs, joinWorktrees, lineFacts, lineKey, linePath, lineTone, lineWord, sortLines } from './view/worktrees'
 import { ANALYSIS_SYSTEM, F, FIELD_NAME, NO_FILTER, UNASSIGNED, ago, analysisKey, analysisNote, analysisPrompt, bugsConfig, assigneeOptions, categorize, chipCounts, clipboardArgvFor, commentProblem, countText, currentValue, filterItems, isMine,
   itemLinks, keepMine, parseJson, parseTeam, pathOptions, pendingByItem, people, powershellCandidates, revertChange, revertItem, scriptAnswer, scriptArgv, sddState,
@@ -218,7 +218,7 @@ async function openCodeGraph($: EngineInterface, id: number): Promise<void> {
   const r = ran.r
   if (!r) { $.ui.toast(`No code graph: ${ran.why}`); return }
   const last = r.stdout.trim().split('\n').pop() ?? ''
-  let got: { ok?: boolean; error?: string; mode?: string; primary?: number; planned?: number; opened?: boolean; path?: string } = {}
+  let got: { ok?: boolean; error?: string; mode?: string; primary?: number; planned?: number; opened?: boolean; path?: string; ownPage?: string } = {}
   try {
     got = JSON.parse(last)
   } catch {
@@ -232,7 +232,8 @@ async function openCodeGraph($: EngineInterface, id: number): Promise<void> {
   const lit = got.mode === 'design' ? `${got.primary} nodes named in the design`
     : got.mode === 'implementation' ? `${got.primary} nodes changed${got.planned ? `, ${got.planned} named in the design and not changed yet` : ''}`
     : 'nothing to light at this stage'
-  $.ui.toast(got.opened ? `Code graph opened: ${lit}.` : `Code graph written to ${got.path} (no browser opened): ${lit}.`)
+  const big = got.ownPage ? ' The graph is too big to draw whole, so the page shows the part around them.' : ''
+  $.ui.toast(got.opened ? `Code graph opened: ${lit}.${big}` : `Code graph written to ${got.path} (no browser opened): ${lit}.${big}`)
 }
 
 /** Copies a path to the clipboard (the mod kit has no clipboard call, so the computer's own tool does it) and says so. */
@@ -2239,6 +2240,7 @@ export const register: Register = (on, options) => {
               <Button key={`rules-${p}`} label={projects.length > 1 ? `Rules: ${p}…` : 'Rules…'} onPress={() => $.state.set(progRulesS, rulesDraft(data, p))} />
             ))}
             {data.orphans.defects > 0 && <Text dimColor>{`${data.orphans.defects} bugs and issues sit under no synced epic or feature`}</Text>}
+            {(data.areas ?? []).length > 0 && <Text dimColor wrap="wrap">{`Only ${(data.areas ?? []).join('; ')}${data.outsideAreas ? ` (${data.outsideAreas} synced items outside left out)` : ''}`}</Text>}
           </Box>
         )}
       </Box>
@@ -2679,24 +2681,24 @@ export const register: Register = (on, options) => {
         $.ui.toast(`Not sent (${String(err).slice(0, 160)}). It is in the prompt box instead.`)
       }
     })()
-    // the go-ahead at a spec flow stop: into the open dialog's call when it asks for it, else as the
-    // person's own message "sdd approve for <id>, stage <stage>"
-    const go = flow ? approveFor(flow, item) : null
-    const approve = () => {
-      if (!go) return
+    // a button at a stop (the spec flow's approvals, the bug flow's Phase 6 and 11): into the open dialog's call when it
+    // asks for it, else as the person's own message "sdd approve for <id>, stage <stage>[: <option>]"
+    const gos = flow ? goAheads(flow, item) : []
+    const approve = (go: GoAhead) => {
+      const done = go.first ? `Approved: ${go.key}. Claude goes on.` : `Sent: ${go.option}.`
       if (ask?.isOpen) {
         const answers = approveAnswers(ask.questions, go.option)
         const resolve = answering.get(ask.toolUseId)
-        if (!answers || !resolve) {
+        if (!answers || !resolve || (!go.first && Object.values(answers).some(a => a !== go.option))) {
           $.ui.toast('Claude asked something else in the chat. Answer it there.')
           return
         }
         void $.state.set(picks, {})
         resolve(answers)
-        $.ui.toast(`Approved: ${go.key}. Claude goes on.`)
+        $.ui.toast(done)
         return
       }
-      post(approveMessage(item.id, go.key), `Approved: ${go.key}. Claude goes on.`)
+      post(approveMessage(item.id, go.key, go.first ? undefined : go.option), done)
     }
     const refsLine = (refs: string[]) => refs.map(r => refLink(item, r)).filter(Boolean).join('   ')
     // pages and documents open in Claude Code as the app opens any link; only a code link with a line
@@ -2744,9 +2746,11 @@ export const register: Register = (on, options) => {
             <Text bold color={C.now} wrap="wrap">{`Your turn: ${p.gate || 'a decision'}`}</Text>
             {p.next && <Text wrap="wrap">{`Then: ${p.next}`}</Text>}
             {p.note && <Text dimColor wrap="wrap">{p.note}</Text>}
-            {go && (
-              <Box marginTop={1}>
-                <Button key={`approve-${go.key}`} variant="primary" label={go.label} onPress={approve} />
+            {gos.length > 0 && (
+              <Box marginTop={1} flexDirection="row" gap={1} flexWrap="wrap">
+                {gos.map(go => (
+                  <Button key={`approve-${go.key}-${go.option}`} variant={go.first ? 'primary' : undefined} label={go.label} onPress={() => approve(go)} />
+                ))}
               </Box>
             )}
           </Box>

@@ -57,6 +57,9 @@ DEFAULTS = {
     # a Feature's or Epic's agreed design on the board (env.py plan): the rich-text field each item's part goes in, and
     # whether claiming an item makes its feature and epic Active, and handing over the last one under them resolves them
     "plan": {"field": "Custom.ImplementationPlan", "parents": True, "activeState": "Active", "resolvedState": "Resolved"},
+    # the trusted workspace: hooks/bounds_guard.py refuses a run, a write or a cd outside it; folders the person trusts too
+    # (absolute, ~ allowed) go here. Claude's own ~/.claude and the plugin are always open
+    "bounds": {"allow": []},
     # the bug manager (/sdd-bugs): where it keeps the synced bugs and issues, and how it sorts them into categories
     "bugs": json.loads(BUGS_DEFAULTS.read_text(encoding="utf-8")),
     # the progress page (/sdd-progress): how far each epic is, from the synced specs (scripts/progress.py).
@@ -82,7 +85,7 @@ AGENT_MODELS = ("sonnet", "opus", "haiku")
 UPGRADE_KEYS = [("agents", "models", "investigator"), ("agents", "models", "skeptic"),
                 ("next", "weights", "priority"), ("next", "weights", "severity"), ("next", "weights", "complexity"),
                 ("next", "complexity"), ("bugs", "folder"), ("bugs", "categories"), ("progress", "measure"),
-                ("plan", "field")]
+                ("plan", "field"), ("bounds", "allow")]
 
 TYPE_SEGMENT = {
     "User Story": "story", "Product Backlog Item": "story", "Change Request": "story",
@@ -134,6 +137,8 @@ def load_config(root):
                       "inProgress": {**DEFAULTS["next"]["inProgress"], **(nxt.get("inProgress") or {})}}
     plan = cfg.get("plan") if isinstance(cfg.get("plan"), dict) else {}
     merged["plan"] = {**DEFAULTS["plan"], **plan}
+    bounds = cfg.get("bounds") if isinstance(cfg.get("bounds"), dict) else {}
+    merged["bounds"] = {**DEFAULTS["bounds"], **bounds}
     merged["bugs"] = merge_bugs(cfg.get("bugs"))
     prog = cfg.get("progress") if isinstance(cfg.get("progress"), dict) else {}
     merged["progress"] = {**DEFAULTS["progress"], **prog,
@@ -406,6 +411,30 @@ def wiql(cfg, query, project=None):
     if "workItemRelations" in r:
         return r["workItemRelations"]
     return [w["id"] for w in r.get("workItems", [])]
+
+
+def area_paths(cfg):
+    """The workspace's area paths: sdd.json "bugs.query.areaPaths" (the ⚙ Config panel's "Only these area paths").
+    The bug manager's sync, the spec sync and the progress page all keep to them, UNDER each. [] = every area."""
+    raw = (((cfg.get("bugs") or {}).get("query") or {}).get("areaPaths")) or []
+    if isinstance(raw, str):
+        raw = raw.split(";")
+    return [str(a).strip().replace("/", "\\").strip("\\") for a in raw if str(a).strip().strip("/\\")]
+
+
+def in_areas(area, areas):
+    """An area path is UNDER one of `areas` (that area or below it, case aside). No areas: every one is."""
+    if not areas:
+        return True
+    a = (area or "").replace("/", "\\").strip("\\").lower()
+    return any(a == x.lower() or a.startswith(x.lower() + "\\") for x in areas)
+
+
+def areas_wiql(areas):
+    """The WIQL clause for `areas` (with its leading AND), or "" for none."""
+    if not areas:
+        return ""
+    return " AND (" + " OR ".join("[System.AreaPath] UNDER '" + a.replace("'", "''") + "'" for a in areas) + ")"
 
 
 # ---------------------------------------------------------------- work item folders

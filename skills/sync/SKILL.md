@@ -34,6 +34,12 @@ For this skill: before the first big sync, `env.py refs --id <scope root> --ref 
 The scope root is remembered, so a plain `sync` later refreshes it. Only the types in
 `specTypes` (in `.claude/sdd.json`) are mirrored; Tasks are not.
 
+**Area paths.** When `.claude/sdd.json` sets `"bugs.query.areaPaths"` (the bug manager's ⚙ Config, "Only these
+area paths"), every form keeps to them, UNDER each: `--all` asks ADO for those areas only, and the others leave
+out what is outside them. Kept anyway: the scope root you named, and the epic or feature above a kept item (the
+frame its bar hangs on). An item mirrored before that is now outside stays as it was, and the progress page
+leaves it out; the sync says how many.
+
 ## What it writes
 
 - `{specRoot}/{ancestor folders}/{id}-{TYPE}-{slug}/requirements.md` (TYPE: EPIC, FEAT, US, TS, CR, PBI, BUG, ISSUE) — frontmatter (id, type, project,

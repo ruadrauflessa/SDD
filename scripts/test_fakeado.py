@@ -344,6 +344,7 @@ def main():
         assert r.returncode == 3 and "(full / short)" in r.stdout, r.stdout
     tags_like_ado()
     progress_flow()
+    area_flow()
     feature_flow()
     print("ok")
 
@@ -539,6 +540,66 @@ def feature_flow():
         assert "900: resolved: its last item is closed off" in out and "890: resolved" in out, out
         w = json.loads(world.read_text())
         assert w["items"]["900"]["fields"]["System.State"] == w["items"]["890"]["fields"]["System.State"] == "Resolved"
+
+
+def area_flow():
+    """The area paths of sdd.json ("bugs.query.areaPaths"): the sync fetches only what is under them (and the frame above
+    it), and the progress page counts only that, an epic in a higher area kept as the frame of the features under them."""
+    sys.path.insert(0, str(HERE))
+    import sddlib
+    assert sddlib.area_paths({"bugs": {"query": {"areaPaths": ["Proj/Pay/", " ", "Proj\\Login"]}}}) == ["Proj\\Pay", "Proj\\Login"]
+    assert sddlib.in_areas("proj\\pay\\core", ["Proj\\Pay"]) and not sddlib.in_areas("Proj\\Payroll", ["Proj\\Pay"])
+    assert sddlib.in_areas("anything", []) and sddlib.areas_wiql([]) == ""
+    assert sddlib.areas_wiql(["Proj\\O'Neil"]) == " AND ([System.AreaPath] UNDER 'Proj\\O''Neil')"
+
+    def under(wid, parent, typ, title, area, state="New"):
+        f = {"System.WorkItemType": typ, "System.TeamProject": "Proj", "System.Title": title, "System.State": state, "System.AreaPath": area}
+        rel = [{"rel": "System.LinkTypes.Hierarchy-Reverse", "url": f"https://x/_apis/wit/workItems/{parent}"}] if parent else []
+        return str(wid), {"rev": 1, "fields": f, "relations": rel}
+    items = dict([
+        under(1000, None, "Epic", "Payments", "Proj", "Active"),
+        under(1010, 1000, "Feature", "Refunds", "Proj\\Pay", "Active"),
+        under(1011, 1010, "User Story", "Refund a card", "Proj\\Pay\\Core", "Closed"),
+        under(1012, 1010, "User Story", "Refund a voucher", "Proj\\Pay"),
+        under(1013, 1010, "User Story", "Refund report", "Proj\\Reports"),        # under our feature, another team's
+        under(1020, 1000, "Feature", "Statements", "Proj\\Other"),
+        under(1021, 1020, "User Story", "Monthly statement", "Proj\\Other"),
+        under(1030, 1011, "Bug", "Refund twice", "Proj\\Other", "Active"),
+    ])
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / ".claude").mkdir()
+        cfgp = root / ".claude" / "sdd.json"
+        base = {"specRoot": "docs/spec", "ado": {"org": "Org", "projects": ["Proj"]}}
+        cfgp.write_text(json.dumps(base))
+        world = root / "world.json"
+        world.write_text(json.dumps({"items": items}))
+        os.environ["SDD_FAKE_ADO"] = str(world)
+        run(root, "spec.py", "sync", "--id", "1000", "--no-embed")                 # no area paths: all of it
+        assert json.loads(run(root, "spec.py", "progress", "--json").stdout)["tops"][0]["measures"]["count"]["total"] == 4
+        cfgp.write_text(json.dumps({**base, "bugs": {"query": {"areaPaths": ["Proj\\Pay"]}}}))
+        data = json.loads(run(root, "spec.py", "progress", "--json").stdout)
+        (epic,) = data["tops"]
+        assert epic["id"] == 1000 and [k["id"] for k in epic["kids"]] == [1010], epic                # the epic: the frame
+        assert [k["id"] for k in epic["kids"][0]["kids"]] == [1011, 1012]
+        assert epic["measures"]["count"] == {"total": 2, "done": 1, "active": 0, "todo": 1, "missing": 0}, epic["measures"]
+        assert epic["defects"]["total"] == 0 and data["areas"] == ["Proj\\Pay"] and data["outsideAreas"] == 4, data
+        out = run(root, "spec.py", "sync", "--id", "1000", "--no-embed").stdout
+        assert "left out 4 items outside the area paths (Proj\\Pay): 4 of them were mirrored before" in out, out
+    with tempfile.TemporaryDirectory() as tmp:                                     # a fresh mirror: only what is under them
+        root = Path(tmp)
+        (root / ".claude").mkdir()
+        (root / ".claude" / "sdd.json").write_text(json.dumps({**base, "bugs": {"query": {"areaPaths": ["Proj\\Pay"]}}}))
+        world = root / "world.json"
+        world.write_text(json.dumps({"items": items}))
+        os.environ["SDD_FAKE_ADO"] = str(world)
+        for how in (["--all"], ["--id", "1000"]):                                 # the query asks ADO for the areas only
+            run(root, "spec.py", "sync", *how, "--no-embed")
+            data = json.loads(run(root, "spec.py", "progress", "--json").stdout)
+            assert data["outsideAreas"] == 0 and [t["id"] for t in data["tops"]] == [1000], (how, data)   # the epic came as the frame
+            assert data["tops"][0]["measures"]["count"]["total"] == 2, data
+            ids = {int(p.name.split("-")[0]) for p in (root / "docs" / "spec").rglob("*") if p.is_dir() and p.name[:1].isdigit()}
+            assert ids == {1000, 1010, 1011, 1012}, (how, ids)
 
 
 def progress_flow():

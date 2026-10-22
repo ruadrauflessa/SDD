@@ -82,7 +82,7 @@ import adowrite
 import metrics
 import nextpick
 import progress as prog
-from sddlib import CONFIG_REL, die, get_items, load_config, org_url, require_root, slug, wiql
+from sddlib import CONFIG_REL, area_paths, areas_wiql, die, get_items, in_areas, load_config, org_url, require_root, slug, wiql
 
 SYNCED_BY = "sdd-spec-sync@1"
 TEXT_FIELDS = [("System.Description", "Description"),
@@ -275,6 +275,25 @@ def parent_of(w):
     return None
 
 
+def area_of(w):
+    return (w.get("fields") or {}).get("System.AreaPath", "")
+
+
+def keep_in_areas(items, areas, roots):
+    """The items to mirror under the area paths: those in them, the scope roots asked for, and the items above
+    one of those (an epic in a higher area stays as the frame of its features). -> (kept, left out)"""
+    if not areas:
+        return items, []
+    by = {w["id"]: w for w in items}
+    keep = {w["id"] for w in items if in_areas(area_of(w), areas)} | (set(roots) & set(by))
+    for wid in list(keep):
+        p = parent_of(by[wid])
+        while p in by and p not in keep:
+            keep.add(p)
+            p = parent_of(by[p])
+    return [w for w in items if w["id"] in keep], [w for w in items if w["id"] not in keep]
+
+
 def subtree(ctx, wid, project):
     q = (f"SELECT [System.Id] FROM WorkItemLinks WHERE ([Source].[System.Id] = {int(wid)}) "
          f"AND ([System.Links.LinkType] = '{HIER_FWD}') MODE (Recursive)")
@@ -295,13 +314,14 @@ def cmd_sync(a):
     ctx = Ctx()
     types = set(ctx.cfg["specTypes"])
     cache, wanted, scopes = {}, set(), []
+    areas = area_paths(ctx.cfg)
     all_projects = ctx.cfg["ado"]["projects"] if a.all else [] if a.id else [
         r["root"][4:] for r in ctx.db.execute("SELECT root FROM scopes WHERE root LIKE 'all:%'")]
     if all_projects:
         for p in all_projects:
             tl = ", ".join(f"'{t}'" for t in sorted(types))
             ids = wiql(ctx.cfg, f"SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = '{p}' "
-                                f"AND [System.WorkItemType] IN ({tl})", p)
+                                f"AND [System.WorkItemType] IN ({tl}){areas_wiql(areas)}", p)
             print(f"{p}: {len(ids)} items")
             wanted |= set(ids)
             scopes.append(f"all:{p}")
@@ -327,9 +347,23 @@ def cmd_sync(a):
 
     items = [w for w in fetch(ctx, sorted(wanted), cache)
              if w["fields"]["System.WorkItemType"] in types or w["id"] == a.id]
+    items, outside = keep_in_areas(items, areas, [a.id] if a.id else roots if not a.all else [])
+    if areas:  # the frame: an epic or feature above kept items, in a higher area, that the query did not bring
+        have = {w["id"] for w in items}
+        up = {parent_of(w) for w in items} - have - {None}
+        while up:
+            got = [w for w in fetch(ctx, sorted(up), cache) if w["fields"]["System.WorkItemType"] in types]
+            items += got
+            have |= {w["id"] for w in got}
+            up = {parent_of(w) for w in got} - have - {None}
     # one hop out of the tree: linked items the scope does not already hold
     hop = {dst for w in items for _, _, dst in rels_of(w)} - {w["id"] for w in items}
-    items += [w for w in fetch(ctx, sorted(hop), cache) if w["fields"]["System.WorkItemType"] in types]
+    items += [w for w in fetch(ctx, sorted(hop), cache) if w["fields"]["System.WorkItemType"] in types
+              and in_areas(area_of(w), areas)]
+    if outside:
+        old = sum(1 for w in outside if ctx.item(w["id"]))
+        print(f"left out {len(outside)} items outside the area paths ({'; '.join(areas)})"
+              + (f": {old} of them were mirrored before, and stay as they were (the progress page leaves them out)" if old else ""))
     got_ids = {w["id"] for w in items}
     missing = sorted(i for i in wanted if i not in cache)
     print(f"fetched {len(items)} items ({len(hop & got_ids)} by one-hop links), {len(missing)} missing")
@@ -424,7 +458,7 @@ def write_progress(ctx):
     """progress.json, and today's line of progress-history.jsonl (the trend), from the index. -> (data, path)"""
     rows = {r["id"]: dict(r) for r in ctx.db.execute("SELECT * FROM items")}
     scopes = {r["root"]: r["synced_at"] for r in ctx.db.execute("SELECT root, synced_at FROM scopes")}
-    data = prog.build(rows, ctx.cfg, list(scopes), ctx.cfg["ado"]["org"])
+    data = prog.build(rows, ctx.cfg, list(scopes), ctx.cfg["ado"]["org"], areas=area_paths(ctx.cfg))
     idx = ctx.spec / ".index"
     hist = idx / "progress-history.jsonl"
     lines = []

@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { SddItem, SddSnapshot } from '../types'
-import { contextTone, moneyText, spendTokens, tokenText, tokensLine, spendLine, spendHead, spendTotal, agentRows, itemOptions, itemSuggestions, startPage, gateChips, MARK_WORD, railSlice, stageWord, flowAlt, RAIL, railBarColor, clipboardArgv, isPythonStub, pythonCandidates, defaultStage, stepStage, shortStamp, flowTag, spinnerNote, yourTurn, questionBadge, answerMessage, answersFor, approveAnswers, approveFor, approveMessage, fileLinks, flowFinished, fileTarget, gateStory, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, phaseKey, refLink, stageRows, stageSummary } from './view/model'
+import { contextTone, moneyText, spendTokens, tokenText, tokensLine, spendLine, spendHead, spendTotal, agentRows, itemOptions, itemSuggestions, startPage, gateChips, MARK_WORD, railSlice, stageWord, flowAlt, RAIL, railBarColor, clipboardArgv, isPythonStub, pythonCandidates, defaultStage, stepStage, shortStamp, flowTag, spinnerNote, yourTurn, questionBadge, answerMessage, answersFor, approveAnswers, approveFor, approveMessage, goAheads, fileLinks, flowFinished, fileTarget, gateStory, idFromArgs, idFromScript, pendingGate, reviewLinks, stamp, phaseKey, refLink, stageRows, stageSummary } from './view/model'
 import type { SddLiveState } from '../types'
 import { historyArgs, historyRefs, agoText, cleanupNote, conflictNote, counts, groupByItem, joinWorktrees, lineFacts, pathKey, sortLines, lineTone, lineWord, ageShort, lineKey, linePath, type WtLine } from './view/worktrees'
 
@@ -197,7 +197,7 @@ test('answers read as the chat dialog gives them', () => {
     .toBe('sdd answer for 92012, stage Design: "Design agreed?" = "Approve"; "Which tests?" = "Unit"')
 })
 
-test('the Approve button shows at the four spec stops and picks the go-ahead', () => {
+test('the stop buttons show at the four spec stops and the bug flow\'s Phase 6 and 11, and pick their option', () => {
   const at = (phase: string, status: 'waiting' | 'active' = 'waiting'): SddItem => ({ ...ITEM, progress: { ...ITEM.progress!, phase, status } })
   expect(approveFor(SPEC, at('Requirements'))).toEqual({ key: 'Requirements', label: 'Approve Spec', option: 'Approve — start Design' })
   expect(approveFor(SPEC, at('Design'))).toEqual({ key: 'Design', label: 'Approve Design', option: 'Approve — start Decompose' })
@@ -205,7 +205,13 @@ test('the Approve button shows at the four spec stops and picks the go-ahead', (
   expect(approveFor(SPEC, at('Verify'))).toEqual({ key: 'Verify', label: 'Raise PR', option: 'Raise the PR' })
   expect(approveFor(SPEC, at('Implement (task 3/7)'))).toBe(null)
   expect(approveFor(SPEC, at('Design', 'active'))).toBe(null)
-  expect(approveFor(BUG, { ...at('Phase 6'), flow: 'bug' })).toBe(null)
+  expect(approveFor(BUG, { ...at('Phase 6 — Approval gate'), flow: 'bug' })).toEqual({ key: 'Phase 6', label: 'Approve fix', option: 'Approve — write the failing test' })
+  expect(goAheads(BUG, { ...at('Phase 11 — Manual verification'), flow: 'bug' })).toEqual([
+    { key: 'Phase 11', label: 'Verified — raise PR', option: 'Verified — raise the PR', first: true },
+    { key: 'Phase 11', label: 'Start environment', option: 'Start the environment', first: false }])
+  expect(goAheads(BUG, { ...at('Phase 11', 'active'), flow: 'bug' })).toEqual([])
+  expect(goAheads(BUG, { ...at('Phase 9'), flow: 'bug' })).toEqual([])
+  expect(goAheads(SPEC, { ...at('Phase 6'), flow: 'spec' })).toEqual([])
 
   const gate = [{ question: 'Ready?', options: [{ label: 'Raise the PR' }, { label: 'Make changes' }] }]
   expect(approveAnswers(gate, 'Raise the PR')).toEqual({ 'Ready?': 'Raise the PR' })
@@ -214,6 +220,7 @@ test('the Approve button shows at the four spec stops and picks the go-ahead', (
   const other = [{ question: 'Which tech stories?', multiSelect: true, options: [{ label: 'TS-1' }, { label: 'TS-2' }] }]
   expect(approveAnswers(other, 'Approve — start Decompose')).toBe(null)
   expect(approveMessage(92012, 'Decompose')).toBe('sdd approve for 92012, stage Decompose')
+  expect(approveMessage(96324, 'Phase 11', 'Start the environment')).toBe('sdd approve for 96324, stage Phase 11: Start the environment')
 })
 
 test('Open Questions: skipped when nothing was asked, badged while questions stay open or were left open', () => {

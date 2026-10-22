@@ -184,6 +184,27 @@ lines of output and a fingerprint of the code. A gate marked current needs runs 
 now: an edit after the run voids it, a commit of the same files does not. `progress --passed` and
 `env.py pr` say exactly which run is missing.
 
+## The workspace is the boundary (enforced)
+
+Everything a flow runs, builds or writes stays inside the workspace (the folder with `.claude\sdd.json`):
+the item's worktree, its folder under `.claude\worktrees\`, the spec folder and `.claude\scripts\`.
+
+**Throwaway files** (notes, captured output, a one-off script, a test payload) go in the item's own
+`tmp\` folder: `.claude\worktrees\<id>-<slug>\tmp\`. Never in a worktree (an untracked file there is in
+no commit) and never in a repo's main checkout. `env.py remove`, run once the PR is merged, deletes the
+item folder with its `tmp\`, `.claude\tmp\<id>\`, and any untracked file left in its worktrees; its
+dry run lists them first. Work with no item uses `.claude\tmp\`. Never copy the code to another folder, never `cd` out of the workspace,
+never run a build or a service from a path outside it, never map a drive (`subst`) or a link onto it.
+
+`hooks/bounds_guard.py` refuses an edit outside, and a command that writes, copies, runs or moves the shell
+outside. Reading outside is open (logs, `~/.gitconfig`), and so are installed programs and Claude's own
+`~/.claude`. A folder the user trusts too goes in `"bounds.allow"` in `.claude\sdd.json`: only the user
+adds it, never you.
+
+**A path too long for a tool** (SQL, MSBuild, npm on Windows): do not move the work out. Tell the user
+which tool failed on which path, and stop. The fixes are theirs: Windows long paths
+(`LongPathsEnabled`), a shorter workspace folder, or a folder they add to `bounds.allow`.
+
 ## Exploring code — the graph first (enforced)
 
 Every work item folder has a code graph of its `src\`: `graph\graph.json`, with

@@ -81,7 +81,7 @@ export const FIELDS: Field[] = [
   { section: 'sync', path: ['bugs', 'query', 'projects'], label: 'Projects', kind: 'list', needsSync: true, help: 'None: the projects in ado.projects of sdd.json.' },
   { section: 'sync', path: ['bugs', 'types'], label: 'Work item types', kind: 'list', needsSync: true, help: 'Bug and Issue by default.' },
   { section: 'sync', path: ['bugs', 'query', 'excludeStates'], label: 'Leave out these states', kind: 'list', needsSync: true, help: 'Items in them are not pulled.' },
-  { section: 'sync', path: ['bugs', 'query', 'areaPaths'], label: 'Only these area paths (UNDER)', kind: 'list', needsSync: true, help: 'None: every area of the projects.' },
+  { section: 'sync', path: ['bugs', 'query', 'areaPaths'], label: 'Only these area paths (UNDER)', kind: 'list', needsSync: true, help: 'The spec sync and the progress page keep to them too. None: every area of the projects.' },
   { section: 'sync', path: ['bugs', 'query', 'iterationPaths'], label: 'Only these iteration paths (UNDER)', kind: 'list', needsSync: true, help: 'None: every iteration.' },
   { section: 'sync', path: ['bugs', 'query', 'where'], label: 'More WIQL', kind: 'text', needsSync: true, help: 'A clause added with AND, e.g. [Microsoft.VSTS.Common.Priority] <= 2.' },
   { section: 'sync', path: ['bugs', 'query', 'top'], label: 'At most', kind: 'number', min: 1, max: 20000, needsSync: true, help: 'The most items one Sync reads per project.' },

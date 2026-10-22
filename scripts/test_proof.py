@@ -321,6 +321,12 @@ def main():
         r = env_py(root, "graph-focus", "--id", "5", "--mode", "design", "--json")
         got = json.loads(r.stdout)
         assert got["mode"] == "design" and got["primary"] >= 2 and got["planned"] == 0, got
+        (gdir / "graph.html").unlink()                                                # graphify draws no page for a big graph
+        got = json.loads(env_py(root, "graph-focus", "--id", "5", "--mode", "design", "--json").stdout)
+        assert got["ok"] and "no graph.html" in got["ownPage"] and got["rebuilt"] is False, got
+        page = (gdir / "graph-focus.html").read_text(encoding="utf-8")
+        assert "var nodesDS" in page and 'id="sdd-graph-focus"' in page, page[:400]
+        (gdir / "graph.html").write_text("<html><body><script>const nodesDS = 1</script></body></html>", encoding="utf-8")
         rec["progress"] = {"flow": "bug", "phase": "Phase 4 — Reproduce and locate", "status": "active"}
         env.write_env(env_dir, rec)
         assert json.loads(env_py(root, "graph-focus", "--id", "5", "--json").stdout)["mode"] == "none"   # a stage with nothing to light
@@ -372,6 +378,31 @@ def main():
             (root / "scripts" / "run-lumina.ps1").write_text("param([switch]$Status)\nWrite-Host 'mainapi  Main API  7097  UP  (pid 1)'\n")
             r = env_py(root, "stack-gate", "--id", "5", check=False)
             assert r.returncode == 1 and "Gate D: FAIL" in r.stdout, r.stdout
+
+        # the clean-up: throwaway files go with the item; tracked changes and a running stack stop it
+        (wt / "debug_payload.json").write_text("{}")                              # untracked: in no commit
+        (env_dir / "tmp" / "notes.md").write_text("scratch")
+        (root / ".claude" / "tmp" / "5").mkdir(parents=True)
+        (root / ".claude" / "tmp" / "5" / "status.txt").write_text("x")
+        (root / ".claude" / "tmp" / "keep.txt").write_text("not this item's")
+        r = env_py(root, "remove", "--id", "5", "--abandon", check=False)
+        assert r.returncode != 0 and "uncommitted changes" in r.stderr and "calc.py" not in r.stderr, r.stderr  # the tracked edit
+        sh(["git", "checkout", "--", "calc.py"], wt)
+        r = env_py(root, "remove", "--id", "5", "--abandon")
+        assert "throwaway, in no commit, deleted with it: debug_payload.json" in r.stdout and "dry run" in r.stdout, r.stdout
+        assert f"scratch files: {env_dir / 'tmp'} (1 files)" in r.stdout and "status.txt" not in r.stdout, r.stdout
+        assert f"scratch files: {root / '.claude' / 'tmp' / '5'}" in r.stdout and wt.is_dir(), r.stdout
+        if shutil.which("pwsh") or shutil.which("powershell"):
+            (root / "scripts" / "run-lumina.ps1").write_text(
+                f"param([switch]$Status, [switch]$Stop)\nWrite-Host 'mainapi  Main API  7097  UP  (pid 1)  worktree: {env_dir.name}'\n")
+            r = env_py(root, "remove", "--id", "5", "--abandon", "--yes", check=False)
+            assert r.returncode != 0 and "still runs from this item's worktrees" in r.stderr and "-Stop" in r.stderr, r.stderr
+            assert wt.is_dir()
+            (root / "scripts" / "run-lumina.ps1").write_text("param([switch]$Status, [switch]$Stop)\nWrite-Host 'mainapi  Main API  7097  UP  (pid 1)'\n")
+        env_py(root, "remove", "--id", "5", "--abandon", "--yes")
+        assert not env_dir.exists() and not (root / ".claude" / "tmp" / "5").exists(), list((root / ".claude").rglob("*"))
+        assert (root / ".claude" / "tmp" / "keep.txt").is_file()                  # work with no item stays
+        assert "5_" not in sh(["git", "worktree", "list"], repo).stdout and env_dir.name not in sh(["git", "worktree", "list"], repo).stdout
     print("ok")
 
 

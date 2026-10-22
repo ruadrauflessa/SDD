@@ -40,6 +40,8 @@ const DATA: ProgressData = {
       measures: { count: M(2, 2, 0), points: M(4, 4, 0), criteria: M(2, 2, 0) }, defects: NONE, kids: [] },
   ],
   orphans: { defects: 3 },
+  areas: ['Proj\\Pay'],
+  outsideAreas: 4,
   trend: { '800': { points: { delta: 12.5, since: '2026-10-14' }, count: { delta: 0, since: '2026-10-14' } } },
 }
 
@@ -171,6 +173,7 @@ test('desktop: the page lists the open epics with their bar in the project\'s me
   expect(t).toContain('▲ 12.5% since 2026-10-14')
   expect(t).toContain('Bugs and issues: 1 open (1 high) · 1 closed')
   expect(t).toContain('Only part of it is synced')
+  expect(t).toContain('Only Proj\\Pay (4 synced items outside left out)')
   expect(await ui.find({ key: 'prog-900' })).toBe(undefined)              // finished: on request
   await ui.press({ key: 'prog-finished' })
   expect(await ui.find({ key: 'prog-900' })).toBeTruthy()
