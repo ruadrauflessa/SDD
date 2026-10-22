@@ -14,8 +14,9 @@ Every stage past `none` builds the work item's code graph, as `env.py new` does:
 
 The workspace gets: .claude/sdd.json; world.json, the offline ADO (scripts/fakeado.py) that the
 case's SDD_FAKE_ADO names; a git repo `Exporter` with the bug in it, pushed to a bare origin as
-team/1.0.0; a workspace-root git repo; user story 502 for the spec-flow cases; and Ai Agent Request
-503, a hand-over that names 502 (open, its date work left) and 501.
+team/1.0.0; a workspace-root git repo; user story 502 for the spec-flow cases; Ai Agent Request
+503, a hand-over that names 502 (open, its date work left) and 501; and Feature 504, for the router's
+feature-or-epic question.
 """
 import argparse
 import json
@@ -96,7 +97,11 @@ def main():
                                          "<div>I added the invoice date to the CSV export for User Story 502. "
                                          "Bug 501 (cents) is not touched.</div><div>Work still to be done: the "
                                          "PDF export still shows the date as MM/dd/yyyy, not yyyy-MM-dd. Tests "
-                                         "for the PDF export are not yet written.</div>"}}}}
+                                         "for the PDF export are not yet written.</div>"}},
+        "504": {"rev": 1, "fields": {"System.WorkItemType": "Feature", "System.TeamProject": "Finance",
+                                     "System.Title": "Invoice export v2", "System.State": "Active",
+                                     "System.Description": "<div>Every export shows dates and totals the "
+                                                           "way finance reads them.</div>"}}}}
     (root / "world.json").write_text(json.dumps(world, indent=2) + "\n")
     os.environ["SDD_FAKE_ADO"] = str(root / "world.json")
 

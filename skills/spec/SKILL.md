@@ -36,19 +36,26 @@ full command table. This file calls them `env.py` and `spec.py`, short for
 
 In this flow `--flow spec`, and the stages are the modes below, by name.
 
-## Path — full or short
+## Path — full, short or design
 
-Every spec item goes one of two ways, and **the user picks which** — in the command
-(`/sdd <id> short`) or when Specify asks, before anything else (`modes/specify.md` step 0):
+Every spec item goes one of these ways, and **the user picks which** — in the command
+(`/sdd <id> short`, or the router's question on a feature or epic) or when Specify asks, before
+anything else (`modes/specify.md` step 0):
 
 | Path | Stops for approval |
 | --- | --- |
 | Full | Requirements, Design, Decompose, Verify, Review |
 | Short | Requirements, Decompose (it approves the design and the tasks together), Verify, Review |
+| Design (a Feature or Epic only) | Requirements, Design. No claim; the flow ends when Design is done |
 
 `env.py path` records the choice and the user's words; `env.py can` refuses every stage after
 Specify until it is recorded, and on the short path lets Decompose start without "Design agreed".
 Nothing else changes: the short path skips a stop, never a check.
+
+On the **design** path `env.py` needs no "Claimed", refuses every stage after Design, records them
+skipped when Design is done, and `/sdd done` asks no close-out in ADO: the item stays as it was.
+Its stories then each go through the flow on their own (`/sdd next <id>`), and their designs point
+to this one.
 
 ## Ground rules (read before any mode)
 
@@ -128,7 +135,7 @@ Shape every gate the same way:
 | Gate | Mode | Options |
 | --- | --- | --- |
 | Open questions | Open Questions, one question at a time while any are open | The question's own options, plus "Continue with this open" (see "Mode: Open Questions") |
-| Path | Specify step 0, unless the user already said | "Full path" / "Short path" |
+| Path | Specify step 0, unless the user already said | "Full path" / "Short path" (on a feature or epic the router asked already) |
 | Requirements agreed | End of Requirements | "Approve — start Design" / "Needs changes" |
 | Design agreed | End of Design — asked again after any requested changes are incorporated | "Approve — start Decompose" / "Needs changes" |
 | Tech story creation | Design, tech story gate | One option per proposal, `multiSelect: true` — the user picks which, if any, get created |

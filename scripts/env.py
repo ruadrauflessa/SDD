@@ -140,7 +140,11 @@ def cmd_help(a):
 
 def cmd_type(a):
     cfg = load_config(require_root())
-    print(json.dumps(item_info(cfg, a.id), indent=2))
+    info = item_info(cfg, a.id)
+    design = ((PATHS.get("spec") or {}).get("design") or {}).get("types") or []
+    if info["flow"] == "spec" and info["type"] in design:  # a feature or an epic: the router asks what to do with it
+        info["ask"] = ["next", "design", "full", "short"]
+    print(json.dumps(info, indent=2))
 
 
 def report_output_style(force=False):
@@ -552,6 +556,11 @@ def cmd_progress(a):
         entry["caveat"] = a.caveat.strip()
         entry["openQuestions"] = open_q
     data["stages"] = mark_stage(a.flow, data, key, entry)
+    end = path_rule(a.flow, data).get("endsAfter")
+    if end == key and a.status == "done":  # the path ends here: the stages after it are not this item's to do
+        why = f"{flow_path(a.flow, data)} path: {(data.get('pathChosen') or {}).get('confirmed') or 'chosen by the user'}"
+        for k in stage_keys(a.flow)[stage_keys(a.flow).index(key) + 1:]:
+            data["stages"][k] = {"at": entry["at"], "status": "skipped", "confirmed": why}
     gates = data.setdefault("gates", {})
     for g in a.passed:
         gates[g] = entry["at"]
@@ -1362,6 +1371,11 @@ def flow_path(flow, data):
     return None
 
 
+def path_rule(flow, data):
+    """The flows.json entry of the item's chosen path ({} while none is chosen)."""
+    return ((PATHS.get(flow) or {}).get(flow_path(flow, data) or "") or {}) if flow in PATHS else {}
+
+
 def stage_needs(flow, data, key):
     """The gates `key` needs on this item's path."""
     drop = set(((PATHS.get(flow) or {}).get(flow_path(flow, data) or "", {}) or {}).get("dropNeeds", {}).get(key, []))
@@ -1559,9 +1573,13 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
                     for k in unaccounted(flow, data, key, open_questions(root, cfg, wid))]
         rule = PATHS.get(flow)
         if rule and key != rule["choose"] and keys.index(key) > keys.index(rule["choose"]) and not flow_path(flow, data):
-            choices = " / ".join(k for k in rule if k != "choose")
+            choices = " / ".join(k for k in rule if k != "choose" and data.get("type") in rule[k].get("types", [data.get("type")]))
             reasons.append(f"no path chosen for this item ({choices}). Ask the user which, then record their answer: "
                            f"env.py path --id {wid} --set <path> --confirmed \"<the user's words>\"")
+        end = path_rule(flow, data).get("endsAfter")
+        if end and keys.index(key) > keys.index(end):
+            reasons.append(f"{wid} is on the {flow_path(flow, data)} path: the flow ends after {end}. The work itself goes "
+                           f"through the items under it: /sdd next {wid}")
         missing = [g for g in stage_needs(flow, data, key) if g not in met]
         reasons += [f"{key} needs '{g}' first — " + ("not true on disk yet" if g in DERIVED else "not recorded as passed")
                     + (f": env.py graph --id {wid}" if g == "Graph" else "")
@@ -1629,6 +1647,8 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
             continue
         if st != "completed":
             reasons.append(f"{n}: PR {r['pr']['url']} is {st}, not merged yet")
+    if path_rule(flow, data).get("noClaim"):
+        return not reasons, reasons, notes  # nothing was claimed, so nothing is closed out in ADO
     try:
         live = live_item(cfg, wid) or {}
     except RuntimeError as e:
@@ -1690,8 +1710,15 @@ def cmd_path(a):
         die(f"no path '{a.set}'; the {flow} flow has {', '.join(k for k in rule if k != 'choose')}")
     if not (a.confirmed or "").strip():
         die("a path is the user's choice: ask them, then pass their words with --confirmed")
+    types = rule[a.set].get("types")
+    if types and data.get("type") not in types:
+        die(f"the {a.set} path is for {' and '.join(types)} only; {a.id} is a {data.get('type') or 'work item of unknown type'}")
     if a.set != "full" and set(data.get("stages") or {}) & {"Decompose", "Implement", "Verify", "Review"}:
         die(f"too late for the {a.set} path: Decompose has started. It stays {flow_path(flow, data) or 'full'}")
+    end = rule.get(flow_path(flow, data) or "", {}).get("endsAfter")
+    if end and a.set != flow_path(flow, data) and ((data.get("stages") or {}).get(end) or {}).get("status") == "done":
+        die(f"too late to leave the {flow_path(flow, data)} path: {end} is done and the flow has ended. "
+            f"The work goes through the items under it: /sdd next {a.id}")
     data["path"] = a.set
     data["pathChosen"] = {"at": now(), "path": a.set, "confirmed": a.confirmed.strip()}
     write_env(env_dir, data)

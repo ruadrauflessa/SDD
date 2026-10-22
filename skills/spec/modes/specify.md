@@ -9,9 +9,12 @@
    - **Short** — Design runs straight into Decompose, and one stop approves the design and the tasks
      together. For a small, well-understood change.
 
+   - **Design** — a Feature or Epic only, picked at the router's question: the feature's design and
+     nothing more. No claim; the flow ends after Design.
+
    Did the user already say which (`/sdd <id> short`, `/sdd spec <id> full`, "do this one on the
-   short path")? Record it with their words: `env.py path --id <id> --set short|full --confirmed
-   "<their words>"`. If not, **ask before anything else**: show the work item's ADO link
+   short path", the router's "Design it only")? Record it with their words: `env.py path --id <id>
+   --set short|full|design --confirmed "<their words>"`. If not, **ask before anything else**: show the work item's ADO link
    (`env.py refs --id <id> --ref ado`), then `AskUserQuestion` with "Full path" / "Short path", one
    sentence on each, and record the answer the same way. Never pick it for the user, and never
    infer it from the size of the change. No later stage starts until it is recorded (`env.py can`
@@ -20,7 +23,9 @@
    and one hop of links out of that tree, and writes each `requirements.md` into place under
    `{specRoot}`. Never write or edit `requirements.md` yourself — the next sync overwrites it.
    Don't read the requirement yet.
-2. **Claim the work item, before you read it:** `spec.py claim --id <id>`. It assigns you, sets
+2. **Claim the work item, before you read it** — except on the design path, which claims nothing
+   (the feature stays on whoever's name it is; the stories under it are claimed when each is
+   worked): `spec.py claim --id <id>`. It assigns you, sets
    `Dev In Progress` and `Active` in one rev-tested write, and re-syncs the mirror. **Exit 3 means
    stop and ask**: someone else is working on it (never take it), it is on someone else's name but
    not started (free under the team's rule: after the user's yes — picking it in `/sdd next` is one

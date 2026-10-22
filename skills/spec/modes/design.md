@@ -51,6 +51,10 @@
    record Design `done` with **no** `--passed "Design agreed"`, and go straight to Decompose — its
    one stop approves the design and the tasks together. The tech story gate (step 5) still asks,
    because it writes to ADO.
+   **Design path** (`env.py status` shows `path: design`): the "Design agreed" answer ends the flow.
+   Record Design `done` with `--passed "Design agreed"`; `env.py` records the later stages skipped.
+   Tell the user the design is ready for the stories under it, each through the flow on its own
+   with `/sdd next <id>`, and that `/sdd done <id>` cleans up the folder when they want.
 8. **"Needs changes"?** Revise `design.md` to address what was asked for, run `env.py anchors`
    again (step 4), then re-run step 7 —
    present what changed and run the same gate again. Never guess at the fix and move on to

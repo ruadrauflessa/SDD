@@ -1,6 +1,6 @@
 ---
 name: sdd
-description: 'Entry point for the spec-driven development workflows on Azure DevOps work items in a multi-repo workspace. `/sdd:sdd` with no arguments, `/sdd:help`, or `/sdd help` sends the one help page (a first-time walk-through and every command); `/sdd init` checks and (per item, with permission) installs or configures everything the workflows need, including the workspace CLAUDE.md block. `/sdd <id>` reads the work item type and routes Bug/Issue to the bug flow, story/tech story/change request/feature/epic to the spec flow, and an Ai Agent Request (a hand-over between AI agents) to the request triage, which reports on the hand-over, asks spec or bug, and sends the work to the open item it names or to a new Tech Story or Bug; `/sdd bug <id>`, `/sdd spec <id>`, `/sdd sync [<id>|all]`, `/sdd impact <id>` (or `/sdd impact all` for the whole spec, after a token-cost warning), `/sdd status <id>` reports where an item stands (so work started in one chat can resume in another), `/sdd harness <create|onboard|audit|maintain>` sets up and audits the Claude Code harness (CLAUDE.md, allowlists, hooks) of a repo or workspace, `/sdd done <id>` cleans up, `/sdd abandon <id>` stops an item, and `/sdd <id> feedback <stage>: <text>` (or the sdd view''s message "sdd feedback for <id>, stage <stage>: <text>") sends an item back to a stage with the user''s feedback, the view''s "sdd answer for <id>, stage <stage>: …" is the user''s answer to a gate question, and the view''s "sdd approve for <id>, stage <stage>" is the user''s go-ahead at a spec flow stop — each refuses and explains when the item''s state does not allow it. Use whenever the user types /sdd or asks to "sdd" a work item.'
+description: 'Entry point for the spec-driven development workflows on Azure DevOps work items in a multi-repo workspace. `/sdd:sdd` with no arguments, `/sdd:help`, or `/sdd help` sends the one help page (a first-time walk-through and every command); `/sdd init` checks and (per item, with permission) installs or configures everything the workflows need, including the workspace CLAUDE.md block. `/sdd <id>` reads the work item type and routes Bug/Issue to the bug flow and story/tech story/change request to the spec flow, asks on a feature or epic whether to pick the next item under it, design it only, or build it as one piece of work, and an Ai Agent Request (a hand-over between AI agents) to the request triage, which reports on the hand-over, asks spec or bug, and sends the work to the open item it names or to a new Tech Story or Bug; `/sdd bug <id>`, `/sdd spec <id>`, `/sdd sync [<id>|all]`, `/sdd impact <id>` (or `/sdd impact all` for the whole spec, after a token-cost warning), `/sdd status <id>` reports where an item stands (so work started in one chat can resume in another), `/sdd harness <create|onboard|audit|maintain>` sets up and audits the Claude Code harness (CLAUDE.md, allowlists, hooks) of a repo or workspace, `/sdd done <id>` cleans up, `/sdd abandon <id>` stops an item, and `/sdd <id> feedback <stage>: <text>` (or the sdd view''s message "sdd feedback for <id>, stage <stage>: <text>") sends an item back to a stage with the user''s feedback, the view''s "sdd answer for <id>, stage <stage>: …" is the user''s answer to a gate question, and the view''s "sdd approve for <id>, stage <stage>" is the user''s go-ahead at a spec flow stop — each refuses and explains when the item''s state does not allow it. Use whenever the user types /sdd or asks to "sdd" a work item.'
 ---
 
 # /sdd — one entry point for every sdd workflow
@@ -121,8 +121,8 @@ set up for sdd, and offer `/sdd init`.
 
 ## Step 2 — route
 
-`next` goes to `sdd:next` with the scope id and the version, if given. With a flow word, go straight to that skill and pass it the id — unless `env.py type` says `flow: request`: an Ai Agent Request goes to `sdd:request`, with the flow word as the user's answer to its spec-or-bug question. A path word (`short` or `full`, as in
-`/sdd 4471 short` or `/sdd spec 4471 full`) goes with it: pass it on, and the spec flow records it
+`next` goes to `sdd:next` with the scope id and the version, if given. With a flow word, go straight to that skill and pass it the id — unless `env.py type` says `flow: request`: an Ai Agent Request goes to `sdd:request`, with the flow word as the user's answer to its spec-or-bug question. A path word (`short`, `full`, or on a feature or epic `design`, as in
+`/sdd 4471 short`, `/sdd spec 4471 full` or `/sdd 4468 design`) goes with it: pass it on, and the spec flow records it
 as the user's choice instead of asking. With only an id:
 
 ```
@@ -132,13 +132,29 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/env.py type --id <id>
 | `type` | Flow |
 | --- | --- |
 | Bug, Issue | `sdd:bug` |
-| User Story, Tech Story, Change Request, Product Backlog Item, Feature, Epic | `sdd:spec` |
+| User Story, Tech Story, Change Request, Product Backlog Item | `sdd:spec` |
+| Feature, Epic (the output has `ask`) | Ask first: see "A feature or an epic" below |
 | Ai Agent Request (`flow: request`; the types are `agentRequest.types` in `sdd.json`) | `sdd:request` |
 | Task or anything else | Ask with `AskUserQuestion`: "Bug flow" / "Spec flow" — show the type and title first |
 
 Say in one line which flow you picked and why ("ADO 4471 is a User Story — spec flow"; "ADO 4480 is
 an Ai Agent Request — request triage first"), then
 invoke that skill with the Skill tool and follow it.
+
+### A feature or an epic
+
+A feature or an epic is rarely one piece of work: its stories are. Unless the command already said
+(`next`, or a path word), ask with `AskUserQuestion` before anything else, after showing its ADO
+link (`env.py refs --id <id> --ref ado`) and the type and title `env.py type` gave:
+
+| Option | Then |
+| --- | --- |
+| "Pick the next item under it (Recommended)" | `sdd:next` with this id as the scope (it asks for the version) |
+| "Design it only" | `sdd:spec` with the path word `design`: the feature's design, which its stories point to. No claim, and the flow ends after Design |
+| "Build it as one piece of work, full path" | `sdd:spec` with the path word `full`: today's whole flow on this item, for a small feature |
+| "Build it as one piece of work, short path" | `sdd:spec` with the path word `short` |
+
+Say which you are doing in one line, then invoke the skill.
 
 ## `/sdd status <id>` — where does it stand?
 

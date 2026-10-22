@@ -159,6 +159,31 @@ def main():
         r = run(root, "env.py", "path", "--id", "502", "--set", "short", "--confirmed", "again", check=False)
         assert r.returncode != 0 and "too late" in r.stderr, r.stderr
         run(root, "env.py", "path", "--id", "502", "--set", "full", "--confirmed", "back to full")
+        r = run(root, "env.py", "path", "--id", "502", "--set", "design", "--confirmed", "design it", check=False)
+        assert r.returncode != 0 and "for Feature and Epic only; 502 is a User Story" in r.stderr, r.stderr
+        assert json.loads(run(root, "env.py", "type", "--id", "600").stdout)["ask"] == ["next", "design", "full", "short"]
+        assert "ask" not in json.loads(run(root, "env.py", "type", "--id", "603").stdout)    # a story goes straight on
+        # a feature on the design-only path: no claim, the flow ends after Design, done needs no close-out in ADO
+        can = lambda wid, phase, **kw: run(root, "env.py", "can", "--id", wid, "--op", "phase", "--flow", "spec", "--phase", phase, **kw)
+        run(root, "env.py", "progress", "--id", "600", "--flow", "spec", "--phase", "Specify", "--status", "done")
+        r = can("600", "Requirements", check=False)
+        assert r.returncode == 3 and "(full / short / design)" in r.stdout and "needs 'Claimed'" in r.stdout, r.stdout
+        run(root, "env.py", "path", "--id", "600", "--set", "design", "--confirmed", "design it, the stories come later")
+        assert "allowed" in can("600", "Requirements").stdout                              # no claim needed
+        run(root, "env.py", "progress", "--id", "600", "--flow", "spec", "--phase", "Requirements", "--status", "done",
+            "--passed", "Requirements agreed")
+        assert "allowed" in can("600", "Design").stdout
+        run(root, "env.py", "progress", "--id", "600", "--flow", "spec", "--phase", "Design", "--status", "done")
+        rec = json.loads(next((root / ".claude" / "worktrees").glob("600-*/workitem.json")).read_text())
+        assert {k: v["status"] for k, v in rec["stages"].items() if k in ("Decompose", "Implement", "Verify", "Review")} == \
+            dict.fromkeys(("Decompose", "Implement", "Verify", "Review"), "skipped"), rec["stages"]
+        assert rec["stages"]["Review"]["confirmed"] == "design path: design it, the stories come later"
+        r = can("600", "Decompose", check=False)
+        assert r.returncode == 3 and "the flow ends after Design" in r.stdout and "/sdd next 600" in r.stdout, r.stdout
+        r = run(root, "env.py", "path", "--id", "600", "--set", "full", "--confirmed", "build it after all", check=False)
+        assert r.returncode != 0 and "too late to leave the design path" in r.stderr, r.stderr
+        r = run(root, "env.py", "can", "--id", "600", "--op", "done", check=False)
+        assert r.returncode == 0 and "allowed" in r.stdout, r.stdout                         # ADO 600 stays Active: fine
         # the next item under feature 600 for version 1.1.0
         run(root, "spec.py", "sync", "--id", "600", "--no-embed")
         mpath = root / "docs" / "spec" / ".index" / "metrics.json"
@@ -312,6 +337,10 @@ def main():
         view = json.loads(run(root, "env.py", "view", "--json", "--id", "502").stdout)
         assert {i["id"]: i.get("path") for i in view["items"]}[502] == "full", view["items"]
         assert view["flows"]["spec"]["paths"]["short"]["label"].startswith("Short")   # the view reads the paths
+        # a story is never offered the design-only path
+        run(root, "env.py", "progress", "--id", "604", "--flow", "spec", "--phase", "Specify", "--status", "done", "--passed", "Claimed")
+        r = run(root, "env.py", "can", "--id", "604", "--op", "phase", "--flow", "spec", "--phase", "Requirements", check=False)
+        assert r.returncode == 3 and "(full / short)" in r.stdout, r.stdout
     tags_like_ado()
     progress_flow()
     print("ok")

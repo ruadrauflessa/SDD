@@ -49,6 +49,8 @@ Optional: pandoc, Ollama (meaning search).
 | `/sdd <id>` | Starts or resumes the work item, in the bug or spec flow by its type |
 | `/sdd <id>` on an Ai Agent Request | Reports on the hand-over (what is done, what is left, the items it names) and asks spec or bug. The work goes to the open item it belongs to, or to a new Tech Story or Bug linked to the request; then that flow runs |
 | `/sdd <id> short` / `full` | A spec item on the short path (one stop approves design and tasks together) or the full one; without it, the flow asks |
+| `/sdd <id>` on a feature or epic | Asks first: **pick the next item** under it (`/sdd next`), **design it only**, or **build it as one piece of work** (full or short path) |
+| `/sdd <id> design` | A feature or epic on the design-only path: Requirements and Design, no claim; the flow ends after Design and its stories point to that design. `/sdd done <id>` asks no close-out in ADO |
 | `/sdd:help` (or `/sdd:sdd`, `/sdd help`) | One help page: a first-time walk-through (init, sync, impact, a first bug and spec item) and every command |
 | `/sdd graph <id>` | Opens the item's code graph in the browser with the nodes of its design (Design, Decompose) or of what the work changed (Implement onwards) lit; the sdd view has the same as **🕸 Open code graph** |
 | `/sdd status <id>` | Where the item stands |
