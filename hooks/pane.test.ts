@@ -15,6 +15,14 @@ const SPEC = {
     { key: 'Review', label: 'Review', needs: ['Design agreed'], passes: ['PR approved'], stop: true },
   ],
 }
+const BUGFLOW = {
+  label: 'Bug flow', prGates: ['Approval'],
+  stages: [
+    { key: 'Phase 6', label: 'Approval gate', needs: [], passes: ['Approval'], stop: true },
+    { key: 'Phase 11', label: 'Manual verification', needs: ['Approval'], passes: ['Manual verification'], stop: true },
+    { key: 'Phase 12', label: 'Pull request', needs: ['Manual verification'], passes: ['PR raised'] },
+  ],
+}
 const SNAP: SddSnapshot = {
   root: '/ws', specRoot: '/ws/docs/spec', flows: { spec: SPEC }, derived: [], done: [],
   items: [{
@@ -39,7 +47,7 @@ const AGENTS = [
 type Cost = { id: number; stage: string; usd: number; session: string; turns: number; input: number; output: number; cacheRead: number; cacheWrite: number }
 type Row = { usd: number; turns: number; input: number; output: number; cacheRead: number; cacheWrite: number }
 type Fake = { filled: string[]; registered: string[]; usd: number | null; costs: Cost[]; costFails: boolean; toasts: string[]
-  ran: string[]; opened: string[]; runs: string[][]; finishFirst?: boolean; noAutoOpen?: boolean; graphOk?: boolean; surfaces: string[]; sid: string; spend: Record<string, Row>; spendOther: Record<string, Row> }
+  ran: string[]; opened: string[]; runs: string[][]; submitted?: string[]; bugAt?: string; finishFirst?: boolean; noAutoOpen?: boolean; graphOk?: boolean; surfaces: string[]; sid: string; spend: Record<string, Row>; spendOther: Record<string, Row> }
 
 function fake(on: (event: any, hook: (...a: never[]) => unknown) => void, agents = AGENTS): Fake {
   const f: Fake = { filled: [], registered: [], usd: 1, costs: [], costFails: false, toasts: [], ran: [], opened: [], runs: [], sid: 's1', surfaces: ['desktop'], spend: {}, spendOther: {} }
@@ -62,9 +70,11 @@ function fake(on: (event: any, hook: (...a: never[]) => unknown) => void, agents
     if (e.argv.includes('graph-focus')) return done(f.graphOk === false ? 1 : 0, JSON.stringify(f.graphOk === false
       ? { ok: false, error: 'no code graph: graphify not on PATH' }
       : { ok: true, path: '/ws/.claude/worktrees/92012-author/graph/graph-focus.html', mode: 'design', primary: 3, planned: 0, opened: true }))
-    const all = (SNAP as any).items.map((i: any) => ({ ...i, spend: i.id === 92012 ? f.spend : f.spendOther }))
+    const all = (SNAP as any).items.map((i: any) => ({ ...i, spend: i.id === 92012 ? f.spend : f.spendOther,
+      ...(f.bugAt && i.id === 92012 ? { flow: 'bug', type: 'Bug', progress: { at: '2026-10-01T10:00:00Z', flow: 'bug', phase: f.bugAt, status: 'waiting', gate: 'Manual verification' } } : {}) }))
     const snap = f.finishFirst ? { ...(SNAP as any), items: all.filter((i: any) => i.id !== 92012), done: all.filter((i: any) => i.id === 92012) } : { ...(SNAP as any), items: all }
-    return done(0, JSON.stringify(f.noAutoOpen ? { ...snap, autoOpen: false } : snap))
+    const flows = f.bugAt ? { ...snap.flows, bug: BUGFLOW } : snap.flows
+    return done(0, JSON.stringify(f.noAutoOpen ? { ...snap, flows, autoOpen: false } : { ...snap, flows }))
   }) as never)
   on('tool.call' as never, (() => ({ result: 'ok' })) as never)  // a Bash run: the plugin only watches it
   on('session.cwd' as never, (() => ({ value: '/ws' })) as never)
@@ -79,6 +89,7 @@ function fake(on: (event: any, hook: (...a: never[]) => unknown) => void, agents
   }) as never)  // /sdd is the skill's: the plugin only watches it run
   on('turn.start' as never, ((_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId })) as never)           // the engine echoes both
   on('session.measure' as never, ((_$: unknown, e: { changed: string[] }) => ({ changed: e.changed })) as never)
+  on('prompt.submit' as never, ((_$: unknown, e: { text: string }) => { (f.submitted ??= []).push(e.text); return { text: e.text } }) as never)
   on('prompt.fill' as never, ((_$: unknown, e: { text: string }) => { f.filled.push(e.text); return { isFilled: true } }) as never)
   on('prompt.autocomplete' as never, (() => ({ suggestions: [] })) as never)  // the engine's own answer: no rows
   // the engine's session id and usage, and a store that keeps what is set
@@ -669,4 +680,20 @@ test('context: from 80 percent the band says so', async ($: any, on: any) => {
   await turn($, f, 2.5, 93)
   await until('context 93%')
   expect(await texts(ui)).toContain('context 93%')
+})
+
+test('desktop: a bug waiting at Phase 11 shows Verified and Start environment, and each posts its option', async ($: any, on: any) => {
+  const f = fake(on)
+  f.bugAt = 'Phase 11 — Manual verification'
+  const ui = await mountPane($, f, 'desktop')
+  if (!ui) return
+  for (let i = 0; i < 100 && !(await ui.findAll({ type: 'Button' })).some((b: any) => b.props?.label === 'Start environment'); i++) await new Promise(r => setTimeout(r, 10))
+  const labels = (await ui.findAll({ type: 'Button' })).map((b: any) => b.props?.label)
+  expect(labels).toEqual(expect.arrayContaining(['Verified — raise PR', 'Start environment']))
+  await ui.press({ key: 'approve-Phase 11-Start the environment' })
+  for (let i = 0; i < 100 && !(f.submitted ?? []).length; i++) await new Promise(r => setTimeout(r, 10))
+  expect(f.submitted).toEqual(['sdd approve for 92012, stage Phase 11: Start the environment'])
+  await ui.press({ key: 'approve-Phase 11-Verified — raise the PR' })
+  for (let i = 0; i < 100 && (f.submitted ?? []).length < 2; i++) await new Promise(r => setTimeout(r, 10))
+  expect(f.submitted![1]).toBe('sdd approve for 92012, stage Phase 11')
 })

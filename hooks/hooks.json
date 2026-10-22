@@ -32,6 +32,15 @@
         ]
       },
       {
+        "matcher": "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run.cmd\" \"${CLAUDE_PLUGIN_ROOT}/hooks/bounds_guard.py\" pre"
+          }
+        ]
+      },
+      {
         "matcher": "Bash|PowerShell|Grep|Glob|Read",
         "hooks": [
           {

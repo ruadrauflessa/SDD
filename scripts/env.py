@@ -344,17 +344,21 @@ Everything for this work item happens in this folder. Do not edit the main check
 """, encoding="utf-8")
 
 
+FOLDER_SLUG = 24  # the title's share of a work item folder's name: Windows tools still trip on paths over 260 characters
+
+
 def ensure_env(root, cfg, wid, info=None):
     """The work item folder, created (without any repo) when it does not exist yet."""
     env_dir = find_env(root, cfg, wid)
     if env_dir:
         return env_dir, read_env(env_dir)
     info = info or item_info(cfg, wid)
-    env_dir = wt_root(root, cfg) / f"{wid}-{slug(info['title'])}"
+    env_dir = wt_root(root, cfg) / f"{wid}-{slug(info['title'], FOLDER_SLUG)}"
     (env_dir / "src").mkdir(parents=True, exist_ok=True)
     data = {**info, "slug": env_dir.name.split("-", 1)[1], "created": now(), "repos": {}}
     if (root / ".git").exists():
         ensure_ignored(root, cfg["worktreeRoot"].replace("\\", "/"))
+        ensure_ignored(root, ".claude/tmp")  # scratch files: nothing is written outside the workspace (hooks/bounds_guard.py)
     (env_dir / "src" / ".graphifyignore").write_text(GRAPH_IGNORE, encoding="utf-8")
     write_env_claude(env_dir, data, cfg["specRoot"])
     write_env(env_dir, data)
@@ -1273,7 +1277,8 @@ def graph_changes(env_dir, data):
 
 def cmd_graph_focus(a):
     """Writes graph/graph-focus.html: graphify's graph.html with the nodes the item's design (design.md, tasks.md) names,
-    or the code it changed, lit and the rest dimmed. It changes nothing but that file, and graph/ when it builds: always with
+    or the code it changed, lit and the rest dimmed. A graph too big for graphify's page gets a page of its own: the lit
+    nodes and those around them (graphfocus.page). It changes nothing but that file, and graph/ when it builds: always with
     --refresh, else when there is no graph or the code changed since it was built (a stale graph would light code that is gone)."""
     import contextlib
     import io
@@ -1287,7 +1292,7 @@ def cmd_graph_focus(a):
     notes, failed, rebuilt = io.StringIO(), "", False
     with contextlib.redirect_stdout(notes):
         try:
-            if a.refresh or not (gj.is_file() and gh.is_file()):
+            if a.refresh or not gj.is_file():
                 build_graph(env_dir)
                 rebuilt = True
             else:
@@ -1295,8 +1300,8 @@ def cmd_graph_focus(a):
         except RuntimeError as e:  # no graphify, or it failed: said below, as JSON when asked
             failed = str(e)
     error = ""
-    if not (gj.is_file() and gh.is_file()):
-        error = "no code graph: " + (failed or (notes.getvalue().strip().splitlines() or ["the graph was not built"])[-1])
+    if not gj.is_file():
+        error = "no code graph: " + (failed or f"graphify wrote no {gj}")
     elif failed and graph_stale(env_dir, data):  # a failed --refresh of a graph that is current anyway is no loss
         error = f"the code graph is older than the code and could not be rebuilt: {failed}"
     if error:
@@ -1317,8 +1322,11 @@ def cmd_graph_focus(a):
     graph = json.loads(gj.read_text(encoding="utf-8"))
     result = graphfocus.focus(graph, mode, graphfocus.refs_from_text(text),
                               graph_changes(env_dir, data) if mode == "implementation" else None)
-    (out_dir / "graph-focus.html").write_text(graphfocus.render(gh.read_text(encoding="utf-8"), result), encoding="utf-8")
-    summary = {"ok": True, "path": str(out_dir / "graph-focus.html"), "mode": mode, "stage": prog.get("phase"),
+    html = gh.read_text(encoding="utf-8") if gh.is_file() else None
+    own = graphfocus.own_page_needed(graph, html)  # a big graph: graphify drew its communities, or nothing
+    page = graphfocus.page(graph, result, own) if own else html
+    (out_dir / "graph-focus.html").write_text(graphfocus.render(page, result), encoding="utf-8")
+    summary = {"ok": True, "path": str(out_dir / "graph-focus.html"), "mode": mode, "stage": prog.get("phase"), "ownPage": own,
                "primary": len(result["primary"]), "planned": len(result["planned"]), "secondary": len(result["secondary"]),
                "neighbors": len(result["neighbors"]), "skipped": result["skipped"], "nodes": len(graph.get("nodes") or []),
                "rebuilt": rebuilt}
@@ -1335,6 +1343,7 @@ def cmd_graph_focus(a):
           + (f", {summary['planned']} named in the design and not changed yet" if summary["planned"] else "")
           + f", {summary['secondary']} more in the same files, {summary['neighbors']} linked, of {summary['nodes']}"
           + (f". Too common to place: {', '.join(summary['skipped'])}" if summary["skipped"] else "")
+          + (f"\n{own}: drew the lit part on a page of its own" if own else "")
           + ("" if not a.open else ("\nopened in the browser" if opened else "\ncould not open a browser: open the path above")))
 
 

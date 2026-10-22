@@ -321,6 +321,12 @@ def main():
         r = env_py(root, "graph-focus", "--id", "5", "--mode", "design", "--json")
         got = json.loads(r.stdout)
         assert got["mode"] == "design" and got["primary"] >= 2 and got["planned"] == 0, got
+        (gdir / "graph.html").unlink()                                                # graphify draws no page for a big graph
+        got = json.loads(env_py(root, "graph-focus", "--id", "5", "--mode", "design", "--json").stdout)
+        assert got["ok"] and "no graph.html" in got["ownPage"] and got["rebuilt"] is False, got
+        page = (gdir / "graph-focus.html").read_text(encoding="utf-8")
+        assert "var nodesDS" in page and 'id="sdd-graph-focus"' in page, page[:400]
+        (gdir / "graph.html").write_text("<html><body><script>const nodesDS = 1</script></body></html>", encoding="utf-8")
         rec["progress"] = {"flow": "bug", "phase": "Phase 4 — Reproduce and locate", "status": "active"}
         env.write_env(env_dir, rec)
         assert json.loads(env_py(root, "graph-focus", "--id", "5", "--json").stdout)["mode"] == "none"   # a stage with nothing to light

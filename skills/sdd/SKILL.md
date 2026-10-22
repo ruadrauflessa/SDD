@@ -1,6 +1,6 @@
 ---
 name: sdd
-description: 'Entry point for the spec-driven development workflows on Azure DevOps work items in a multi-repo workspace. `/sdd:sdd` with no arguments, `/sdd:help`, or `/sdd help` sends the one help page (a first-time walk-through and every command); `/sdd init` checks and (per item, with permission) installs or configures everything the workflows need, including the workspace CLAUDE.md block. `/sdd <id>` reads the work item type and routes Bug/Issue to the bug flow and story/tech story/change request to the spec flow, asks on a feature or epic whether to pick the next item under it, design it only, or build it as one piece of work, and an Ai Agent Request (a hand-over between AI agents) to the request triage, which reports on the hand-over, asks spec or bug, and sends the work to the open item it names or to a new Tech Story or Bug; `/sdd bug <id>`, `/sdd spec <id>`, `/sdd sync [<id>|all]`, `/sdd impact <id>` (or `/sdd impact all` for the whole spec, after a token-cost warning), `/sdd status <id>` reports where an item stands (so work started in one chat can resume in another), `/sdd harness <create|onboard|audit|maintain>` sets up and audits the Claude Code harness (CLAUDE.md, allowlists, hooks) of a repo or workspace, `/sdd done <id>` cleans up, `/sdd abandon <id>` stops an item, and `/sdd <id> feedback <stage>: <text>` (or the sdd view''s message "sdd feedback for <id>, stage <stage>: <text>") sends an item back to a stage with the user''s feedback, the view''s "sdd answer for <id>, stage <stage>: …" is the user''s answer to a gate question, and the view''s "sdd approve for <id>, stage <stage>" is the user''s go-ahead at a spec flow stop — each refuses and explains when the item''s state does not allow it. Use whenever the user types /sdd or asks to "sdd" a work item.'
+description: 'Entry point for the spec-driven development workflows on Azure DevOps work items in a multi-repo workspace. `/sdd:sdd` with no arguments, `/sdd:help`, or `/sdd help` sends the one help page (a first-time walk-through and every command); `/sdd init` checks and (per item, with permission) installs or configures everything the workflows need, including the workspace CLAUDE.md block. `/sdd <id>` reads the work item type and routes Bug/Issue to the bug flow and story/tech story/change request to the spec flow, asks on a feature or epic whether to pick the next item under it, design it only, or build it as one piece of work, and an Ai Agent Request (a hand-over between AI agents) to the request triage, which reports on the hand-over, asks spec or bug, and sends the work to the open item it names or to a new Tech Story or Bug; `/sdd bug <id>`, `/sdd spec <id>`, `/sdd sync [<id>|all]`, `/sdd impact <id>` (or `/sdd impact all` for the whole spec, after a token-cost warning), `/sdd status <id>` reports where an item stands (so work started in one chat can resume in another), `/sdd harness <create|onboard|audit|maintain>` sets up and audits the Claude Code harness (CLAUDE.md, allowlists, hooks) of a repo or workspace, `/sdd done <id>` cleans up, `/sdd abandon <id>` stops an item, and `/sdd <id> feedback <stage>: <text>` (or the sdd view''s message "sdd feedback for <id>, stage <stage>: <text>") sends an item back to a stage with the user''s feedback, the view''s "sdd answer for <id>, stage <stage>: …" is the user''s answer to a gate question, and the view''s "sdd approve for <id>, stage <stage>[: <option>]" is the user''s go-ahead (or the named option) at a spec flow stop or the bug flow''s Phase 6 or 11 — each refuses and explains when the item''s state does not allow it. Use whenever the user types /sdd or asks to "sdd" a work item.'
 ---
 
 # /sdd — one entry point for every sdd workflow
@@ -25,7 +25,7 @@ description: 'Entry point for the spec-driven development workflows on Azure Dev
 | `/sdd <id> feedback <stage>: <text>` | this skill, then the item's flow skill | Back to a done or waiting stage with the user's feedback; its gates and later ones are revoked |
 | `sdd review for <id>: approved` / `merged` / `rejected: <why>` | the item's flow skill | The PR's review result, from the sdd view's review buttons |
 | `sdd answer for <id>, stage <stage>: "<question>" = "<answer>"` | the item's flow skill | The user's answer to your gate question, from the sdd view |
-| `sdd approve for <id>, stage <stage>` | the item's flow skill | The user's go-ahead at a spec flow stop, from the sdd view's Approve button |
+| `sdd approve for <id>, stage <stage>[: <option>]` | the item's flow skill | The user's go-ahead (or the option named) at a spec flow stop or the bug flow's Phase 6 or 11, from a button of the sdd view |
 
 Scripts are in `${CLAUDE_PLUGIN_ROOT}/scripts/`; `${CLAUDE_PLUGIN_ROOT}/skills/workspace/SKILL.md` documents them.
 
@@ -263,18 +263,20 @@ option labels is free text, as typed under "Other". Hand over to the item's flow
 (`progress.flow`) and treat it exactly as if the user picked it in the dialog — the gate may pass
 on it. If the item no longer waits at `<stage>`, say so in one line and ask again.
 
-## `sdd approve for <id>, stage <stage>` — the go-ahead from the view
+## `sdd approve for <id>, stage <stage>[: <option>]` — a button from the view
 
-Posted as the user's own message by the **Approve** button of the sdd view. The view shows that
-button only while a spec flow item waits on the user at `Requirements`, `Design`, `Decompose` or `Verify`.
-While your gate question is still open in the chat, the button answers it directly with the
-go-ahead option, so you get it as the AskUserQuestion result and this message is not sent.
+Posted as the user's own message by a button of the sdd view. The view shows those buttons only while
+an item waits on the user at a spec flow stop (`Requirements`, `Design`, `Decompose`, `Verify`) or at
+the bug flow's `Phase 6` or `Phase 11`. While your gate question is still open in the chat, the button
+answers it directly, so you get it as the AskUserQuestion result and this message is not sent.
 
-It is the user's real yes to that stage's gate question: the go-ahead option of the spec flow's gate
-table (`Requirements` → "Approve — start Design", `Design` → "Approve — start Decompose", `Decompose` →
-"Approve — start Implement", `Verify` → "Raise the PR"). Hand over to `sdd:spec` and treat it
-exactly as if the user picked that option in the dialog — pass the stage's gate on it and go on to
-the next stage. Before you act, run `env.py status --id <id> --json`: if the item no longer waits at
+Without `: <option>` it is the user's real yes to that stage's gate question: the go-ahead option
+(`Requirements` → "Approve — start Design", `Design` → "Approve — start Decompose", `Decompose` →
+"Approve — start Implement", `Verify` → "Raise the PR", `Phase 6` → "Approve — write the failing
+test", `Phase 11` → "Verified — raise the PR"). With `: <option>` it is that option (`Phase 11:
+Start the environment`). Hand over to the item's flow skill (`sdd:spec` or `sdd:bug`) and treat it
+exactly as if the user picked that option in the dialog: pass the stage's gate on a go-ahead and go
+on. Before you act, run `env.py status --id <id> --json`: if the item no longer waits at
 `<stage>`, or the stage's open question was not the gate question (for example the tech story pick),
 say so in one line and ask again.
 

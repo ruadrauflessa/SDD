@@ -13,14 +13,17 @@ that you are waiting on their manual verification.
 
 Those three things — what you changed, whether the gates passed, what the user does now — are on the
 **diff-review** page. The chat gets one line naming the page and the statement that the PR is not
-raised yet. Nothing else.
+raised yet, then the Links block, then ask with `AskUserQuestion` (after the `--status waiting`
+checkpoint with `--gate "Manual verification"`): "Verified — raise the PR" / "Start the environment" /
+"Found a problem". Use those labels exactly: the sdd view's **Verified — raise PR** and **Start
+environment** buttons pick them. Never wait on a reply typed in prose.
 
 They will do one of four things:
 
 | They say | You do |
 | --- | --- |
-| "Start the environment" (or similar) | Invoke the **`pre-pr-verify`** skill — it brings the stack up with this bug's worktrees and hands the app back to them for testing. Then stop again and wait. |
-| "Verified / go ahead / raise the PR" | Proceed to Phase 12. |
+| "Start the environment" (or similar) | Invoke the **`pre-pr-verify`** skill — it brings the stack up with this bug's worktrees and hands the app back to them for testing. Then ask the same question again and wait. |
+| "Verified — raise the PR" (or "verified", "go ahead") | Pass `Manual verification` and proceed to Phase 12. |
 | Reports a problem | Return to the phase their finding points at — Phase 5 if the symptom persists, Phase 8 if the fix has a side effect. Re-run Phase 9, then come back to this gate. |
 | "Abandon" (or similar) | Follow Abandon in `flow-rules.md` — the branch is pushed, so its cleanup includes asking before deleting the remote branch. |
 

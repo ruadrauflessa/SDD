@@ -284,22 +284,38 @@ export function idFromScript(cmd: string): number | null {
   return m ? Number(m[1]) : null
 }
 
-/** The spec flow stops the view approves with one button: the button's label, and the go-ahead
- *  option each one's gate question offers, as the spec skill's gate table names it. */
-const APPROVE: Record<string, { label: string; option: string }> = {
-  Requirements: { label: 'Approve Spec', option: 'Approve — start Design' },
-  Design: { label: 'Approve Design', option: 'Approve — start Decompose' },
-  Decompose: { label: 'Approve Task List', option: 'Approve — start Implement' },
-  Verify: { label: 'Raise PR', option: 'Raise the PR' },
+/** The stops the view answers with a button, per flow: each button's label, and the option of that stop's gate
+ *  question it picks, as the flow's skill names it. The first is the go-ahead. */
+const APPROVE: Record<string, Record<string, { label: string; option: string }[]>> = {
+  spec: {
+    Requirements: [{ label: 'Approve Spec', option: 'Approve — start Design' }],
+    Design: [{ label: 'Approve Design', option: 'Approve — start Decompose' }],
+    Decompose: [{ label: 'Approve Task List', option: 'Approve — start Implement' }],
+    Verify: [{ label: 'Raise PR', option: 'Raise the PR' }],
+  },
+  bug: {
+    'Phase 6': [{ label: 'Approve fix', option: 'Approve — write the failing test' }],
+    'Phase 11': [{ label: 'Verified — raise PR', option: 'Verified — raise the PR' },
+      { label: 'Start environment', option: 'Start the environment' }],
+  },
+}
+
+export type GoAhead = { key: string; label: string; option: string; first: boolean }
+
+/** The buttons of the stop the item waits on: the go-ahead first. Empty unless it waits on the person at one of them. */
+export function goAheads(flow: SddFlow, item: SddItem): GoAhead[] {
+  const p = item.progress
+  if (p?.status !== 'waiting') return []
+  const key = phaseKey(flow, p.phase)
+  const list = key ? APPROVE[item.flow ?? '']?.[key] : undefined
+  return key && list ? list.map((b, i) => ({ key, ...b, first: i === 0 })) : []
 }
 
 /** The go-ahead the Approve button gives: the stage it approves, its label and the option it picks.
- *  Null unless the item is in the spec flow and waits on the person at one of those stops. */
+ *  Null unless the item waits on the person at one of the stops above. */
 export function approveFor(flow: SddFlow, item: SddItem): { key: string; label: string; option: string } | null {
-  const p = item.progress
-  if (item.flow !== 'spec' || p?.status !== 'waiting') return null
-  const key = phaseKey(flow, p.phase)
-  return key && APPROVE[key] ? { key, ...APPROVE[key] } : null
+  const go = goAheads(flow, item)[0]
+  return go ? { key: go.key, label: go.label, option: go.option } : null
 }
 
 /** The go-ahead as answers to an open question: per question, the option named `option`, else the
@@ -314,10 +330,10 @@ export function approveAnswers(questions: SddQuestion[], option: string): Record
   return out
 }
 
-/** The go-ahead as the person's own message. The sdd skill reads "sdd approve for <id>, stage <stage>"
- *  as the go-ahead option of that stage's gate question. */
-export function approveMessage(id: number, key: string): string {
-  return `sdd approve for ${id}, stage ${key}`
+/** The button as the person's own message. The sdd skill reads "sdd approve for <id>, stage <stage>" as the go-ahead
+ *  option of that stage's gate question, and "…, stage <stage>: <option>" as that option. */
+export function approveMessage(id: number, key: string, option?: string): string {
+  return `sdd approve for ${id}, stage ${key}${option ? `: ${option}` : ''}`
 }
 
 

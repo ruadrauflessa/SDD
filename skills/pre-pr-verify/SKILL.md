@@ -23,6 +23,10 @@ It is the answer to the bug flow's Phase 11 gate ("start the environment"), and 
 6. Say what you could not set up: a service left out, a database gap, a dependency down.
 7. Anything you generate goes in `.claude/scripts/`, never `scripts/` (the guard refuses).
 8. The brief is plain English: one idea per sentence; paths, ports and commands exact.
+9. Everything runs from the workspace: the worktree, never a copy of it elsewhere (the guard refuses
+   a copy, a run or a `cd` outside). A path too long for a tool (SQL, MSBuild): say which tool failed
+   on which path, and stop. Do not move the code to a shorter folder. See "The workspace is the
+   boundary" in `${CLAUDE_PLUGIN_ROOT}/skills/sdd/references/flow-rules.md`.
 
 ## Steps
 
@@ -63,11 +67,13 @@ It is the answer to the bug flow's Phase 11 gate ("start the environment"), and 
    - {a service that is off, a shared live database, anything this stack cannot show}
    - Logs: {log path}
 
-   **When you are done, tell me:** **verified** (I raise the PR) or **what went wrong** (I go back to the cause).
+   **When you are done:** pick **Verified — raise the PR**, or **Found a problem** and say what went wrong.
    ```
 
    For a UI fix add: open the browser console too (a dev server does not typecheck, so a missing import
-   shows only there). Then wait.
+   shows only there). Then, in the bug flow, ask the Phase 11 question again with `AskUserQuestion`
+   ("Verified — raise the PR" / "Start the environment" / "Found a problem"), after a `--status waiting`
+   checkpoint, and wait. Never wait on a reply typed in prose.
 
 ## On the verdict
 

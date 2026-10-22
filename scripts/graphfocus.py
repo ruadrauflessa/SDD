@@ -9,8 +9,12 @@ caller passes them in, so a test needs nothing but strings.
 
 Four tiers come out, each a list of node ids: `primary`, `planned`, `secondary` (the rest of the files it touched) and
 `neighbors` (one hop from a primary node). `render` puts them on graphify's own graph.html, which it leaves as it is.
+graphify writes no graph.html of every node for a graph over its limit (5000 nodes, or GRAPHIFY_VIZ_NODE_LIMIT): at most a
+view of its communities, whose nodes are not the code's. `page` then draws the lit nodes on a page of its own, which `render`
+paints the same way.
 """
 import json
+import os
 import re
 
 BACKTICK = re.compile(r"`([^`\n]{2,200})`")
@@ -267,3 +271,83 @@ def render(html, result):
     block = f"<script id=\"sdd-graph-focus\">{js}</script>\n"
     i = html.rfind("</body>")
     return html[:i] + block + html[i:] if i >= 0 else html + block
+
+
+VIZ_LIMIT = 5000      # graphify's own: over it, graph.html holds communities, not nodes
+PAGE_MAX = 1500       # the most nodes `page` draws: a browser stays usable
+PAGE_TOP = 300        # with nothing lit, the most-linked nodes it shows instead
+
+
+def viz_limit():
+    """The node count over which graphify draws no node page (its MAX_NODES_FOR_VIZ, or GRAPHIFY_VIZ_NODE_LIMIT)."""
+    try:
+        return int(os.environ.get("GRAPHIFY_VIZ_NODE_LIMIT") or VIZ_LIMIT)
+    except ValueError:
+        return VIZ_LIMIT
+
+
+def own_page_needed(graph, html):
+    """Why graphify's graph.html cannot carry the lit nodes ("" when it can): missing, or a view of communities."""
+    if html is None:
+        return "graphify wrote no graph.html"
+    n = len(graph.get("nodes") or [])
+    limit = viz_limit()
+    if limit <= 0 or n > limit:
+        return f"the graph has {n} nodes, over graphify's page limit of {limit}"
+    return ""
+
+
+def page(graph, result, why=""):
+    """A page of its own for a graph graphify draws no node page for: the lit tiers first, then their files and neighbours,
+    at most PAGE_MAX nodes, with the links between them. With nothing lit, the PAGE_TOP most-linked nodes. vis-network from
+    the CDN graphify uses; `nodesDS`, `edgesDS` and `network` named as graphify names them, so `render` paints it."""
+    nodes = {n["id"]: n for n in graph.get("nodes") or [] if "id" in n}
+    links = [l for l in graph.get("links") or [] if l.get("source") in nodes and l.get("target") in nodes]
+    order = []
+    for tier in ("primary", "planned", "secondary", "neighbors"):
+        order += [i for i in result.get(tier, []) if i in nodes]
+    if not order:
+        degree = {}
+        for l in links:
+            for k in (l["source"], l["target"]):
+                degree[k] = degree.get(k, 0) + 1
+        order = sorted(degree, key=lambda k: -degree[k])[:PAGE_TOP]
+    keep = list(dict.fromkeys(order))[:PAGE_MAX]
+    shown = set(keep)
+    raw_nodes = [{"id": i, "label": str(nodes[i].get("label") or i)[:80],
+                  "title": f"{nodes[i].get('source_file') or ''} {nodes[i].get('source_location') or ''}".strip(),
+                  "group": str(nodes[i].get("community", ""))} for i in keep]
+    raw_edges = [{"from": l["source"], "to": l["target"], "title": str(l.get("relation") or "")}
+                 for l in links if l["source"] in shown and l["target"] in shown]
+    left = len(nodes) - len(keep)
+    note = (f"{why}. " if why else "") + f"Showing {len(keep)} of {len(nodes)} nodes" + (
+        ": the lit ones, their files and their neighbours." if result.get("primary") or result.get("planned")
+        else ": nothing is lit at this stage, so these are the most-linked." if left else ".")
+    data = json.dumps({"nodes": raw_nodes, "edges": raw_edges, "note": note}, ensure_ascii=True).replace("</", "<\\/")
+    return PAGE_HTML.replace("__DATA__", data)
+
+
+PAGE_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><title>Code graph</title>
+<style>
+  :root { --bg: #0f0f1a; --panel: #1a1a2e; --border: #2a2a4e; --text: #e0e0e0; --text-2: #aaa; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px system-ui, sans-serif; }
+  #graph { position: absolute; inset: 0; }
+  #note { position: fixed; top: 12px; left: 12px; right: 12px; max-width: 720px; padding: 8px 12px; border-radius: 8px;
+          background: var(--panel); border: 1px solid var(--border); color: var(--text-2); z-index: 8; }
+</style>
+<script src="https://unpkg.com/vis-network@9.1.6/standalone/umd/vis-network.min.js"></script>
+</head><body>
+<div id="graph"></div><div id="note"></div>
+<script>
+var D = __DATA__;
+document.getElementById('note').textContent = D.note;
+var nodesDS = new vis.DataSet(D.nodes.map(function (n) { return { id: n.id, label: n.label, title: n.title, group: n.group,
+  font: { color: '#e0e0e0' }, color: { background: '#4a5a7a', border: '#6a7a9a' }, size: 10, shape: 'dot' }; }));
+var edgesDS = new vis.DataSet(D.edges.map(function (e, i) { return { id: i, from: e.from, to: e.to, title: e.title,
+  color: { color: '#555', opacity: 0.5 }, arrows: { to: { enabled: true, scaleFactor: 0.4 } } }; }));
+var network = new vis.Network(document.getElementById('graph'), { nodes: nodesDS, edges: edgesDS },
+  { physics: { solver: 'forceAtlas2Based', stabilization: { iterations: 200 } }, interaction: { hover: true, tooltipDelay: 100 } });
+</script>
+</body></html>
+"""

@@ -61,6 +61,8 @@ validation or rendering fails, fall back to full. Never use quick for slides, fa
      (resolve the folder by glob, as the flows do). It survives `/sdd done` and sits next to
      `requirements.md` / `design.md`. Overwrite the same name when you revise; add `-2`, `-3` only
      when the user should be able to compare versions.
+   - In an sdd workspace (`.claude/sdd.json`), no work item: `.claude/sdd/visuals/<descriptive-name>.html`.
+     Nothing is written outside the workspace there (`hooks/bounds_guard.py` refuses it).
    - Anywhere else: `~/.agent/diagrams/<descriptive-name>.html`.
    - Quick-mode spec JSON: next to the HTML, same base name, `.json`.
 2. **Show it.** `SendUserFile` with `display: "render"` and `status: "normal"` when that tool exists

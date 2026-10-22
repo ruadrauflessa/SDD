@@ -903,6 +903,18 @@ def graph_focus():
     html = gf.render("<html><body><p>x</p></body></html>", {**gf.focus(g, "design", gf.refs_from_text("`beta`"), None), "labels": {"b": "</script><b>"}})
     assert html.count("</script>") == 1 and html.index('id="sdd-graph-focus"') < html.index("</body>"), html   # a label cannot close the tag
     assert gf.render("<html></html>", gf.focus(g, "none", None, None)) == "<html></html>"
+    # a graph too big for graphify's page (or with none): a page of its own, painted the same way
+    assert gf.own_page_needed(g, None) and gf.own_page_needed(g, "<html></html>") == ""
+    big = {"nodes": [node(f"x{i}", f"x{i}()", "R/x.py", i) for i in range(gf.VIZ_LIMIT + 1)], "links": [{"source": "x1", "target": "x2"}]}
+    assert "over graphify's page limit" in gf.own_page_needed(big, "<html></html>")
+    lit = gf.focus(g, "design", gf.refs_from_text("`beta`"), None)
+    own = gf.page(g, lit, "too big")
+    assert "var nodesDS" in own and "var network" in own and "too big. Showing 3 of 5 nodes" in own, own   # beta, its file's two
+    assert 'id="sdd-graph-focus"' in gf.render(own, lit)
+    quiet = gf.page(big, gf.focus(big, "none", None, None))
+    assert '"id": "x1"' in quiet and '"id": "x0"' not in quiet, quiet[:300]                      # nothing lit: the most-linked
+    labelled = gf.page({"nodes": [node("q", "</script><b>", "R/q.py", 1)]}, {"primary": ["q"]})
+    assert labelled.count("</script>") == 2, labelled                                            # a label cannot close the tag
     assert env.stage_lens("spec", "Design (reading)") == "design" and env.stage_lens("spec", "Implement (task 2/4)") == "implementation"
     assert env.stage_lens("bug", "Phase 8 — Apply the fix") == "implementation" and env.stage_lens("bug", "Phase 5") is None
 
@@ -957,7 +969,7 @@ def config_upgrade():
         before = {"specRoot": "docs/spec", "ado": {"org": "Org", "projects": ["P"]}}
         path.write_text(json.dumps(before))
         assert sddlib.load_config(root)["agents"]["models"] == {"investigator": "sonnet", "skeptic": "opus"}
-        assert sddlib.upgrade_config(root) == ["agents.models.investigator", "agents.models.skeptic"] + ["next.weights.priority", "next.weights.severity", "next.weights.complexity", "next.complexity"] + ["bugs.folder", "bugs.categories", "progress.measure", "plan.field"]
+        assert sddlib.upgrade_config(root) == ["agents.models.investigator", "agents.models.skeptic"] + ["next.weights.priority", "next.weights.severity", "next.weights.complexity", "next.complexity"] + ["bugs.folder", "bugs.categories", "progress.measure", "plan.field", "bounds.allow"]
         got = json.loads(path.read_text())
         assert got["progress"] == {"measure": "count"}
         assert got["bugs"] == {"folder": ".bugs", "categories": sddlib.DEFAULTS["bugs"]["categories"]}
@@ -969,14 +981,14 @@ def config_upgrade():
         path.write_text(json.dumps({**before, "agents": {"models": {"skeptic": "sonnet"}, "x": 1},
                                     "next": {"weights": {"priority": 70}, "complexity": "simple-first"},
                                     "bugs": {"folder": ".bugs", "categories": []}, "progress": {"measure": "points"},
-                                    "plan": {"field": "Custom.Plan"}}))
+                                    "plan": {"field": "Custom.Plan"}, "bounds": {"allow": ["D:/data"]}}))
         assert sddlib.upgrade_config(root) == ["agents.models.investigator", "next.weights.severity",
                                                "next.weights.complexity"]
         assert json.loads(path.read_text())["next"]["weights"]["priority"] == 70     # a tuned weight stays
         assert sddlib.load_config(root)["next"]["complexity"] == "simple-first"
         got = json.loads(path.read_text())
         assert got["agents"] == {"models": {"skeptic": "sonnet", "investigator": "sonnet"}, "x": 1}  # set value kept
-        path.write_text(json.dumps({**before, "agents": "opus", "next": dict(sddlib.DEFAULTS["next"]), "bugs": "off", "progress": "off", "plan": "off"}))
+        path.write_text(json.dumps({**before, "agents": "opus", "next": dict(sddlib.DEFAULTS["next"]), "bugs": "off", "progress": "off", "plan": "off", "bounds": "off"}))
         assert sddlib.upgrade_config(root) == [] and json.loads(path.read_text())["agents"] == "opus"
         assert sddlib.load_config(root)["agents"]["models"]["skeptic"] == "opus"
         path.write_text(json.dumps({**before, "agents": {"models": {"investigator": "gpt-4"}}}))

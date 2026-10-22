@@ -57,6 +57,9 @@ DEFAULTS = {
     # a Feature's or Epic's agreed design on the board (env.py plan): the rich-text field each item's part goes in, and
     # whether claiming an item makes its feature and epic Active, and handing over the last one under them resolves them
     "plan": {"field": "Custom.ImplementationPlan", "parents": True, "activeState": "Active", "resolvedState": "Resolved"},
+    # the trusted workspace: hooks/bounds_guard.py refuses a run, a write or a cd outside it; folders the person trusts too
+    # (absolute, ~ allowed) go here. Claude's own ~/.claude and the plugin are always open
+    "bounds": {"allow": []},
     # the bug manager (/sdd-bugs): where it keeps the synced bugs and issues, and how it sorts them into categories
     "bugs": json.loads(BUGS_DEFAULTS.read_text(encoding="utf-8")),
     # the progress page (/sdd-progress): how far each epic is, from the synced specs (scripts/progress.py).
@@ -82,7 +85,7 @@ AGENT_MODELS = ("sonnet", "opus", "haiku")
 UPGRADE_KEYS = [("agents", "models", "investigator"), ("agents", "models", "skeptic"),
                 ("next", "weights", "priority"), ("next", "weights", "severity"), ("next", "weights", "complexity"),
                 ("next", "complexity"), ("bugs", "folder"), ("bugs", "categories"), ("progress", "measure"),
-                ("plan", "field")]
+                ("plan", "field"), ("bounds", "allow")]
 
 TYPE_SEGMENT = {
     "User Story": "story", "Product Backlog Item": "story", "Change Request": "story",
@@ -134,6 +137,8 @@ def load_config(root):
                       "inProgress": {**DEFAULTS["next"]["inProgress"], **(nxt.get("inProgress") or {})}}
     plan = cfg.get("plan") if isinstance(cfg.get("plan"), dict) else {}
     merged["plan"] = {**DEFAULTS["plan"], **plan}
+    bounds = cfg.get("bounds") if isinstance(cfg.get("bounds"), dict) else {}
+    merged["bounds"] = {**DEFAULTS["bounds"], **bounds}
     merged["bugs"] = merge_bugs(cfg.get("bugs"))
     prog = cfg.get("progress") if isinstance(cfg.get("progress"), dict) else {}
     merged["progress"] = {**DEFAULTS["progress"], **prog,

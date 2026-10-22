@@ -110,6 +110,14 @@ folder at Phase 2, the push at Phase 10 and the PR at Phase 12.
 
 ## Gates
 
+The two stops the user answers are asked with `AskUserQuestion`, with these labels as written: the sdd
+view's buttons pick them, or post `sdd approve for <id>, stage <stage>[: <option>]` once the dialog has
+closed. Treat either as the user's choice of that option.
+
+- Phase 6: "Approve — write the failing test" / "Needs changes" (button **Approve fix**)
+- Phase 11: "Verified — raise the PR" / "Start the environment" / "Found a problem" (buttons
+  **Verified — raise PR**, **Start environment**)
+
 | Gate | Pass it when | Needed by |
 | --- | --- | --- |
 | `Claimed` | Phase 1: assigned, `Active`, `Dev In Progress` written | Phase 2–6 |
