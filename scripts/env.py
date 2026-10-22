@@ -43,8 +43,9 @@ Commands (run from anywhere inside the workspace):
                                              Epic only, no claim, the flow ends after Design)
     upstream --id N [--cached] [--json]      the designs agreed above N (a feature's or an epic's), read off the board,
                                              and their questions that hold for N (settled, open): what N starts from
-    brief  --id N [--post --confirmed WORDS] a Feature's or Epic's agreed design, carried to the board: a comment on
-                                             it and on each open item under it (without --post: written to briefs/)
+    plan   --id N [--post --confirmed WORDS] a Feature's or Epic's agreed design, carried to the board: the whole design
+                                             into its Implementation Plan field, each item's part into that item's, and
+                                             the order as predecessor and successor links (without --post: plans/)
     members --id N [--set IDS --confirmed WORDS] [--json]
                                              a Feature or Epic built as one piece of work: the items under it, and
                                              the ones the user picked for the build (claimed, linked, handed over with it)
@@ -437,7 +438,7 @@ def spec_folder(root, cfg, wid):
     return hits[0] if hits else None
 
 
-UPSTREAM = "upstream.json"  # in an item's spec folder: the briefs above it, as last read off the board
+UPSTREAM = "upstream.json"  # in an item's spec folder: the plans above it, as last read off the board
 
 
 def metrics_items(root, cfg):
@@ -450,13 +451,14 @@ def metrics_items(root, cfg):
 
 def upstream(root, cfg, wid, items=None):
     """The designs agreed above `wid`, nearest first: [{id, type, title, folder, design, questions, at, answered, open,
-    source}]. `answered` / `open`: that design's settled and still-open questions that hold for `wid`. `source` is
-    "local" (the design's spec folder is in this workspace) or "ado" (its brief, read off the board by
-    env.py upstream into this item's spec folder: upstream.json and upstream-<id>.md)."""
+    source, plan}]. `answered` / `open`: the settled and still-open questions that hold for `wid`. `source` is "local"
+    (the design's spec folder is in this workspace) or "ado" (its plan block, read off the board by env.py upstream
+    into this item's spec folder: upstream.json and upstream-<id>.md). `plan`, from the board: {starts, stops, in,
+    out, needs, gives, decisions} for the item the block is for."""
     items = metrics_items(root, cfg) if items is None else items
     own = spec_folder(root, cfg, wid)
     try:
-        cached = {int(b["id"]): b for b in json.loads((own / UPSTREAM).read_text(encoding="utf-8")).get("briefs") or []} \
+        cached = {int(b["id"]): b for b in json.loads((own / UPSTREAM).read_text(encoding="utf-8")).get("plans") or []} \
             if own and (own / UPSTREAM).is_file() else {}
     except (ValueError, KeyError, TypeError):
         cached = {}
@@ -464,7 +466,14 @@ def upstream(root, cfg, wid, items=None):
     for a in scope.ancestors(items, wid):
         sp = spec_folder(root, cfg, a["id"])
         rec = sp / scope.DONE_FILE if sp else None
-        if rec and rec.is_file():
+        if a["id"] in cached and (own / cached[a["id"]]["file"]).is_file():
+            b = cached[a["id"]]  # the board first: it is what every developer sees
+            parts = scope.block_parts((own / b["file"]).read_text(encoding="utf-8"))
+            out.append({"id": a["id"], "type": a["type"], "title": a["title"], "folder": sp.name if sp else None,
+                        "design": str(own / b["file"]), "questions": None, "at": b.get("at", ""),
+                        "answered": parts["settled"], "open": parts["open"], "source": "ado", "for": b.get("for"),
+                        "plan": {k: parts[k] for k, _ in scope.PARTS[:7]}})
+        elif rec and rec.is_file():
             try:
                 agreed = json.loads(rec.read_text(encoding="utf-8"))
             except ValueError:
@@ -474,19 +483,12 @@ def upstream(root, cfg, wid, items=None):
             out.append({"id": a["id"], "type": a["type"], "title": a["title"], "folder": sp.name,
                         "design": str(sp / "design.md"), "questions": str(q) if q.is_file() else None,
                         "at": agreed.get("at", ""), "answered": scope.answered_for(qt, wid),
-                        "open": scope.questions(qt, wid, ticked=False), "source": "local"})
-        elif a["id"] in cached and (own / cached[a["id"]]["file"]).is_file():
-            b = cached[a["id"]]
-            settled, still = scope.brief_parts((own / b["file"]).read_text(encoding="utf-8"))
-            out.append({"id": a["id"], "type": a["type"], "title": a["title"], "folder": None,
-                        "design": str(own / b["file"]), "questions": None, "at": b.get("at", ""),
-                        "answered": settled, "open": [q for q in still if q != "(none)"], "source": "ado",
-                        "for": b.get("for"), "comment": b.get("comment")})
+                        "open": scope.questions(qt, wid, ticked=False), "source": "local", "plan": None})
     return out
 
 
 def upstream_read(own):
-    """When the briefs above an item were last read off the board ("" if never)."""
+    """When the plans above an item were last read off the board ("" if never)."""
     try:
         return json.loads((own / UPSTREAM).read_text(encoding="utf-8")).get("fetched") or "" if own else ""
     except (OSError, ValueError, AttributeError):
@@ -494,29 +496,29 @@ def upstream_read(own):
 
 
 def fetch_upstream(root, cfg, wid, items=None):
-    """Read the design briefs that hold for `wid` off the board: the comments on it and on each item above it.
-    Saves them in its spec folder (upstream.json, upstream-<source id>.md) for upstream() and env.py can. -> count."""
+    """Read the plans that hold for `wid` off the board: the Implementation Plan field of it and of each item above
+    it. Saves them in its spec folder (upstream.json, upstream-<source id>.md) for upstream() and env.py can. -> count."""
     items = metrics_items(root, cfg) if items is None else items
     own = spec_folder(root, cfg, wid)
     if not own:
         die(f"{wid} has no spec folder yet: spec.py sync --id {wid}")
     chain = [int(wid)] + [a["id"] for a in scope.ancestors(items, wid)]
+    field = cfg["plan"]["field"]
     found = []
-    for x in chain:
-        for c in adowrite.comments(cfg, item_project(root, cfg, x, None)[0], x):
-            head = scope.brief_head(c["text"])
-            if head and head[2] == x:  # a brief counts only on the item it is for
-                found.append({"head": head, "md": scope.html_to_md(c["text"]), "comment": c.get("id"), "on": x})
-    picked = scope.pick_briefs(chain, found)
+    for w in get_items(cfg, chain, fields=[field]):
+        for b in scope.read_blocks((w.get("fields") or {}).get(field) or ""):
+            if b["head"][2] == w["id"]:  # a block counts only on the item it is for
+                found.append(b)
+    picked = scope.pick_plans(chain, found)
     for f in own.glob("upstream-*.md"):
         f.unlink()
     rows = []
     for src, b in picked.items():
         name = f"upstream-{src}.md"
         (own / name).write_text(b["md"], encoding="utf-8")
-        rows.append({"id": src, "type": b["head"][0], "for": b["head"][2], "at": b["head"][3], "comment": b["comment"],
-                     "file": name})
-    (own / UPSTREAM).write_text(json.dumps({"fetched": now(), "briefs": rows}, indent=2) + "\n", encoding="utf-8")
+        rows.append({"id": src, "type": b["head"][0], "for": b["head"][2], "at": b["head"][3], "file": name})
+    (own / UPSTREAM).write_text(json.dumps({"fetched": now(), "field": field, "plans": rows}, indent=2) + "\n",
+                                encoding="utf-8")
     return len(rows)
 
 
@@ -535,7 +537,8 @@ def design_marker(root, cfg, data, agreed):
 
 def gate_problems(root, cfg, flow, data, gate):
     """What stops a gate for the feature or epic around the item: a child design that does not point to the design
-    agreed above it; a design-only pass that skips an open child; a whole build whose tasks miss one of its items."""
+    agreed above it, or leaves out an item its plan says builds what is out of its scope; a feature's or epic's design
+    without a sound work item plan; a whole build whose tasks miss one of its items."""
     if flow != "spec":
         return []
     wid, out = data.get("id"), []
@@ -547,11 +550,14 @@ def gate_problems(root, cfg, flow, data, gate):
             if not scope.points_to(design, up["id"], up["folder"]):
                 out.append(f"design.md does not point to the design agreed above it: {up['type']} ADO {up['id']} "
                            f"({up['design']}). Start from it, name it (ADO {up['id']}), and say where this design departs from it")
-        if path_rule(flow, data).get("endsAfter"):
-            missed = [c for c in scope.open_children(items, wid, cfg["doneStates"]) if not scope.mentions(design, c)]
-            if missed:
-                out.append("a design-only pass thinks through every open item directly under it; design.md does not "
-                           "name " + ", ".join(f"ADO {c}" for c in missed))
+            others = [n for line in ((up.get("plan") or {}).get("out") or []) for n in scope.ids_in(line)
+                      if not scope.mentions(design, n)]
+            if others:
+                out.append(f"{up['type']} ADO {up['id']}'s plan puts work of " + ", ".join(f"ADO {n}" for n in others)
+                           + " out of this item's scope; design.md does not say so. Name each under Out of scope, "
+                           "with what it builds, and do not build it here")
+        if data.get("type") in scope.CONTAINERS and scope.under(items, wid):
+            out += scope.plan_problems(design, items, wid, cfg["doneStates"])
     if gate == "Tasks written" and data.get("members"):
         tasks = (sp / "tasks.md").read_text(encoding="utf-8") if sp and (sp / "tasks.md").is_file() else ""
         left = scope.uncovered(tasks, data["members"])
@@ -561,17 +567,17 @@ def gate_problems(root, cfg, flow, data, gate):
     return out
 
 
-def brief_due(flow, data):
+def plan_due(flow, data):
     """Why a Feature's or Epic's flow cannot go past Design yet: its agreed design is not on the board since it was
-    last agreed (env.py brief). None when it is, or when this is not a feature or epic."""
+    last agreed (env.py plan). None when it is, or when this is not a feature or epic."""
     agreed = (data.get("gates") or {}).get("Design agreed")
     if flow != "spec" or data.get("type") not in scope.CONTAINERS or not agreed:
         return None
-    if ((data.get("briefs") or {}).get("at") or "") >= agreed:
+    if ((data.get("plans") or {}).get("at") or "") >= agreed:
         return None
     wid = data.get("id")
-    return (f"the agreed design of {wid} is not on the board yet, so the items under it would ask again what it "
-            f"settled: env.py brief --id {wid}, show the user, then env.py brief --id {wid} --post --confirmed \"<their words>\"")
+    return (f"the agreed design of {wid} is not on the board yet, so the items under it do not know their part: "
+            f"env.py plan --id {wid}, show the user, then env.py plan --id {wid} --post --confirmed \"<their words>\"")
 
 
 def item_project(root, cfg, wid, data):
@@ -1741,7 +1747,7 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
         read = upstream_read(own)
         if (flow == "spec" and keys.index("Specify") < keys.index(key) <= keys.index("Design") and own
                 and read[:10] != now()[:10] and any(x["type"] in scope.CONTAINERS for x in scope.ancestors(items, wid))):
-            # the stages that ask and design: a brief may have gone up since, from anyone's workspace
+            # the stages that ask and design: a plan may have gone up since, from anyone's workspace
             reasons.append(f"read the board for a design agreed above {wid} first ("
                            + (f"last read {read[:10]}" if read else "not read yet")
                            + f"; a feature or epic designed by anyone): env.py upstream --id {wid}")
@@ -1751,7 +1757,7 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
                             + (f"; {len(up['open'])} left open for it" if up["open"] else "") + ")"
                             if up["answered"] or up["open"] else "")
                          + f". env.py upstream --id {wid} lists them")
-        late = brief_due(flow, data)
+        late = plan_due(flow, data)
         if late and keys.index(key) > keys.index("Design"):
             reasons.append(late)
         end = path_rule(flow, data).get("endsAfter")
@@ -1825,7 +1831,7 @@ def check_op(root, cfg, wid, op, flow=None, phase=None):
             continue
         if st != "completed":
             reasons.append(f"{n}: PR {r['pr']['url']} is {st}, not merged yet")
-    late = brief_due(flow, data)
+    late = plan_due(flow, data)
     if late:
         reasons.append(late)
     if path_rule(flow, data).get("noClaim"):
@@ -1916,8 +1922,9 @@ def cmd_path(a):
 
 
 def cmd_upstream(a):
-    """The designs agreed above an item, and their questions that hold for it: settled (not asked again) and open.
-    Reads the briefs off the board first (a design agreed in another developer's workspace), unless --cached."""
+    """The designs agreed above an item: where its work starts and stops, its scope, what it needs and gives, the
+    decisions made, and the questions settled and open. Reads the plans off the board first (a design agreed in any
+    developer's workspace), unless --cached."""
     root = require_root()
     cfg = load_config(root)
     items = metrics_items(root, cfg)
@@ -1927,28 +1934,33 @@ def cmd_upstream(a):
         try:
             fetch_upstream(root, cfg, a.id, items)
         except RuntimeError as e:
-            print(f"warning: could not read the briefs off the board ({str(e)[:160]}); showing the last ones read",
+            print(f"warning: could not read the plans off the board ({str(e)[:160]}); showing the last ones read. "
+                  f"Is {cfg['plan']['field']} the Implementation Plan field? Set plan.field in .claude/sdd.json",
                   file=sys.stderr)
     ups = upstream(root, cfg, a.id, items)
     if a.json:
         print(json.dumps(ups, indent=2, ensure_ascii=False))
         return
     if not ups:
-        print(f"No design is agreed above {a.id}: nothing above it settles a question yet")
+        print(f"No design is agreed above {a.id}: nothing above it plans its part yet")
         return
     for up in ups:
-        where = "" if up["source"] == "local" else f" (its brief on ADO {up['for']})"
+        where = "" if up["source"] == "local" else f" (its plan for ADO {up['for']}, on the board)"
         print(f"{up['type']} ADO {up['id']} {up['title']}: design agreed {up['at'][:10]}{where}\n  read {up['design']}")
+        for k, title in scope.PARTS[:7]:
+            for v in (up.get("plan") or {}).get(k) or []:
+                print(f"  {title.split(':')[0].split(' (')[0].lower()}: {v}")
         for q in up["answered"]:
             print(f"  settled: {q}")
         for q in up["open"]:
             print(f"  open: {q}")
 
 
-def cmd_brief(a):
-    """Carry a Feature's or Epic's agreed design to the board: one comment on the item (the whole design) and one on
-    each open item under it (what it decides for that item, what holds for all, settled and open questions), so
-    another developer's sdd run starts from it. Without --post it writes the briefs to briefs/ to show the user."""
+def cmd_plan(a):
+    """Carry a Feature's or Epic's agreed design to the board, so any developer's sdd run on an item under it knows
+    its part: the whole design into the item's own Implementation Plan field; into each item the work item plan names,
+    only that item's part (where it starts and stops, in and out of scope, what it needs and gives, the decisions and
+    questions that are its); and the plan's order as predecessor links. Without --post it writes them to plans/."""
     root = require_root()
     cfg = load_config(root)
     env_dir = find_env(root, cfg, a.id)
@@ -1956,10 +1968,10 @@ def cmd_brief(a):
         die(f"{a.id} has no work item folder: its design is agreed in the flow first (/sdd {a.id} design)")
     data = read_env(env_dir)
     if data.get("type") not in scope.CONTAINERS:
-        die(f"{a.id} is a {data.get('type')}: a design brief goes from a Feature or Epic to the items under it")
+        die(f"{a.id} is a {data.get('type')}: a work item plan goes from a Feature or Epic to the items under it")
     agreed = (data.get("gates") or {}).get("Design agreed")
     if not agreed:
-        die(f"the design of {a.id} is not agreed yet: the brief carries an agreed design only")
+        die(f"the design of {a.id} is not agreed yet: only an agreed design goes on the board")
     items = metrics_items(root, cfg)
     if str(a.id) not in items:
         die(f"{a.id} is not synced yet: spec.py sync --id {a.id}")
@@ -1970,57 +1982,71 @@ def cmd_brief(a):
         die(f"{sp / 'design.md'} is empty: nothing to carry")
     found = mentions(design + "\n" + qs)
     if found:
-        die(f"design.md or questions.md names {', '.join(sorted(set(found)))}. ADO reads `#<id>` in a comment as a "
-            f"mention; write `ADO {found[0][1:]}` there first")
-    targets = [a.id] + scope.brief_targets(items, a.id, design, cfg["doneStates"])
+        die(f"design.md or questions.md names {', '.join(sorted(set(found)))}. ADO reads `#<id>` as a mention; "
+            f"write `ADO {found[0][1:]}` there first")
+    bad = scope.plan_problems(design, items, a.id, cfg["doneStates"]) if scope.under(items, a.id) else []
+    if bad:
+        die("the work item plan in design.md is not ready:\n  " + "\n  ".join(bad))
+    targets = scope.plan_targets(design, items, a.id, cfg["doneStates"])
+    _, plan = scope.item_plan(design)
+    order = [(p, q) for p, q in scope.edges(plan) if q in targets]  # a link goes on the item that waits
     src = {"id": a.id, "type": data.get("type"), "title": data.get("title") or items[str(a.id)].get("title")}
-    out = sp / "briefs"
+    out = sp / "plans"
     out.mkdir(exist_ok=True)
-    briefs = {}
+    blocks = {}
     for t in targets:
-        md = scope.brief_md(src, t, design, qs, agreed, targets[1:])
+        md = scope.block_md(src, t, design, qs, agreed)
         (out / f"{t}.md").write_text(md, encoding="utf-8")
         html_text = scope.md_to_html(md)
-        if len(html_text) > scope.MAX_BRIEF:
-            html_text = html_text[:html_text.rfind("\n", 0, scope.MAX_BRIEF)] + (
-                f"\n<div>(cut here: too long for one comment. The whole design is on ADO {a.id}.)</div>" if t != a.id
-                else "\n<div>(cut here: too long for one comment. Ask the feature's owner for the rest.)</div>")
-        briefs[t] = html_text
+        if len(html_text) > scope.MAX_BLOCK and t == a.id:
+            md = scope.block_md(src, t, design.split("\n## ")[0] + f"\n\n(The rest is too long for the field: ask "
+                                f"the owner of ADO {a.id} for design.md.)", qs, agreed)
+            html_text = scope.md_to_html(md)
+        blocks[t] = html_text
     if not a.post:
         if a.json:
-            print(json.dumps({"targets": targets, "folder": str(out)}, indent=2))
+            print(json.dumps({"targets": targets, "order": order, "folder": str(out)}, indent=2))
             return
-        print(f"The design of {src['type']} ADO {a.id} goes to {len(targets)} item(s) as a comment each:")
+        print(f"The design of {src['type']} ADO {a.id} goes into the {cfg['plan']['field']} field of {len(targets)} item(s):")
         for t in targets:
             it = items.get(str(t)) or {}
             print(f"  ADO {t} {it.get('type', src['type'])}: {it.get('title', src['title'])}  ({out / f'{t}.md'})")
-        print(f"Show them to the user, then post with their words: env.py brief --id {a.id} --post --confirmed \"<their words>\"")
+        for p, q in order:
+            print(f"  ADO {p} before ADO {q} (a predecessor link on ADO {q})")
+        print(f"Show them to the user, then post with their words: env.py plan --id {a.id} --post --confirmed \"<their words>\"")
         return
     if not (a.confirmed or "").strip():
-        die("posting the design onto the board is the user's choice: show them briefs/, then pass their words with --confirmed")
-    posted, errors = {}, []
-    for t, html_text in briefs.items():
-        project = item_project(root, cfg, t, None)[0]
+        die("writing the plan onto the board is the user's choice: show them plans/, then pass their words with --confirmed")
+    field, written, errors = cfg["plan"]["field"], {}, []
+    for t in targets:
+        preds = [p for p, q in order if q == t]
+
+        def decide(w, t=t, preds=preds):
+            ops = []
+            have = (w.get("fields") or {}).get(field) or ""
+            new = scope.merge_block(have, a.id, blocks[t])
+            if scope.html_to_md(new) != scope.html_to_md(have):
+                ops.append(adowrite.add(field, new))
+            for p in preds:
+                ops += adowrite.link_op(w.get("relations"), adowrite.PREDECESSOR, adowrite.item_url(cfg, p),
+                                        f"sdd plan of ADO {a.id}")
+            return ops
         try:
-            mine = [c for c in adowrite.comments(cfg, project, t)
-                    if (scope.brief_head(c["text"]) or (None, None, None))[1:3] == (a.id, t)]
-            if mine and scope.html_to_md(mine[-1]["text"]) == scope.html_to_md(html_text):
-                posted[t] = mine[-1]["id"]
-                print(f"  ADO {t}: brief unchanged")
-            elif mine:
-                adowrite.edit_comment(cfg, project, t, mine[-1]["id"], html_text)
-                posted[t] = mine[-1]["id"]
-                print(f"  ADO {t}: brief updated")
-            else:
-                posted[t] = (adowrite.comment(cfg, project, t, html_text) or {}).get("id")
-                print(f"  ADO {t}: brief posted")
-        except (RuntimeError, adowrite.Refused) as e:
-            errors.append(f"ADO {t}: {str(e)[:160]}")
-    data["briefs"] = {"at": now() if not errors else "", "confirmed": a.confirmed.strip(), "items": posted}
+            _, ops = adowrite.write(cfg, t, decide, whole=True)
+            written[t] = bool(ops)
+            links = sum(1 for o in ops if o["path"].startswith("/relations"))
+            print(f"  ADO {t}: " + ("plan written" if any(o["path"].startswith("/fields") for o in ops) else "plan unchanged")
+                  + (f", {links} predecessor link(s) added" if links else ""))
+        except (RuntimeError, adowrite.Refused, adowrite.Conflict) as e:
+            errors.append(f"ADO {t}: {str(e)[:200]}")
+    data["plans"] = {"at": now() if not errors else "", "confirmed": a.confirmed.strip(), "field": field,
+                     "items": sorted(written), "order": [list(e) for e in order]}
     write_env(env_dir, data)
     if errors:
-        die("some briefs did not go out; run the same command again:\n  " + "\n  ".join(errors))
-    print(f"{a.id}: the design is on the board ({len(posted)} item(s)). Another developer's /sdd on one of them starts from it")
+        die("some plans did not go out; fix what it says and run the same command again:\n  " + "\n  ".join(errors)
+            + (f"\n(a 400 on the field: is {field} the Implementation Plan field? Set plan.field in .claude/sdd.json)"))
+    print(f"{a.id}: the design is on the board ({len(targets)} item(s)). Any developer's /sdd on one of them starts from "
+          "its part, and /sdd next takes the order into account")
 
 
 def cmd_members(a):
@@ -2328,11 +2354,11 @@ def main():
     s.add_argument("--confirmed", metavar="WORDS", help="the user's own words choosing it")
     s = sp.add_parser("upstream", help="the designs agreed above an item (read off the board), and their questions that hold for it")
     s.add_argument("--id", type=int, required=True)
-    s.add_argument("--cached", action="store_true", help="the briefs last read; do not ask ADO")
+    s.add_argument("--cached", action="store_true", help="the plans last read; do not ask ADO")
     s.add_argument("--json", action="store_true")
-    s = sp.add_parser("brief", help="carry a Feature's or Epic's agreed design to the items under it, as ADO comments")
+    s = sp.add_parser("plan", help="carry a Feature's or Epic's agreed design to the board: Implementation Plan fields and predecessor links")
     s.add_argument("--id", type=int, required=True)
-    s.add_argument("--post", action="store_true", help="post them (without it: write them to briefs/ to show the user)")
+    s.add_argument("--post", action="store_true", help="write them (without it: write them to plans/ to show the user)")
     s.add_argument("--confirmed", metavar="WORDS", help="with --post: the user's own words agreeing to it")
     s.add_argument("--json", action="store_true")
     s = sp.add_parser("members", help="the items under a Feature or Epic that a whole build covers: list, or --set with the user's words")
@@ -2391,7 +2417,7 @@ def main():
     a = ap.parse_args()
     {"init": cmd_init, "help": cmd_help, "doctor": cmd_doctor, "progress": cmd_progress, "refs": cmd_refs, "can": cmd_can, "type": cmd_type, "new": cmd_new, "status": cmd_status, "view": cmd_view, "reopen": cmd_reopen, "graph": cmd_graph, "graph-focus": cmd_graph_focus,
      "pr": cmd_pr, "remove": cmd_remove, "upgrade-config": cmd_upgrade_config, "run": cmd_run,
-     "revert-check": cmd_revert_check, "verify": cmd_verify, "path": cmd_path, "upstream": cmd_upstream, "brief": cmd_brief, "members": cmd_members, "cost": cmd_cost,
+     "revert-check": cmd_revert_check, "verify": cmd_verify, "path": cmd_path, "upstream": cmd_upstream, "plan": cmd_plan, "members": cmd_members, "cost": cmd_cost,
      "anchors": cmd_anchors, "stack": cmd_stack, "stack-gate": cmd_stack_gate}[a.cmd](a)
 
 

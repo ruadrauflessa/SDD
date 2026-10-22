@@ -19,7 +19,9 @@ The PR is open and waits on its reviewers. The user answers in the chat, or with
    `Dev Completed` and `Resolved` and appends the tag, in one rev-tested write. **A feature or epic
    built whole** hands over each member the same way (`spec.py handover --id <m> --tag <version>`; an
    Issue among them needs its root cause and resolution files, as the bug flow writes them):
-   `/sdd done` refuses while one is still open.
+   `/sdd done` refuses while one is still open. When the item handed over was the last open one
+   under its feature, `handover` resolves the feature too, and the epic above when that was its
+   last. Say so to the user.
 4. **"Merged" only** — `env.py remove --id <id>` (dry run, shown to the user), then `--yes`, then
    archive this session: `mcp__ccd_session_mgmt__archive_session`, `session_id: "self"`, `reason`
    naming the merged PR. This is cleanup, done together, no separate question — the "Merged" answer

@@ -66,12 +66,22 @@ to this one.
   settled, and `env.py` refuses the item's own "Design agreed" until `design.md` names the design
   above (`ADO <id>`). The design path exists for this: design and question a feature once, and every
   story under it starts with its questions answered.
-- **On the board, for everyone.** Another developer's workspace has none of these files. So a
-  Feature's or Epic's agreed design goes to ADO (Design step 9): `env.py brief` posts a comment on
-  it and on each open item under it, with what the design decides for that item and which
-  questions are settled or still open. `env.py upstream` reads them back on the other side; `env.py
-  can` refuses Open Questions, Requirements and Design until the board was read that day, and
-  refuses the feature's own flow past Design until its agreed design is posted.
+- **The work item plan** (Design step 6). A Feature's or Epic's design ends with an entry per item
+  under it: where the work starts and stops, what is in and out of its scope (and which item builds
+  what is out), what it needs from other items and gives them, and the decisions it follows.
+  `env.py` refuses "Design agreed" until the plan holds.
+- **On the board, for everyone** (Design step 9). Another developer's workspace has none of these
+  files. `env.py plan` writes the whole design into the feature's or epic's **Implementation Plan**
+  field, and each item's part into that item's own field. It writes nothing into the discussion.
+  The plan's order becomes predecessor and successor links. `env.py upstream` reads an item's part
+  back on the other side. `env.py can` refuses Open Questions, Requirements and Design until the
+  board was read that day, and refuses the feature's own flow past Design until its plan is
+  written. An item's own design must name what its part puts out of scope.
+- **The board around the work.** `spec.py claim` makes the feature and epic above an item Active.
+  `spec.py handover` resolves a feature whose last item it closes off, and the epic above when
+  that feature was its last. Only features and epics move this way; a story above a bug never
+  does. `/sdd next` holds back an item whose predecessor is not done, and ranks first the ready
+  item that others wait on.
 - **A feature or epic built whole** (full or short path). The user picks which items under it the
   build covers (`env.py members`, Specify step 2); no stage after Specify starts without that.
   They are claimed with it, each has a task that names it (`env.py` refuses "Tasks written"

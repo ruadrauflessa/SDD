@@ -1077,6 +1077,8 @@ def cmd_next(a):
     for n, r in enumerate(res["ranked"], 1):
         print(f"  {n:>2}. {r['id']:<7} {r['type']:<15} dev {r['devPriority']:>5}  P{r['priority'] or '-'} "
               f"S{r['severity'] or '-'} C{r['complexity']} ({r['complexitySource']})  {r['title'][:60]}  [{r['note']}]")
+        if r.get("unblocks"):
+            print(f"      unblocks: {', '.join(f'ADO {x}' for x in r['unblocks'])} (they wait on it)")
         if r.get("notBlocked"):
             print(f"      not blocked: {r['notBlocked']}")
     if not res["ranked"]:
@@ -1133,8 +1135,9 @@ def _refresh(ids):
             print(f"warning: the write landed, but re-syncing {wid} failed ({e}). Run: spec.py sync --id {wid}")
 
 
-def _write_each(a, ids, plan, label):
-    """Apply one decision per item, report each, re-sync the written ones. Exit 3 if any was refused."""
+def _write_each(a, ids, plan, label, then=None):
+    """Apply one decision per item, report each, re-sync the written ones. Exit 3 if any was refused.
+    `then(cfg, wid)` runs after each item that was not refused, and returns the other items it wrote."""
     cfg = load_config(require_root())
     written, refused = [], []
     for wid in ids:
@@ -1152,23 +1155,76 @@ def _write_each(a, ids, plan, label):
             print(f"{wid}: {label} ({fields})")
             if ops:
                 written.append(wid)
+        if then:
+            written += [x for x in then(cfg, wid) if x not in written]
     if written:
         _refresh(written)
     if refused:
         sys.exit(3)
 
 
+def _parents(cfg, a, wid, decide, label, keep_going=lambda item: True):
+    """Walk up from `wid` to the features and epics above it (past a story above a bug, which it leaves alone),
+    writing `decide(fields)` on each, rev-tested.
+    `keep_going(parent item)` is asked before each one. -> the ids written. A refused or failed write is reported
+    and ends the walk; the item's own write has landed already."""
+    out = []
+    if not cfg["plan"].get("parents", True):
+        return out
+    try:
+        cur = adowrite.read(cfg, wid, relations=True)
+        while True:
+            pid = adowrite.parent_id(cur)
+            if not pid:
+                return out
+            parent = adowrite.read(cfg, pid, relations=True)
+            if parent["fields"].get(adowrite.TYPE) not in adowrite.CONTAINERS:
+                cur = parent  # a story above a bug: never changed here, but the feature above it may be
+                continue
+            if not keep_going(parent):
+                return out
+            _, ops = adowrite.write(cfg, pid, decide, dry_run=a.dry_run)
+            if ops:
+                print(f"{pid}: {'would be ' if a.dry_run else ''}{label} ({parent['fields'].get(adowrite.TYPE)} "
+                      f"above {wid}: {', '.join(str(o['value']) for o in ops)})")
+                if not a.dry_run:
+                    out.append(pid)
+            cur = parent
+    except (RuntimeError, adowrite.Refused, adowrite.Conflict) as e:
+        print(f"warning: {label} not done above {wid} ({str(e)[:160]}); set it by hand")
+    return out
+
+
 def cmd_claim(a):
     me = a.email or adowrite.my_email() or die("no email: set git config user.email, or pass --email")
     busy = load_config(require_root())["next"]["inProgress"]
+
+    def parents(cfg, wid):  # work started under a feature or epic: it is active
+        return _parents(cfg, a, wid, lambda f: adowrite.activate_ops(f, cfg["plan"]["activeState"], busy["states"]),
+                        "made active")
     _write_each(a, a.id, lambda f: adowrite.claim_ops(f, me, reopen=a.reopen, take=a.take,
-                                                     busy=(busy["states"], busy["boards"])), "claimed")
+                                                     busy=(busy["states"], busy["boards"])), "claimed", parents)
 
 
 def cmd_handover(a):
     text = lambda p: Path(p).read_text(encoding="utf-8") if p else None
     rcd, res = text(a.root_cause_details_file), text(a.resolution_file)
-    _write_each(a, [a.id], lambda f: adowrite.handover_ops(f, a.tag, rcd, res, a.root_cause), "handed over to QA")
+
+    def parents(cfg, wid):  # the last item under a feature or epic closed off: it is resolved
+        closed = {wid}  # what is (or, on a dry run, would be) closed off by now
+
+        def last_one(parent):
+            kids = adowrite.children_ids(parent)
+            got = {w["id"]: w["fields"].get(adowrite.STATE) for w in get_items(cfg, kids, fields=[adowrite.STATE])}
+            got.update({k: cfg["plan"]["resolvedState"] for k in closed if k in got and a.dry_run})
+            if adowrite.all_done([got.get(k) for k in kids], cfg["doneStates"]):
+                closed.add(parent["id"])
+                return True
+            return False
+        return _parents(cfg, a, wid, lambda f: adowrite.resolve_ops(f, cfg["plan"]["resolvedState"], cfg["doneStates"]),
+                        "resolved: its last item is closed off", last_one)
+    _write_each(a, [a.id], lambda f: adowrite.handover_ops(f, a.tag, rcd, res, a.root_cause), "handed over to QA",
+                parents)
 
 
 def cmd_sprint(a):

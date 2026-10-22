@@ -115,9 +115,24 @@ def dev_priority(row, complexity, rule):
     return round(100 * (w["priority"] * ps + w["severity"] * ss + w["complexity"] * cs) / total, 1)
 
 
+def successors(rows, links, done_states):
+    """{id: [open items that wait on it]}: the other end of each predecessor link."""
+    done = {low(s) for s in done_states} | {"removed"}
+    out = {}
+    for wid, ls in links.items():
+        if wid not in rows or low(rows[wid].get("state")) in done:
+            continue
+        for name, dst in ls:
+            if low(name).replace(" ", "-") in PREDECESSOR and dst != wid:
+                out.setdefault(dst, []).append(wid)
+    return {k: sorted(set(v)) for k, v in out.items()}
+
+
 def plan(rows, links, scope, version, me, rule, done_states, judged):
     """Sort the scope's items into ranked / needs a judgement / blocked / not available.
-    rows {id: index row}, links {id: [(rel name, target)]}, judged {id: {...}} from next.json."""
+    rows {id: index row}, links {id: [(rel name, target)]}, judged {id: {...}} from next.json.
+    A predecessor link that is not done blocks an item outright (the feature's plan put them in that order); an item
+    only named in the text needs a judgement. Among the ready items of a tier, the one more items wait on goes first."""
     kids = {}
     for r in rows.values():
         kids.setdefault(r.get("parent"), []).append(r["id"])
@@ -127,6 +142,7 @@ def plan(rows, links, scope, version, me, rule, done_states, judged):
             under.append(k)
             todo.append(k)
     ranked, needs, blocked, unavailable = [], [], [], []
+    waiting = successors(rows, links, done_states)
     for wid in under:
         r = rows[wid]
         t = tier(r, rule)
@@ -138,10 +154,17 @@ def plan(rows, links, scope, version, me, rule, done_states, judged):
             continue
         j = judged.get(str(wid)) or {}
         evs = evidence(r, links.get(wid, []), rows, done_states)
-        key = evidence_key(evs)
         item = {"id": wid, "type": r["type"], "title": r["title"], "tier": t, "note": note,
                 "priority": level(r.get("priority")), "severity": level(r.get("severity")),
-                "assigned": r.get("assigned") or "", "evidence": evs}
+                "assigned": r.get("assigned") or "", "evidence": evs,
+                "unblocks": [x for x in waiting.get(wid, []) if x in rows]}
+        preds = [e for e in evs if e["kind"] == "predecessor link"]
+        if preds:
+            blocked.append({**item, "reason": "waits on " + ", ".join(
+                f"ADO {e['id']} ({e['state']}{', ' + e['board'] if e['board'] else ''})" for e in preds)
+                + ": its predecessor" + ("s" if len(preds) > 1 else "")})
+            continue
+        key = evidence_key(evs)
         ask = []
         b = j.get("blocked")
         if evs and not (b and b.get("key") == key):
@@ -164,6 +187,6 @@ def plan(rows, links, scope, version, me, rule, done_states, judged):
             if evs:
                 item["notBlocked"] = b["reason"]
             ranked.append(item)
-    ranked.sort(key=lambda x: (x["tier"], -x["devPriority"], x["id"]))
+    ranked.sort(key=lambda x: (x["tier"], -len(x["unblocks"]), -x["devPriority"], x["id"]))
     return {"scope": scope, "version": version, "ranked": ranked, "needs": needs, "blocked": blocked,
             "unavailable": unavailable}

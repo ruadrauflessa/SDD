@@ -20,6 +20,7 @@ TAGS, ITERATION, TYPE, PROJECT = "System.Tags", "System.IterationPath", "System.
 TITLE, AREA, DESCRIPTION = "System.Title", "System.AreaPath", "System.Description"
 REPRO, ACCEPTANCE = "Microsoft.VSTS.TCM.ReproSteps", "Microsoft.VSTS.Common.AcceptanceCriteria"
 RELATED, PARENT = "System.LinkTypes.Related", "System.LinkTypes.Hierarchy-Reverse"
+PREDECESSOR = "System.LinkTypes.Dependency-Reverse"  # on the item that waits: the one it waits on
 ROOT_CAUSE_DETAILS, RESOLUTION, ROOT_CAUSE = ("Custom.RootCauseDetails", "Microsoft.VSTS.Common.Resolution",
                                               "Microsoft.VSTS.CMMI.RootCause")
 READ = [TYPE, PROJECT, "System.Title", STATE, ASSIGNED, COLUMN, TAGS, ITERATION]
@@ -124,6 +125,43 @@ def handover_ops(fields, tag=None, root_cause_details=None, resolution=None, roo
         if tag not in tags:
             ops.append(add(TAGS, "; ".join(tags + [tag])))
     return ops
+
+
+CONTAINERS = ("Feature", "Epic")
+
+
+def parent_id(item):
+    """The id of an item's parent, from its relations (read with relations), or None."""
+    for r in item.get("relations") or []:
+        if r.get("rel") == PARENT:
+            return int(r["url"].rstrip("/").split("/")[-1])
+    return None
+
+
+def children_ids(item):
+    return [int(r["url"].rstrip("/").split("/")[-1]) for r in item.get("relations") or []
+            if r.get("rel") == "System.LinkTypes.Hierarchy-Forward"]
+
+
+def activate_ops(fields, active="Active", busy=IN_PROGRESS_STATES):
+    """A feature or epic someone has started work under: Active, unless it is already in progress."""
+    if fields.get(TYPE) not in CONTAINERS:
+        return []
+    st = (fields.get(STATE) or "").lower()
+    return [] if st == active.lower() or st in {b.lower() for b in busy} else [add(STATE, active)]
+
+
+def all_done(states, done_states=DONE_STATES):
+    """Every child of a feature or epic is done (or removed): the last one was just closed off."""
+    low = {s.lower() for s in done_states} | {"removed"}
+    return bool(states) and all((s or "").lower() in low for s in states)
+
+
+def resolve_ops(fields, resolved="Resolved", done_states=DONE_STATES):
+    """A feature or epic whose last item was closed off: Resolved, unless it is already done."""
+    if fields.get(TYPE) not in CONTAINERS or (fields.get(STATE) or "") in done_states:
+        return []
+    return [add(STATE, resolved)]
 
 
 # ---------------------------------------------------------------- Ai Agent Request: read and route
@@ -325,11 +363,3 @@ def comments(cfg, project, wid):
                    f"&api-version=7.1-preview.4")
     return [{"id": c.get("id"), "by": ((c.get("createdBy") or {}).get("displayName") or ""),
              "at": c.get("createdDate") or "", "text": c.get("text") or ""} for c in (r or {}).get("comments") or []]
-
-
-def edit_comment(cfg, project, wid, comment_id, html_text):
-    """Replace the text of a comment this flow posted (a design brief, posted again after the design changed)."""
-    refuse_mentions(html_text, "the comment")
-    q = urllib.parse.quote
-    return ado("PATCH", f"{org_url(cfg)}/{q(project)}/_apis/wit/workItems/{wid}/comments/{int(comment_id)}"
-                        f"?format=html&api-version=7.1-preview.4", {"text": html_text})

@@ -27,8 +27,8 @@ claim is the first step of the flow the user starts with the item they choose.
 | In scope | A Bug, Issue, User Story, Tech Story, Change Request or PBI anywhere under the epic or feature |
 | Version | The item carries the dev's team version as a tag (`1.1.0`) |
 | Free to take | Not done (`doneStates`, Removed), not past dev on the board (`pastDev`), and not on someone else's name while `Active` or in `Dev In Progress` (`inProgress`). On someone else's name but not started: free, and the claim takes it over with `--take` |
-| Blocked | **Your judgement from the requirements, never ADO's Blocked field.** The script lists the evidence: a predecessor link, or another item named in the text, that is not done |
-| Order | Bugs and issues first, then the rest (`types`); within each, the dev priority, highest first |
+| Blocked | A **predecessor link** to an item that is not done blocks it outright: a feature's plan put them in that order (`env.py plan` writes the links). Another item **named in the text** that is not done: **your judgement from the requirements, never ADO's Blocked field** |
+| Order | Bugs and issues first, then the rest (`types`); within each, the item more others wait on first (its open successors, shown as `unblocks`), then the dev priority, highest first |
 | Dev priority | 0–100: priority × 50, severity × 30, complexity × 20 (`weights`); complex first (`complexity`). A missing priority or severity counts as the middle |
 | Complexity | The ADO effort (story points, effort, size) on a 1–5 scale; with none, your estimate |
 
@@ -47,7 +47,8 @@ claim is the first step of the flow the user starts with the item they choose.
    it) rather than asking ADO. The sync report's MATERIAL lines matter here too: a requirement that
    just changed is worth a word to the user before they pick it.
 3. **Judge what it asks for**, every one, then record it — one sentence that cites what you read:
-   - **blocked?** Read the item's `requirements.md` and the `requirements.md` of each item in its
+   - **blocked?** (Only for an item named in the text: a predecessor link blocks without asking.)
+     Read the item's `requirements.md` and the `requirements.md` of each item in its
      evidence (resolve them by glob: `{specRoot}/**/<id>-*/`). Blocked means this item **cannot be
      built or tested** until the other lands: it needs code, data, a contract or a decision the
      other one delivers. Sharing a topic, a screen or a file is not blocking; two items touching the

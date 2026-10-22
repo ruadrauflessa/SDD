@@ -39,11 +39,41 @@
 6. A story spec inherits its parent feature's design **by reference, not by copy**. Link to it.
    **A design agreed above** (`env.py upstream --id <id>` lists it) is where this design starts:
    name it (`ADO <id>`, with a link to its `design.md`), follow it, and say plainly where this one
-   departs from it and why. `env.py` refuses "Design agreed" while `design.md` does not name it.
-   **On the design path**, `design.md` thinks through every open item directly under this one: a
-   short section per item naming it (`ADO <id>`), how it fits the design, and its answered questions.
-   `env.py` refuses "Design agreed" while one is not named. **A feature or epic built whole** designs
-   for each item the build covers (`env.py members --id <id>` lists them).
+   departs from it and why. Stay inside this item's part of it: start where its plan says the work
+   starts, stop where it stops, and build nothing its plan puts out of scope. Name each such item
+   under an **Out of scope** heading (`PDF output: ADO 902 builds it`). `env.py` refuses "Design
+   agreed" while `design.md` does not name the design above, or an item its plan puts out of scope.
+
+   **A Feature or Epic: the work item plan.** Its `design.md` ends with a `## Work item plan`: one
+   entry per item under it. Every open item directly under it needs one; an item further down may
+   have one too. Each entry is what that item's own flow will read, and nothing more:
+
+   ```
+   ## Work item plan
+
+   ### ADO 901 CSV export
+   - Starts: the exporter interface ADO 902 builds
+   - Stops: a CSV file the user downloads
+   - In scope: the CSV writer
+   - Out of scope: PDF output (ADO 902)
+   - Out of scope: scheduled exports (not planned)
+   - Needs: ADO 902 (the exporter interface)
+   - Gives: ADO 903 (the CSV writer, for the scheduler)
+   - Decision: amounts in cents
+   ```
+
+   - **Starts / Stops:** where the work begins and where it is done.
+   - **In scope / Out of scope:** each out-of-scope line names the item that builds it
+     (`ADO <id>`), or says `not planned`.
+   - **Needs / Gives:** what this item needs from other items and what they need from it, each
+     naming the item. The plan's order comes from these lines and becomes predecessor and
+     successor links in ADO. They must not loop.
+   - **Decision:** each decision this item must follow. An answered question that binds every item
+     travels only through these lines: write it into each entry that needs it. A question about
+     one item is tagged `(ADO <id>)` in `questions.md`, and goes to that item only.
+
+   `env.py` refuses "Design agreed" until the plan holds. **A feature or epic built whole** also
+   designs each item the build covers (`env.py members --id <id>` lists them).
 
    **Second opinion.** Hand **`sdd:skeptic`** (mode `design`) `requirements.md` and `design.md`.
    It checks every criterion is covered, nothing is scope creep, and every anchor exists or is
@@ -70,11 +100,13 @@
    Decompose without a fresh approval; a design that changed since it was last agreed to hasn't
    actually been agreed to.
 9. **Carry the design to the board** (a Feature or Epic). The other developers' flows read ADO, not
-   this workspace. `env.py brief --id <id>` writes one brief per item to `briefs/` in the spec
-   folder: the whole design for this item, and for each open item under it what the design decides
-   for that item, what holds for all of them, the questions settled (not to be asked again) and the
-   ones still open for it. Send the briefs, then ask with `AskUserQuestion`: "Post the design to
-   these <N> items as an ADO comment each?" Post on Yes: `env.py brief --id <id> --post --confirmed
-   "<their words>"`. A brief already there is updated, not posted twice. `env.py can` refuses every
-   stage after Design, and `/sdd done`, until the agreed design is on the board; a design agreed
-   again after a change needs posting again.
+   this workspace, and never the discussion. `env.py plan --id <id>` writes what goes into each
+   item's **Implementation Plan** field to `plans/` in the spec folder. This item gets the whole
+   design. Each item in the work item plan gets only its own entry, the settled and open questions
+   tagged for it, and the Needs and Gives other entries name it in. The command also lists the
+   predecessor links it adds. Send the `plans/` files, then ask with `AskUserQuestion`: "Write the
+   plan into these <N> items' Implementation Plan and add the <M> links?" On Yes: `env.py plan
+   --id <id> --post --confirmed "<their words>"`. It replaces only its own block in each field and
+   keeps anything else written there. `env.py can` refuses every stage after Design, and
+   `/sdd done`, until the agreed design is on the board. A design agreed again after a change
+   needs writing again.

@@ -12,7 +12,9 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/spec.py handover --id <id> \
   [--root-cause "Coding Error"]
 ```
 
-It sets the fields below and `System.State` → `Resolved` in one rev-tested write. It refuses an
+It sets the fields below and `System.State` → `Resolved` in one rev-tested write. When the bug was
+the last open item under a feature, it resolves the feature too (and the epic above, when that was
+its last); a story above the bug is never changed. It refuses an
 `Issue` without both texts, and any text with a `#<id>` mention (exit 3).
 
 | Field | Reference name | Obligation |

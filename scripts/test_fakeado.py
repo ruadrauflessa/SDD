@@ -201,15 +201,16 @@ def main():
         why = {r["id"]: r["why"] for r in res["unavailable"]}
         assert set(why) == {602, 604, 607}, why
         assert "Ann is working on it" in why[602] and "tagged 1.0.0" in why[604] and why[607] == "Resolved"
-        assert {r["id"]: r["ask"] for r in res["needs"]} == {601: ["complexity"], 605: ["blocked"],
-                                                             606: ["blocked", "complexity"]}, res["needs"]
+        assert {r["id"]: r["ask"] for r in res["needs"]} == {601: ["complexity"], 606: ["blocked", "complexity"]}, res["needs"]
+        (b605,) = res["blocked"]                                    # a predecessor not done blocks: no judgement asked
+        assert b605["id"] == 605 and b605["reason"] == "waits on ADO 603 (New): its predecessor", b605
         ev = next(r for r in res["needs"] if r["id"] == 606)["evidence"]
         assert ev[0]["id"] == 601 and ev[0]["kind"] == "named in the text" and "depends on ADO 601" in ev[0]["text"]
         assert [r["id"] for r in res["ranked"]] == [608, 603]       # bugs first; ADO's Blocked=Yes on 608 ignored
         assert "--take" in res["ranked"][1]["note"]                # on Bob's name, not started
+        assert res["ranked"][1]["unblocks"] == [605]
         judge = lambda *a: run(root, "spec.py", "next-judge", "--scope", "600", *a)
         judge("--id", "601", "--complexity", "3", "--reason", "one formatter and its tests")
-        judge("--id", "605", "--blocked", "yes", "--reason", "the picker needs the CSV export from 603")
         judge("--id", "606", "--blocked", "no", "--complexity", "2", "--reason",
               "the symbol is added after formatting; 601's fix does not change that path")
         res = nxt()
@@ -219,7 +220,7 @@ def main():
         assert [r["id"] for r in res["blocked"]] == [605] and not res["needs"]
         text = run(root, "spec.py", "next", "--scope", "600", "--version", "1.1.0").stdout
         assert "Ready, best first" in text and "Blocked:" in text and "Ann is working on it" in text, text
-        # the evidence changes (603 is done): the old judgement no longer applies, 605 is free
+        # 603 is done: 605 is free
         w = json.loads(world.read_text())
         w["items"]["603"]["fields"]["System.State"] = "Closed"
         w["items"]["603"]["rev"] += 1                                  # ADO bumps rev on every change
@@ -429,59 +430,115 @@ def feature_flow():
         r = can("phase", "--flow", "spec", "--phase", "Requirements", check=False)
         assert "Epic ADO 890's design is agreed: start from" in r.stdout and "(1 settled question(s) hold for this item" in r.stdout, r.stdout
 
-        # the feature's agreed design goes up to the board, and a story's flow (anyone's) reads it back from there
+        # the feature's agreed design goes up to the board: each item's part into its Implementation Plan, the order
+        # as predecessor links; a story's flow (anyone's) reads its part back from there
+        PLAN = "Custom.ImplementationPlan"
+        w = json.loads(world.read_text())
+        w["items"]["902"]["fields"][PLAN] = "<div>Bob's own notes</div>"
+        world.write_text(json.dumps(w))
         wi = next((root / ".claude" / "worktrees").glob("900-*/workitem.json"))
         rec = json.loads(wi.read_text())
         agreed = (datetime.now(timezone.utc) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         rec["gates"]["Design agreed"] = agreed       # agreed in this workspace, with no design-agreed.json: as if elsewhere
         wi.write_text(json.dumps(rec))
-        (feat / "design.md").write_text("# Export design (Epic ADO 890)\n\n## Approach\nOne exporter for all formats.\n\n"
-                                        "- ADO 901 writes CSV with a semicolon.\n- ADO 902 renders PDF on the server.\n\n"
-                                        "## PDF layout (ADO 902)\nA4, one invoice a page.\n")
+        (feat / "design.md").write_text("# Export design (Epic ADO 890)\n\n## Approach\nOne exporter for all formats.\n")
         (feat / "questions.md").write_text("- [x] Q1: Rounding? Answer: half up\n- [x] Q2: Header row? (ADO 901) Answer: yes\n"
                                            "- [x] Q3: Fonts? (ADO 902) Answer: Arial\n- [ ] Q4: Quote text cells? (ADO 901)\n")
         r = can("phase", "--flow", "spec", "--phase", "Implement", check=False)
-        assert "is not on the board yet" in r.stdout and "env.py brief --id 900" in r.stdout, r.stdout
-        out = run(root, "env.py", "brief", "--id", "900").stdout
-        assert "goes to 3 item(s)" in out and "ADO 903" not in out, out          # itself, 901 and 902; 903 is closed
-        b901 = (feat / "briefs" / "901.md").read_text()
-        assert "sdd design brief**: Feature ADO 900 for ADO 901" in b901 and "semicolon" in b901 and "One exporter" in b901, b901
-        assert "server" not in b901 and "A4" not in b901 and "Arial" not in b901, b901       # 902's part stays on 902
-        assert "Q2: Header row?" in b901 and "Q1: Rounding?" in b901 and "Q4: Quote text cells?" in b901, b901
-        assert "A4" in (feat / "briefs" / "900.md").read_text()                              # the feature: all of it
-        assert not [x for x in json.loads(world.read_text()).get("writes", []) if x["method"] == "COMMENT" and x["id"] == 901]
-        r = run(root, "env.py", "brief", "--id", "900", "--post", check=False)
+        assert "is not on the board yet" in r.stdout and "env.py plan --id 900" in r.stdout, r.stdout
+        r = run(root, "env.py", "plan", "--id", "900", check=False)
+        assert r.returncode != 0 and 'no "## Work item plan"' in r.stderr, r.stderr
+        plan_md = ("\n## Work item plan\n\n### ADO 901 CSV export\n- Starts: the exporter interface ADO 902 builds\n"
+                   "- Stops: a CSV file the user downloads\n- In scope: the CSV writer\n- Out of scope: PDF output (ADO 902)\n"
+                   "- Out of scope: scheduled exports (not planned)\n- Decision: amounts in cents\n\n"
+                   "### ADO 902 PDF export\n- Starts: nothing; it goes first\n- Stops: the exporter interface and PDF output\n"
+                   "- In scope: the exporter interface\n- Gives: ADO 901 (the exporter interface)\n")
+        (feat / "design.md").write_text((feat / "design.md").read_text() + plan_md.replace("- Stops: a CSV", "- Stop it: a CSV"))
+        r = run(root, "env.py", "plan", "--id", "900", check=False)
+        assert r.returncode != 0 and "ADO 901's entry has no Stops" in r.stderr, r.stderr
+        (feat / "design.md").write_text("# Export design (Epic ADO 890)\n\n## Approach\nOne exporter for all formats.\n" + plan_md)
+        out = run(root, "env.py", "plan", "--id", "900").stdout
+        assert "field of 3 item(s)" in out and "ADO 903" not in out, out           # itself, 901 and 902; 903 is closed
+        assert "ADO 902 before ADO 901 (a predecessor link on ADO 901)" in out, out
+        p901 = (feat / "plans" / "901.md").read_text()
+        assert "sdd plan: Feature ADO 900 for ADO 901" in p901 and "the CSV writer" in p901 and "PDF output (ADO 902)" in p901, p901
+        assert "ADO 902 (its plan gives ADO 901 (the exporter interface))" in p901, p901      # 902's Gives, seen from 901
+        assert "the exporter interface and PDF output" not in p901 and "Arial" not in p901, p901     # 902's own part stays off
+        assert "Q2: Header row?" in p901 and "Q4: Quote text cells?" in p901 and "Rounding" not in p901, p901
+        assert "One exporter for all formats" in (feat / "plans" / "900.md").read_text()      # the feature: the whole design
+        assert not json.loads(world.read_text()).get("writes")
+        r = run(root, "env.py", "plan", "--id", "900", "--post", check=False)
         assert r.returncode != 0 and "--confirmed" in r.stderr, r.stderr
-        out = run(root, "env.py", "brief", "--id", "900", "--post", "--confirmed", "yes, post it").stdout
-        assert out.count("brief posted") == 3, out
-        posted = {x["id"]: x for x in json.loads(world.read_text()).get("writes", []) if x["method"] == "COMMENT"}
-        assert set(posted) >= {900, 901, 902} and "<h3>Settled: do not ask again</h3>" in posted[901]["text"], posted
+        out = run(root, "env.py", "plan", "--id", "900", "--post", "--confirmed", "yes, put it on the board").stdout
+        assert out.count("plan written") == 3 and "ADO 901: plan written, 1 predecessor link(s) added" in out, out
+        w = json.loads(world.read_text())
+        f = {k: w["items"][k]["fields"].get(PLAN, "") for k in ("900", "901", "902")}
+        assert "One exporter for all formats" in f["900"] and "<h3>In scope</h3>" in f["901"], f
+        assert "One exporter" not in f["901"] and f["902"].startswith("<div>Bob's own notes</div>"), f
+        assert {"rel": "System.LinkTypes.Dependency-Reverse", "url": "https://dev.azure.com/Org/_apis/wit/workItems/902",
+                "attributes": {"comment": "sdd plan of ADO 900"}} in w["items"]["901"]["relations"]
+        assert not [x for x in w["writes"] if x["method"] == "COMMENT"]                    # nothing in the discussion
         r = can("phase", "--flow", "spec", "--phase", "Implement", check=False)
         assert "not on the board" not in r.stdout, r.stdout
-        out = run(root, "env.py", "brief", "--id", "900", "--post", "--confirmed", "again").stdout
-        assert out.count("brief unchanged") == 3, out                                       # the same text: no new comment
-        (feat / "design.md").write_text((feat / "design.md").read_text() + "\n## Errors\nA failed export is retried once.\n")
-        out = run(root, "env.py", "brief", "--id", "900", "--post", "--confirmed", "post the change").stdout
-        assert out.count("brief updated") == 3, out
-        w = json.loads(world.read_text()).get("writes", [])
-        assert len([x for x in w if x["method"] == "COMMENT"]) == len(posted) and [x for x in w if x["method"] == "COMMENT_EDIT"]
-        # story 901, in any workspace: its flow reads the board before Requirements, then starts from the brief
+        n = len(json.loads(world.read_text())["writes"])
+        out = run(root, "env.py", "plan", "--id", "900", "--post", "--confirmed", "again").stdout
+        assert out.count("plan unchanged") == 3 and len(json.loads(world.read_text())["writes"]) == n, out
+        (feat / "design.md").write_text((feat / "design.md").read_text().replace("amounts in cents", "amounts in rands"))
+        out = run(root, "env.py", "plan", "--id", "900", "--post", "--confirmed", "post the change").stdout
+        assert out.count("plan written") == 2 and "ADO 902: plan unchanged" in out and "link" not in out, out   # 901's part only
+        f902 = json.loads(world.read_text())["items"]["902"]["fields"][PLAN]
+        assert f902.count("sdd plan: Feature ADO 900") == 1 and "Bob's own notes" in f902, f902
+        # story 901, in any workspace: its flow reads the board before Requirements, then starts from its part
         sprog = lambda *a, **kw: run(root, "env.py", "progress", "--id", "901", "--flow", "spec", *a, **kw)
         sprog("--phase", "Specify", "--status", "done")
         story = next((root / "docs" / "spec").glob("890-*/900-*/901-*"))
-        (story / "upstream.json").write_text(json.dumps({"fetched": "2026-01-02T00:00:00Z", "briefs": []}))  # read long ago
+        (story / "upstream.json").write_text(json.dumps({"fetched": "2026-01-02T00:00:00Z", "plans": []}))  # read long ago
         r = run(root, "env.py", "can", "--id", "901", "--op", "phase", "--flow", "spec", "--phase", "Requirements", check=False)
         assert "read the board for a design agreed above 901 first (last read 2026-01-02" in r.stdout, r.stdout
         ups = json.loads(run(root, "env.py", "upstream", "--id", "901", "--json").stdout)
         assert [(u["id"], u["source"]) for u in ups] == [(900, "ado"), (890, "local")], ups
-        assert ups[0]["answered"] == ["Q1: Rounding? Answer: half up", "Q2: Header row? (ADO 901) Answer: yes"], ups[0]
-        assert ups[0]["open"] == ["Q4: Quote text cells? (ADO 901)"] and "retried once" in (story / "upstream-900.md").read_text()
+        p = ups[0]["plan"]
+        assert p["in"] == ["the CSV writer"] and p["out"] == ["PDF output (ADO 902)", "scheduled exports (not planned)"], p
+        assert p["needs"] == ["ADO 902 (its plan gives ADO 901 (the exporter interface))"] and p["decisions"] == ["amounts in rands"], p
+        assert ups[0]["answered"] == ["Q2: Header row? (ADO 901) Answer: yes"] and ups[0]["open"] == ["Q4: Quote text cells? (ADO 901)"]
+        out = run(root, "env.py", "upstream", "--id", "901", "--cached").stdout
+        assert "out of scope: PDF output (ADO 902)" in out and "where the work starts: the exporter interface" in out, out
         r = run(root, "env.py", "can", "--id", "901", "--op", "phase", "--flow", "spec", "--phase", "Requirements", check=False)
         assert "read the board" not in r.stdout and "Feature ADO 900's design is agreed: start from" in r.stdout, r.stdout
-        assert "2 settled question(s) hold for this item: do not ask them again; 1 left open for it" in r.stdout, r.stdout
-        # bug 904 under 901 has no brief of its own: the one for its parent holds
+        assert "1 settled question(s) hold for this item: do not ask them again; 1 left open for it" in r.stdout, r.stdout
+        # bug 904 under 901 has no plan of its own: its story's holds
         (b,) = [u for u in json.loads(run(root, "env.py", "upstream", "--id", "904", "--json").stdout) if u["id"] == 900]
         assert b["for"] == 901 and b["source"] == "ado", b
+        # /sdd next reads the order: 901 waits on 902
+        run(root, "spec.py", "sync", "--id", "890", "--no-embed")
+        m = json.loads((root / "docs" / "spec" / ".index" / "metrics.json").read_text())
+        assert [x["id"] for x in m["items"]["901"]["blockers"]] == [902] and m["items"]["902"]["blocking"] == [901], m["items"]["901"]
+
+        # the board around the work: a claim makes the feature and epic above it Active; closing off the last item
+        # under a feature resolves it, and the epic above when that was its last
+        w = json.loads(world.read_text())
+        w["items"]["900"]["fields"]["System.State"] = "New"
+        world.write_text(json.dumps(w))
+        out = run(root, "spec.py", "claim", "--id", "904").stdout                       # a bug under a story under 900
+        assert "900: made active" in out and "890: made active" in out and "901:" not in out, out
+        out = run(root, "spec.py", "claim", "--id", "901").stdout
+        assert "made active" not in out, out                                             # both are Active by now
+        w = json.loads(world.read_text())
+        assert w["items"]["890"]["fields"]["System.State"] == "Active" and w["items"]["901"]["fields"]["System.State"] == "Active"
+        out = run(root, "spec.py", "handover", "--id", "904").stdout                    # a bug under a story: never the story
+        assert "901: resolved" not in out and json.loads(world.read_text())["items"]["901"]["fields"]["System.State"] == "Active", out
+        out = run(root, "spec.py", "handover", "--id", "901").stdout
+        assert "resolved: its last item" not in out, out                                # 902 is still Active
+        w = json.loads(world.read_text())
+        w["items"]["902"]["fields"]["System.State"] = "Closed"
+        world.write_text(json.dumps(w))
+        out = run(root, "spec.py", "handover", "--id", "901", "--dry-run").stdout
+        assert "900: would be resolved" in out and "890: would be resolved" in out, out
+        assert json.loads(world.read_text())["items"]["900"]["fields"]["System.State"] == "Active"
+        out = run(root, "spec.py", "handover", "--id", "901").stdout
+        assert "900: resolved: its last item is closed off" in out and "890: resolved" in out, out
+        w = json.loads(world.read_text())
+        assert w["items"]["900"]["fields"]["System.State"] == w["items"]["890"]["fields"]["System.State"] == "Resolved"
 
 
 def progress_flow():

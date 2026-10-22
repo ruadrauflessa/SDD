@@ -25,7 +25,8 @@
    Don't read the requirement yet.
 2. **Claim the work item, before you read it** — except on the design path, which claims nothing
    (the feature stays on whoever's name it is; the stories under it are claimed when each is
-   worked): `spec.py claim --id <id>`.
+   worked): `spec.py claim --id <id>`. It also makes the feature and epic above the item Active
+   when they are not.
 
    **A Feature or Epic built as one piece of work** (full or short path) claims the items under it
    that the build covers, with it. First `env.py members --id <id>`: it lists every item under it,
@@ -41,10 +42,12 @@
    `claim --id <id> --reopen`).
 3. **Read the mirrored file** — resolve it by glob, `{specRoot}/**/<id>-*/requirements.md` — and
    its parent's. **Then `env.py upstream --id <id>`:** a design agreed on the feature or epic above
-   this item is where its work starts, whoever designed it. It reads the design briefs off the board
-   (ADO comments `env.py brief` posted) into this spec folder, and finds the designs agreed in this
-   workspace. Read each design or brief it names, and the questions it lists: the settled ones are
-   answered, so never raise them again; the open ones are this item's to ask. A gap one of them answers goes in
+   this item is where its work starts, whoever designed it. It reads this item's part off the board
+   (its Implementation Plan field, written by `env.py plan`) into this spec folder. Read the part:
+   where the work starts and stops; what is in scope; what is out of scope (another item builds it:
+   never build it here); what it needs from other items (check each is done or on its way); what
+   other items need from it; the decisions made. The settled questions are answered: never raise
+   them again. The open ones are this item's to ask. A gap one of them answers goes in
    `questions.md` already ticked, with the answer and where it came from
    (`- [x] Q2: <question> — Answer: <answer> (answered at Feature ADO <id>)`).
    **On the design path**, read every item directly under this one as well (for an epic, its
