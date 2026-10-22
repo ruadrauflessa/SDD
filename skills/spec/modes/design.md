@@ -37,6 +37,13 @@
    true`. Full procedure in `references/tech-stories.md`. **Nothing is created in ADO without
    an explicit approval.**
 6. A story spec inherits its parent feature's design **by reference, not by copy**. Link to it.
+   **A design agreed above** (`env.py upstream --id <id>` lists it) is where this design starts:
+   name it (`ADO <id>`, with a link to its `design.md`), follow it, and say plainly where this one
+   departs from it and why. `env.py` refuses "Design agreed" while `design.md` does not name it.
+   **On the design path**, `design.md` thinks through every open item directly under this one: a
+   short section per item naming it (`ADO <id>`), how it fits the design, and its answered questions.
+   `env.py` refuses "Design agreed" while one is not named. **A feature or epic built whole** designs
+   for each item the build covers (`env.py members --id <id>` lists them).
 
    **Second opinion.** Hand **`sdd:skeptic`** (mode `design`) `requirements.md` and `design.md`.
    It checks every criterion is covered, nothing is scope creep, and every anchor exists or is

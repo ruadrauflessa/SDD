@@ -12,6 +12,9 @@
    Files path does not name its repo.
 2. Every task traces to an acceptance criterion or to an explicit design decision. A task that
    traces to neither is scope creep — drop it or raise it.
+   **A feature or epic built whole:** each task names the item it serves (`(ADO 603)` on its line),
+   and every item the build covers has at least one task. `env.py progress --passed "Tasks written"`
+   refuses until each is named.
 3. Tests are tasks, not a trailing afterthought.
 4. **Once `design.md` and `tasks.md` both exist, write the implementation plan back to ADO** —
    but only if this work item's type actually carries an Implementation Plan field. Never assume

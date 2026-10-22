@@ -510,7 +510,68 @@ def main():
     output_style()
     ado_writes()
     progress_rules()
+    feature_scope()
     print("ok")
+
+
+def feature_scope():
+    """scope.py and env.py's gate checks for the feature or epic around an item: a child design must point to the
+    design agreed above it; a design-only pass names every open child; a whole build's tasks name every member."""
+    import scope
+    items = {"890": {"type": "Epic", "title": "Billing", "state": "Active", "parent": None, "ancestors": []},
+             "900": {"type": "Feature", "title": "Export", "state": "Active", "parent": 890,
+                     "ancestors": [{"id": 890, "type": "Epic", "title": "Billing"}]},
+             "901": {"type": "User Story", "title": "CSV", "state": "New", "parent": 900, "assigned_email": "me@x.co",
+                     "ancestors": [{"id": 900, "type": "Feature", "title": "Export"}, {"id": 890, "type": "Epic", "title": "Billing"}]},
+             "902": {"type": "User Story", "title": "PDF", "state": "Active", "parent": 900, "inProgress": True, "assigned": "Bob",
+                     "ancestors": [{"id": 900, "type": "Feature", "title": "Export"}, {"id": 890, "type": "Epic", "title": "Billing"}]},
+             "903": {"type": "User Story", "title": "Old", "state": "Closed", "parent": 900, "done": True,
+                     "ancestors": [{"id": 900, "type": "Feature", "title": "Export"}, {"id": 890, "type": "Epic", "title": "Billing"}]}}
+    assert scope.under(items, 890) == [900, 901, 902, 903] and scope.direct_children(items, 900) == [901, 902, 903]
+    assert scope.open_children(items, 900, ["Resolved", "Closed", "Done"]) == [901, 902]
+    assert [(c["id"], c["status"]) for c in scope.candidates(items, 900, ["User Story", "Bug"], "ME@x.co")] == \
+        [(901, "yours"), (902, "taken"), (903, "done")]
+    assert scope.candidates(items, 890, ["User Story"])[0]["id"] == 901                     # a container never counts
+    assert scope.mentions("covers ADO 901 and AB#902", 902) and not scope.mentions("ADO 9010", 901)
+    assert scope.uncovered("1. CSV (ADO 901)\n2. PDF", [901, 902]) == [902]
+    q = "- [x] Q1: general\n- [X] Q2 (ADO 901): mine\n* [x] Q3 (ADO 902): theirs\n- [ ] Q4: open"
+    assert scope.answered_for(q, 901) == ["Q1: general", "Q2 (ADO 901): mine"]
+    with scratch() as tmp:
+        root = Path(tmp)
+        (root / ".claude").mkdir()
+        (root / ".claude" / "sdd.json").write_text(json.dumps({"specRoot": "docs/spec", "ado": {"org": "O", "projects": ["P"]}}))
+        cfg = sddlib.load_config(root)
+        idx = root / "docs" / "spec" / ".index"
+        idx.mkdir(parents=True)
+        (idx / "metrics.json").write_text(json.dumps({"items": items}))
+        epic = root / "docs" / "spec" / "890-EPIC-billing"
+        feat = epic / "900-FEAT-export"
+        story = feat / "901-US-csv"
+        story.mkdir(parents=True)
+        (epic / "design.md").write_text("# Billing\n")
+        (feat / "design.md").write_text("# Export\nCovers ADO 901.\n")
+        (story / "design.md").write_text("# CSV\n")
+        env.design_marker(root, cfg, {"id": 890, "type": "Epic", "title": "Billing", "path": "design"}, True)
+        assert json.loads((epic / scope.DONE_FILE).read_text())["id"] == 890
+        assert [u["id"] for u in env.upstream(root, cfg, 901)] == [890]
+        gp = lambda data, gate: env.gate_problems(root, cfg, "spec", data, gate)
+        got = gp({"id": 901, "type": "User Story", "path": "full"}, "Design agreed")
+        assert len(got) == 1 and "Epic ADO 890" in got[0], got
+        (story / "design.md").write_text("# CSV\nStarts from the billing design (ADO 890); departs on the delimiter.\n")
+        assert gp({"id": 901, "type": "User Story", "path": "full"}, "Design agreed") == []
+        (story / "design.md").write_text("# CSV\nSee 890-EPIC-billing/design.md.\n")
+        assert gp({"id": 901, "type": "User Story", "path": "full"}, "Design agreed") == []  # its folder name will do
+        got = gp({"id": 900, "type": "Feature", "path": "design"}, "Design agreed")         # names 901, not 902
+        assert any("does not name ADO 902" in g for g in got) and any("Epic ADO 890" in g for g in got), got
+        full = gp({"id": 900, "type": "Feature", "path": "full"}, "Design agreed")
+        assert len(full) == 1 and "Epic ADO 890" in full[0]                                   # only the design path asks for every child
+        (feat / "tasks.md").write_text("1. CSV columns (ADO 901)\n")
+        got = gp({"id": 900, "type": "Feature", "path": "full", "members": [901, 904]}, "Tasks written")
+        assert got and "does not name ADO 904" in got[0], got
+        assert gp({"id": 900, "type": "Feature", "path": "full"}, "Tasks written") == []      # no members: nothing to cover
+        assert env.gate_problems(root, cfg, "bug", {"id": 901}, "Design agreed") == []        # the bug flow has its own gates
+        env.design_marker(root, cfg, {"id": 890}, False)
+        assert not (epic / scope.DONE_FILE).exists() and env.upstream(root, cfg, 901) == []
 
 
 def progress_rules():

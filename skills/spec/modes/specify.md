@@ -25,19 +25,37 @@
    Don't read the requirement yet.
 2. **Claim the work item, before you read it** — except on the design path, which claims nothing
    (the feature stays on whoever's name it is; the stories under it are claimed when each is
-   worked): `spec.py claim --id <id>`. It assigns you, sets
+   worked): `spec.py claim --id <id>`.
+
+   **A Feature or Epic built as one piece of work** (full or short path) claims the items under it
+   that the build covers, with it. First `env.py members --id <id>`: it lists every item under it,
+   free, yours, someone else's or done. Show that list, then ask with `AskUserQuestion`: "Build all
+   the free ones (<ids>)" / "Only some (say which)" / "Build none of them: design it only". Record the
+   answer: `env.py members --id <id> --set <ids> --confirmed "<their words>"` (it refuses an item
+   someone else works on). Then claim them together: `spec.py claim --id <id> --id <m> ...`. No stage
+   after Specify starts until the members are recorded (`env.py can` refuses). It assigns you, sets
    `Dev In Progress` and `Active` in one rev-tested write, and re-syncs the mirror. **Exit 3 means
    stop and ask**: someone else is working on it (never take it), it is on someone else's name but
    not started (free under the team's rule: after the user's yes — picking it in `/sdd next` is one
    — `claim --id <id> --take`), or it is already `Resolved` or `Closed` (after the user's yes,
    `claim --id <id> --reopen`).
 3. **Read the mirrored file** — resolve it by glob, `{specRoot}/**/<id>-*/requirements.md` — and
-   its parent's. Put every gap and open question in `questions.md` next to it, never in
+   its parent's. **Then `env.py upstream --id <id>`:** a design agreed on the feature or epic above
+   this item is where its work starts. Read each `design.md` it names, and the answered questions it
+   lists: those are settled, so never raise them again. A gap one of them answers goes in
+   `questions.md` already ticked, with the answer and where it came from
+   (`- [x] Q2: <question> — Answer: <answer> (answered at Feature ADO <id>)`).
+   **On the design path**, read every item directly under this one as well (for an epic, its
+   features; for a feature, its stories and bugs), and put their gaps in this item's `questions.md`
+   now, each tagged with the item it is about: `- [ ] Q5 (ADO 603): <question> (context: ...)`. The
+   point of the design path is that those questions are answered here, once, not when each story is
+   built: the stories' flows read them back through `env.py upstream`. Put every gap and open question in `questions.md` next to it, never in
    `requirements.md`. One question per line, as an unticked checkbox:
    `- [ ] Q1: <the question> (context: <why it matters>)`. The Open Questions stage counts those
    lines; a question written any other way is never asked.
 4. **Run the `sdd:impact` flow for this item** (`spec.py impact --id <id>`, then its
-   `impact.md`), so blast-radius gaps against other specs are raised now, before the requirement
+   `impact.md`; on the design path, or a feature or epic built whole, `spec.py impact --all --scope <id>`
+   for everything under it — the script costs no tokens, weigh only its strong pairs), so blast-radius gaps against other specs are raised now, before the requirement
    is agreed, not at PR time. **Copy each blast-radius gap that needs an answer into
    `questions.md` as a `- [ ]` line**: `impact.md` is read, but only `questions.md` is counted.
 5. **Do not soften a thin work item.** Missing acceptance criteria stay missing and get raised

@@ -343,7 +343,90 @@ def main():
         assert r.returncode == 3 and "(full / short)" in r.stdout, r.stdout
     tags_like_ado()
     progress_flow()
+    feature_flow()
     print("ok")
+
+
+def feature_flow():
+    """A feature built as one piece of work: the items under it, the user's pick, the refusals; and a story under an
+    epic whose design is agreed: the design above it, and the questions it already answered."""
+    def under(wid, parent, typ, title, state="New", **fields):
+        f = {"System.WorkItemType": typ, "System.TeamProject": "Proj", "System.Title": title, "System.State": state, **fields}
+        rel = [{"rel": "System.LinkTypes.Hierarchy-Reverse", "url": f"https://x/_apis/wit/workItems/{parent}"}] if parent else []
+        return str(wid), {"rev": 1, "fields": f, "relations": rel}
+    bob = {"displayName": "Bob", "uniqueName": "bob@x.co"}
+    items = dict([
+        under(890, None, "Epic", "Billing"),
+        under(900, 890, "Feature", "Invoice export v3", "Active"),
+        under(901, 900, "User Story", "CSV export"),
+        under(902, 900, "User Story", "PDF export", "Active", **{"System.AssignedTo": bob, "Custom.BoardColumnTitle": "Dev In Progress"}),
+        under(903, 900, "User Story", "Old export", "Closed"),
+        under(904, 901, "Bug", "CSV loses cents"),
+    ])
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / ".claude").mkdir()
+        (root / ".claude" / "sdd.json").write_text(json.dumps({"specRoot": "docs/spec", "ado": {"org": "Org", "projects": ["Proj"]}}))
+        world = root / "world.json"
+        world.write_text(json.dumps({"items": items}))
+        os.environ["SDD_FAKE_ADO"] = str(world)
+        cfg = root / "gitconfig"
+        cfg.write_text("[user]\n\temail = dev@x.co\n\tname = Dev\n")
+        os.environ["GIT_CONFIG_GLOBAL"] = str(cfg)
+        r = run(root, "env.py", "members", "--id", "900", check=False)
+        assert r.returncode != 0 and "spec.py sync --id 900" in r.stderr, r.stderr          # nothing synced yet
+        run(root, "spec.py", "sync", "--id", "890", "--no-embed")
+        r = run(root, "env.py", "members", "--id", "901", check=False)
+        assert r.returncode != 0 and "for a Feature or Epic" in r.stderr, r.stderr
+        out = run(root, "env.py", "members", "--id", "900").stdout
+        assert "ADO 902 User Story: PDF export [Active] · Bob is working on it" in out and "ADO 903 User Story: Old export [Closed] · done" in out, out
+        assert "Free to build: 901, 904." in out, out
+        # built as one piece of work: no stage after Specify until the user picked the items it covers
+        run(root, "env.py", "progress", "--id", "900", "--flow", "spec", "--phase", "Specify", "--status", "done")
+        run(root, "env.py", "path", "--id", "900", "--set", "full", "--confirmed", "build the whole feature")
+        can = lambda *a, **kw: run(root, "env.py", "can", "--id", "900", "--op", *a, **kw)
+        r = can("phase", "--flow", "spec", "--phase", "Requirements", check=False)
+        assert r.returncode == 3 and "record the items under it this build covers" in r.stdout, r.stdout
+        r = run(root, "env.py", "members", "--id", "900", "--set", "901", check=False)
+        assert r.returncode != 0 and "--confirmed" in r.stderr
+        r = run(root, "env.py", "members", "--id", "900", "--set", "901,902", "--confirmed", "both", check=False)
+        assert r.returncode != 0 and "someone else is working on ADO 902 (Bob)" in r.stderr, r.stderr
+        r = run(root, "env.py", "members", "--id", "900", "--set", "901,999", "--confirmed", "x", check=False)
+        assert r.returncode != 0 and "not work under 900: 999" in r.stderr, r.stderr
+        out = run(root, "env.py", "members", "--id", "900", "--set", "904,901", "--confirmed", "the CSV story and its bug").stdout
+        assert "spec.py claim --id 900 --id 901 --id 904" in out, out
+        rec = json.loads(next((root / ".claude" / "worktrees").glob("900-*/workitem.json")).read_text())
+        assert rec["members"] == [901, 904] and rec["membersChosen"]["confirmed"] == "the CSV story and its bug"
+        r = can("phase", "--flow", "spec", "--phase", "Requirements", check=False)
+        assert "record the items" not in r.stdout and "needs 'Claimed'" in r.stdout, r.stdout     # the claim is next
+        assert "* ADO 901" in run(root, "env.py", "members", "--id", "900").stdout
+        r = can("done", check=False)
+        assert r.returncode == 3 and "ADO 901, covered by this build, is still New" in r.stdout, r.stdout
+        # Decompose cannot pass "Tasks written" while a picked item has no task naming it
+        prog = lambda *a, **kw: run(root, "env.py", "progress", "--id", "900", "--flow", "spec", *a, **kw)
+        for st in ("Requirements", "Design"):
+            prog("--phase", st, "--status", "skipped", "--confirmed", "test: straight to the task list")
+        feat = next((root / "docs" / "spec").glob("890-*/900-*"))
+        (feat / "tasks.md").write_text("1. CSV columns (ADO 901)\n")
+        r = prog("--phase", "Decompose", "--status", "done", "--passed", "Tasks written", check=False)
+        assert r.returncode != 0 and "tasks.md does not name ADO 904" in r.stderr, r.stderr
+        (feat / "tasks.md").write_text("1. CSV columns (ADO 901)\n2. Keep the cents (ADO 904)\n")
+        prog("--phase", "Decompose", "--status", "done", "--passed", "Tasks written")
+        # the epic's design is agreed: the items below start from it, and keep what it already answered
+        epic = next((root / "docs" / "spec").glob("890-*"))
+        (epic / "design.md").write_text("# Billing design\n")
+        (epic / "questions.md").write_text("- [x] Q1: Which currency? (context: all exports) Answer: ZAR\n"
+                                           "- [x] Q2 (ADO 901): CSV delimiter? Answer: semicolon\n"
+                                           "- [x] Q3 (ADO 902): PDF paper size? Answer: A4\n- [ ] Q4: Open still\n")
+        assert json.loads(run(root, "env.py", "upstream", "--id", "901", "--json").stdout) == []      # not agreed yet
+        (epic / "design-agreed.json").write_text(json.dumps({"id": 890, "type": "Epic", "at": "2026-10-22T08:00:00Z"}))
+        (up,) = json.loads(run(root, "env.py", "upstream", "--id", "901", "--json").stdout)
+        assert (up["id"], up["type"]) == (890, "Epic") and up["design"].endswith("design.md"), up
+        assert up["answered"] == ["Q1: Which currency? (context: all exports) Answer: ZAR", "Q2 (ADO 901): CSV delimiter? Answer: semicolon"], up
+        out = run(root, "env.py", "upstream", "--id", "901").stdout
+        assert "Epic ADO 890 Billing: design agreed 2026-10-22" in out and "answered: Q2 (ADO 901)" in out, out
+        r = can("phase", "--flow", "spec", "--phase", "Requirements", check=False)
+        assert "Epic ADO 890's design is agreed: start from" in r.stdout and "(1 of its answered questions hold" in r.stdout, r.stdout
 
 
 def progress_flow():

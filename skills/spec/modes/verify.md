@@ -30,7 +30,8 @@ follow "Bugs this work did not cause" in `flow-rules.md`. This holds in every st
 8. **"Raise the PR"?** Write the description to `<folder>\pr-description.md`, then `env.py pr
    --id <id> --title "<title>" --description-file <folder>\pr-description.md` — it pushes each
    repo with commits ahead, opens its PR against the base branch and links the work item. Move the
-   work item to the current sprint as you open it, `spec.py sprint --id <id>` — an item still
+   work item to the current sprint as you open it, `spec.py sprint --id <id>` (a feature or epic built whole: add `--id <m>` for each
+   member; `env.py pr` links the members to the PR by itself) — an item still
    sitting in an old sprint (or with none set) reads as work nobody is doing. Never write the work
    item as `#12345` anywhere in the PR text (`env.py pr` refuses it),
    and never add a Claude attribution line to the title, description or a comment — the

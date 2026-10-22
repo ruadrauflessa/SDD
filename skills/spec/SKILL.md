@@ -57,6 +57,21 @@ skipped when Design is done, and `/sdd done` asks no close-out in ADO: the item 
 Its stories then each go through the flow on their own (`/sdd next <id>`), and their designs point
 to this one.
 
+## The feature or epic around an item
+
+- **A design agreed above.** When "Design agreed" passes, `env.py` records it in the item's spec
+  folder (`design-agreed.json`; revoking the gate takes it away). Every item below then starts from
+  it: `env.py upstream --id <id>` lists the designs above it and the questions they answered for
+  it, `env.py can` names them as a note, Specify and Open Questions never ask again what they
+  settled, and `env.py` refuses the item's own "Design agreed" until `design.md` names the design
+  above (`ADO <id>`). The design path exists for this: design and question a feature once, and every
+  story under it starts with its questions answered.
+- **A feature or epic built whole** (full or short path). The user picks which items under it the
+  build covers (`env.py members`, Specify step 2); no stage after Specify starts without that.
+  They are claimed with it, each has a task that names it (`env.py` refuses "Tasks written"
+  otherwise), the PR links them all (`env.py pr`), each is handed over at Review, and `/sdd done`
+  refuses while one is still open.
+
 ## Ground rules (read before any mode)
 
 1. **Never invent a requirement.** Anything under *Problem*, *Acceptance criteria* or *Scope* in

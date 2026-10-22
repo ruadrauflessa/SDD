@@ -33,3 +33,7 @@ start Requirements until this stage is done.
 6. **All answered?** Record `--status done --passed "Open questions" --note "all <N> answered"`.
 7. A question that arises while asking is added as a new `- [ ]` line and asked in turn. One that an
    earlier answer made moot is ticked with "— moot after Q<n>".
+8. **Settled above?** Before asking, check `env.py upstream --id <id>`: a question a design agreed
+   above already answered is ticked with that answer and "(answered at <Type> ADO <id>)", not asked.
+   On the design path, keep each question's `(ADO <child>)` tag on its line: the child's own flow
+   finds its answers by it.
