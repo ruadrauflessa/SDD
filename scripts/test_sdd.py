@@ -522,6 +522,13 @@ def progress_rules():
     assert ac("- totals are rounded\n- cents show\n- ~~old one~~") == (2, 1)
     assert ac("The export shows cents.\n\nIt rounds to two places.") == (2, 0)
     assert ac("") == (0, 0) and pg.count_criteria("## Description\n\nno criteria") == (0, 0)
+    cl = lambda t: [(c["text"], c["withdrawn"]) for c in pg.criteria_list(f"## Acceptance criteria\n\n{t}")]
+    assert cl("**Acceptance Criteria 1 - A**\nGiven x\n\n~~**Acceptance Criteria 2 - B**~~") == [("Acceptance Criteria 1 - A Given x", False),
+                                                                                         ("Acceptance Criteria 2 - B", True)]
+    assert cl("- Given a, when b, then c\n- Given d\n- And e") == [("Given a, when b, then c", False), ("Given d And e", False)]
+    assert cl("Intro line\n1. First thing\n   more of it\n2. ~~Second~~") == [("First thing more of it", False), ("Second", True)]
+    assert cl("The export shows cents.\n\n~~It rounds.~~") == [("The export shows cents.", False), ("It rounds.", True)]
+    assert len(pg.criteria_list("## Acceptance criteria\n\n" + "x" * 500)[0]["text"]) == pg.CRITERION_CHARS
     cfg = {"doneStates": ["Resolved", "Closed", "Done"], "progress": {**sddlib.DEFAULTS["progress"],
            "projects": {"P": {"done": ["Closed"], "todo": ["New", "Active"], "measure": "nonsense"}}}}
     other, p = pg.rules_for(cfg, "Q"), pg.rules_for(cfg, "P")

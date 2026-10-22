@@ -363,6 +363,9 @@ export type ProgressData = {
   trend: Record<string, Partial<Record<ProgressMeasureKey, { delta: number; since: string }>>>
 }
 
+/** `spec.py criteria --id N --json`: one story's acceptance criteria, read when its row is opened on the progress page. */
+export type ProgressCriteria = { id: number; type: string; title: string; state: string; criteria: Array<{ text: string; withdrawn: boolean }> }
+
 /** The Rules panel's edit of one project: each state's rule, and the measure shown first. */
 export type ProgressRulesDraft = { project: string; measure: ProgressMeasureKey; states: Record<string, 'done' | 'active' | 'todo' | 'ignored'>
   /** The field rules, in order. */
@@ -456,6 +459,8 @@ declare module 'claude-code' {
       progBusy: string | null
       /** The Rules panel's edit, or null while it is closed. */
       progRules: ProgressRulesDraft | null
+      /** The acceptance criteria of each story opened on the page, by id; `why` when they could not be read. */
+      progCriteria: Record<string, ProgressCriteria | { why: string }>
     }
   }
 }

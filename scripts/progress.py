@@ -155,28 +155,62 @@ def section(body, label):
     return m.group(1).strip() if m else ""
 
 
-def count_criteria(body):
-    """(criteria, withdrawn) in a row's `## Acceptance criteria`. Struck-through text (~~...~~) is withdrawn.
-    Numbered "Acceptance Criteria N" headings count first, then Given/Scenario lines, then list items, then
-    paragraphs."""
+NAMED = r"(?i)acceptance\s+criteri(?:a|on)\s*#?\s*(\d+)"
+GIVEN = r"(?im)^\s*(?:[-*]\s*|\d+[.)]\s*)?(?:\*\*)?(?:scenario\b|given\b)"
+BULLET = r"(?m)^\s{0,3}(?:[-*+]|\d+[.)])\s+\S"
+CRITERION_CHARS = 240
+
+
+def _strike_out(t):
+    return re.sub(r"~~.*?~~", "", t, flags=re.S)
+
+
+def _plain(t):
+    """A criterion as one line of text: no markdown marks, no leading bullet, short."""
+    t = re.sub(r"(?m)^\s{0,3}(?:[-*+]|\d+[.)])\s+", "", t.replace("~~", ""))
+    t = re.sub(r"[*_`]+", "", t)
+    t = " ".join(t.split())
+    return t if len(t) <= CRITERION_CHARS else t[:CRITERION_CHARS - 1] + "…"
+
+
+def criteria_list(body):
+    """[{text, withdrawn}]: each acceptance criterion in a row's `## Acceptance criteria`, in order. Numbered
+    "Acceptance Criteria N" headings split it first, then Given/Scenario lines, then list items, then paragraphs.
+    A criterion struck through (~~...~~) is withdrawn."""
     text = section(body, "Acceptance criteria")
     if not text:
-        return 0, 0
-    live = re.sub(r"~~.*?~~", "", text, flags=re.S)
+        return []
+    chunks = []
+    heads = list(re.finditer(NAMED, text))
+    if heads:
+        live = set(re.findall(NAMED, _strike_out(text)))
+        seen = set()
+        for i, m in enumerate(heads):
+            if m.group(1) in seen:
+                continue
+            seen.add(m.group(1))
+            end = heads[i + 1].start() if i + 1 < len(heads) else len(text)
+            chunks.append((text[m.start():end], m.group(1) not in live))
+    else:
+        lines = text.split("\n")
+        for pattern in (GIVEN, BULLET):
+            starts = [i for i, ln in enumerate(lines) if re.match(pattern.replace("(?m)", "").replace("(?im)", "(?i)"), ln)]
+            if starts:
+                for k, i in enumerate(starts):
+                    chunk = "\n".join(lines[i:starts[k + 1] if k + 1 < len(starts) else len(lines)])
+                    gone = not re.search(pattern, _strike_out(chunk)) if pattern == GIVEN else not _plain(_strike_out(chunk))
+                    chunks.append((chunk, gone))
+                break
+        else:
+            chunks = [(c, not _plain(_strike_out(c))) for c in re.split(r"\n\s*\n", text) if c.strip()]
+    return [{"text": _plain(c), "withdrawn": bool(w)} for c, w in chunks if _plain(c)]
 
-    def count(t):
-        named = set(re.findall(r"(?i)acceptance\s+criteri(?:a|on)\s*#?\s*(\d+)", t))
-        if named:
-            return len(named)
-        given = re.findall(r"(?im)^\s*(?:[-*]\s*|\d+[.)]\s*)?(?:\*\*)?(?:scenario\b|given\b)", t)
-        if given:
-            return len(given)
-        items = re.findall(r"(?m)^\s{0,3}(?:[-*+]|\d+[.)])\s+\S", t)
-        if items:
-            return len(items)
-        return len([p for p in re.split(r"\n\s*\n", t) if p.strip()])
-    total, kept = count(text), count(live)
-    return kept, max(0, total - kept)
+
+def count_criteria(body):
+    """(criteria, withdrawn) in a row's `## Acceptance criteria` (criteria_list, counted)."""
+    items = criteria_list(body)
+    gone = sum(1 for c in items if c["withdrawn"])
+    return len(items) - gone, gone
 
 
 def points_of(row):
