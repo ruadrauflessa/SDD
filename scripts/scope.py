@@ -276,12 +276,16 @@ def block_md(src, target, design_text, questions_text, agreed_at):
         _, plan = item_plan(design_text)
         e = plan.get(tid) or {k: [] for k, _ in PARTS[:7]}
         needs, gives = list(e["needs"]), list(e["gives"])
+        def about(other, ln):  # another entry's line about this item, as this item's own line would say it
+            rest = re.sub(r"(?i)(?:\bADO\s*|AB#)" + str(tid) + r"\b", "", ln).strip(" :-")
+            rest = rest[1:-1].strip() if rest.startswith("(") and rest.endswith(")") else rest
+            return f"ADO {other} ({rest})" if rest else f"ADO {other}"
         for other, oe in sorted(plan.items()):  # what the other entries say about this one
             if other == tid:
                 continue
-            needs += [f"ADO {other} (its plan gives {ln})" for ln in oe["gives"] if tid in ids_in(ln) and other not in
+            needs += [about(other, ln) for ln in oe["gives"] if tid in ids_in(ln) and other not in
                       [y for n in e["needs"] for y in ids_in(n)]]
-            gives += [f"ADO {other} (its plan needs {ln})" for ln in oe["needs"] if tid in ids_in(ln) and other not in
+            gives += [about(other, ln) for ln in oe["needs"] if tid in ids_in(ln) and other not in
                       [z for g in e["gives"] for z in ids_in(g)]]
         lines += [f"Part of {src['type']} ADO {sid}: {src.get('title') or ''}. Build only what is in scope here: what is "
                   f"out of scope is another work item's, and the whole design is in ADO {sid}'s Implementation Plan.", ""]

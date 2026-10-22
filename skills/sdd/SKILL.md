@@ -121,9 +121,10 @@ set up for sdd, and offer `/sdd init`.
 
 ## Step 2 — route
 
-`next` goes to `sdd:next` with the scope id and the version, if given. With a flow word, go straight to that skill and pass it the id — unless `env.py type` says `flow: request`: an Ai Agent Request goes to `sdd:request`, with the flow word as the user's answer to its spec-or-bug question. A path word (`short`, `full`, or on a feature or epic `design`, as in
-`/sdd 4471 short`, `/sdd spec 4471 full` or `/sdd 4468 design`) goes with it: pass it on, and the spec flow records it
-as the user's choice instead of asking. With only an id:
+`next` goes to `sdd:next` with the scope id and the version, if given. With a flow word, go straight to that skill and pass it the id — unless `env.py type` says `flow: request`: an Ai Agent Request goes to `sdd:request`, with the flow word as the user's answer to its spec-or-bug question. A path word (`short`, `full`, or on a feature or epic `design`, before or after the id, as in
+`/sdd 4471 short`, `/sdd spec 4471 full`, `/sdd 4468 design` or `/sdd design 4468`) goes with it: pass it on, and the
+spec flow records it as the user's choice instead of asking. `/sdd design <id>` is what the sdd view's **Design a
+feature** button starts. `design` on a story or bug is not a path: say it is for a feature or epic, and route by type. With only an id:
 
 ```
 python ${CLAUDE_PLUGIN_ROOT}/scripts/env.py type --id <id>
