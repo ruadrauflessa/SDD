@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -312,7 +313,102 @@ def main():
         assert {i["id"]: i.get("path") for i in view["items"]}[502] == "full", view["items"]
         assert view["flows"]["spec"]["paths"]["short"]["label"].startswith("Short")   # the view reads the paths
     tags_like_ado()
+    progress_flow()
     print("ok")
+
+
+def progress_flow():
+    """/sdd-progress's numbers: an epic's features and stories by count, points and criteria, bugs apart, the
+    rules per project, and what a partly synced epic says."""
+    def under(wid, parent, typ, title, state="New", **fields):
+        f = {"System.WorkItemType": typ, "System.TeamProject": "Proj", "System.Title": title, "System.State": state, **fields}
+        rel = [{"rel": "System.LinkTypes.Hierarchy-Reverse", "url": f"https://x/_apis/wit/workItems/{parent}"}] if parent else []
+        return str(wid), {"rev": 1, "fields": f, "relations": rel}
+    AC = "Microsoft.VSTS.Common.AcceptanceCriteria"
+    items = dict([
+        under(800, None, "Epic", "Invoice platform", "Active"),
+        under(810, 800, "Feature", "Export", "Active"),
+        under(811, 810, "User Story", "CSV", "Closed", **{SP: 3, AC: "<div><b>Acceptance Criteria 1 - Totals</b><br>Given a total</div>"
+              "<div><b>Acceptance Criteria 2 - Cents</b></div><div><strike><b>Acceptance Criteria 3 - Old</b></strike></div>"}),
+        under(812, 810, "User Story", "PDF", "Active", **{SP: 5, AC: "<ul><li>Given a, when b, then c</li><li>Given d</li><li>Given e</li></ul>",
+              "Custom.BoardColumnTitle": "Dev Completed"}),
+        under(813, 810, "User Story", "XLSX", **{"Custom.Stage": "Ready", "Custom.BoardColumnTitle": "New"}),
+        under(820, 800, "Feature", "Import"),
+        under(830, 800, "User Story", "Audit column", "Closed", **{SP: 2}),
+        under(840, 811, "Bug", "CSV drops cents", "Active", **{S: "2 - High"}),
+        under(841, 800, "Issue", "Slow export", "Closed"),
+        under(850, 810, "User Story", "Dropped idea", "Removed"),
+    ])
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / ".claude").mkdir()
+        cfgp = root / ".claude" / "sdd.json"
+        cfgp.write_text(json.dumps({"specRoot": "docs/spec", "ado": {"org": "Org", "projects": ["Proj"]}}))
+        world = root / "world.json"
+        world.write_text(json.dumps({"items": items}))
+        os.environ["SDD_FAKE_ADO"] = str(world)
+        run(root, "spec.py", "sync", "--id", "810", "--no-embed")          # a feature: its epic comes as a parent
+        data = json.loads(run(root, "spec.py", "progress", "--json").stdout)
+        (epic,) = data["tops"]
+        assert epic["id"] == 800 and epic["partial"], epic                    # 820, 830, 841 are not synced
+        run(root, "spec.py", "sync", "--id", "800", "--no-embed")
+        idx = root / "docs" / "spec" / ".index"
+        old = (datetime.now(timezone.utc) - timedelta(days=8)).strftime("%Y-%m-%d")
+        (idx / "progress-history.jsonl").write_text(json.dumps({"day": old, "pct": {"800": {"count": 20.0, "points": 50.0, "criteria": 0.0}}}) + "\n")
+        data = json.loads(run(root, "spec.py", "progress", "--json").stdout)
+        (epic,) = data["tops"]
+        assert not epic["partial"]
+        m = epic["measures"]
+        assert m["count"] == {"total": 5, "done": 2, "active": 1, "todo": 2, "missing": 0}, m["count"]   # 850 removed: out
+        assert m["points"] == {"total": 10, "done": 5, "active": 5, "todo": 0, "missing": 2}, m["points"]
+        assert m["criteria"] == {"total": 8, "done": 3, "active": 3, "todo": 2, "missing": 3}, m["criteria"]
+        assert [k["id"] for k in epic["kids"]] == [810, 820, 830]
+        f810 = epic["kids"][0]
+        assert [k["id"] for k in f810["kids"]] == [811, 812, 813] and f810["kids"][0]["withdrawn"] == 1
+        assert f810["kids"][1]["units"] == {"count": 1, "points": 5.0, "criteria": 3}
+        d = epic["defects"]
+        assert (d["total"], d["done"], d["active"], d["high"]) == (2, 1, 1, 1), d
+        assert f810["defects"]["total"] == 1 and f810["defects"]["items"][0]["id"] == 840
+        assert epic["url"] == "https://dev.azure.com/Org/Proj/_workitems/edit/800"
+        assert data["trend"]["800"]["count"] == {"delta": 20.0, "since": old}, data["trend"]
+        hist = [json.loads(x) for x in (idx / "progress-history.jsonl").read_text().splitlines()]
+        assert [h["day"] for h in hist][0] == old and len(hist) == 2
+        states = {x["state"]: x["rule"] for x in data["projects"]["Proj"]["states"]}
+        assert states == {"Active": "active", "Closed": "done", "New": "todo", "Removed": "ignored"}, states
+        assert "40.0% of 5 items done" in run(root, "spec.py", "progress").stdout
+        # a project's own rules: Active counts as not started, points first
+        r = run(root, "spec.py", "progress-rules", "--project", "Proj", "--done", "Closed", "--todo", "Closed,New", check=False)
+        assert r.returncode != 0 and "both done and todo" in r.stderr and "Nothing was written" in r.stderr, r.stderr
+        run(root, "spec.py", "progress-rules", "--project", "Proj", "--measure", "points", "--done", "Closed",
+            "--todo", "New,Active", "--ignore", "Removed")
+        got = json.loads(cfgp.read_text())
+        assert got["progress"]["projects"]["Proj"] == {"measure": "points", "done": ["Closed"], "todo": ["New", "Active"], "ignore": ["Removed"]}
+        assert got["ado"] == {"org": "Org", "projects": ["Proj"]}                       # nothing else changed
+        data = json.loads((idx / "progress.json").read_text())                          # written again at once
+        assert data["projects"]["Proj"]["rules"]["measure"] == "points"
+        assert data["tops"][0]["measures"]["count"]["todo"] == 3
+        # rules on any field: the board column, and a custom field together with the state; the first match wins
+        fields = {f["field"]: [v["value"] for v in f["values"]] for f in data["projects"]["Proj"]["fields"]}
+        assert list(fields)[:2] == ["System.State", "Custom.BoardColumnTitle"], list(fields)
+        assert fields["Custom.BoardColumnTitle"] == ["Dev Completed", "New"], fields     # as often, then by name
+        assert fields["Custom.Stage"] == ["Ready"] and "System.Title" not in fields and "System.CreatedDate" not in fields
+        rules = [{"field": "Custom.BoardColumnTitle", "values": ["dev completed"], "as": "done"},
+                 {"field": "System.State", "values": ["New"], "and": {"Custom.Stage": ["Ready"]}, "as": "active"}]
+        r = run(root, "spec.py", "progress-rules", "--project", "Proj", "--done", "", "--todo", "New",
+                "--rules-json", json.dumps([{"field": "Custom.Stage", "values": [], "as": "done"}]), check=False)
+        assert r.returncode != 0 and "rule 1 needs a field" in r.stderr and "state or rule must count as done" in r.stderr, r.stderr
+        run(root, "spec.py", "progress-rules", "--project", "Proj", "--done", "Closed", "--todo", "New", "--ignore", "Removed",
+            "--rules-json", json.dumps(rules))
+        assert json.loads(cfgp.read_text())["progress"]["projects"]["Proj"]["rules"] == rules
+        data = json.loads((idx / "progress.json").read_text())
+        assert data["tops"][0]["measures"]["count"] == {"total": 5, "done": 3, "active": 1, "todo": 1, "missing": 0}, data["tops"][0]["measures"]["count"]
+        kids = {k["id"]: k["status"] for k in data["tops"][0]["kids"][0]["kids"]}
+        assert kids == {811: "done", 812: "done", 813: "active"}, kids
+        run(root, "spec.py", "progress-rules", "--project", "Proj", "--reset")
+        assert json.loads(cfgp.read_text())["progress"]["projects"] == {}
+        cfgp.write_text("{broken")
+        r = run(root, "spec.py", "progress-rules", "--project", "Proj", "--done", "Closed", check=False)
+        assert r.returncode != 0 and cfgp.read_text() == "{broken"
 
 
 def tags_like_ado():

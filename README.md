@@ -55,6 +55,7 @@ Optional: pandoc, Ollama (meaning search).
 | `/sdd <id> feedback <stage>: <text>` | Back to a done or waiting stage with your feedback |
 | `/sdd-view [id]` | Opens the sdd view for this chat's work item (or the one given) |
 | `/sdd-bugs [mine]` | The bug manager (Claude Desktop app): triage the bugs and issues of your ADO projects in a pane. See below |
+| `/sdd-progress` | How far each epic is (Claude Desktop app), from the synced specs. See below |
 | `/sdd-worktrees` | Lists every work item that still has worktrees, with each worktree's live state (needs the repowatch plugin, which installs with sdd). Read-only. Each work item is a header; each worktree under it is one line (a colour dot, `repo · branch`, a state word, its age). Press a line to open its facts, 📋 copy folder and a **History** button that asks repowatch to draw that branch against its base. Clean-up is in `/repowatch worktrees` |
 
 The sdd view opens by itself in the Claude Desktop app: at the start of every session in an sdd workspace (the **Open the sdd view when a Desktop session starts** row in `/config`, on by default; `"view": { "autoOpen": false }` in `.claude/sdd.json` keeps it shut for that workspace), and the first time a chat takes up a work item. With no item to show it is a start page: buttons that put `/sdd `, `/sdd next `, `/sdd sync ` or `/sdd:help` in the prompt, one for the bug manager, the workspace's open items to pick up (the ones waiting on you first) and the last finished ones. In it:
@@ -89,6 +90,56 @@ The sdd view opens by itself in the Claude Desktop app: at the start of every se
   shows beside it, in the band too from 80 percent. Chats and sessions on the same item add up. A turn is
   charged to the item the chat took up with `/sdd <id>`; a sub-agent's tokens count with the turn that ran it.
   After `/clear`, `/resume` or `/branch` the next turn starts a fresh measurement.
+
+## Project progress (`/sdd-progress`)
+
+A pane in the Claude Desktop app that shows how far each epic is. The **Progress** button on the band and
+**Project progress** on the start page open it too. It reads the synced specs (`spec.py progress`: the index,
+no ADO, no tokens). Sync an epic first with `/sdd sync <epic id>`.
+
+- **Each epic gets a bar:** done (green), in progress (blue) and not started, with the percentage,
+  "31 of 50 items done · 4 in progress" and the change since about a week ago (▲ 4% since 2026-10-14).
+  A feature with no epic above it gets one too.
+- **What counts:** features and stories. A feature with stories counts through its stories; one with none
+  counts as itself. Bugs and issues are their own line under each bar (open, high, in progress, closed),
+  never part of the completion.
+- **Three measures**, switched at the top:
+  - **Work items:** each story is 1.
+  - **Story points:** each story's points. Stories without points are counted and named.
+  - **Acceptance criteria:** each story's criteria from its mirrored `requirements.md`. Struck-through ones
+    are withdrawn, and a story with none counts as 1. A story is done when its state says so.
+- **Open an epic** to see its features, each with its own bar. Open a feature to see its stories: state,
+  points, criteria, who has it and its sdd stage. Open bugs are listed too, with links to ADO.
+- **Rules…** sets one project's rules and the measure it shows first.
+  - **Field rules** test any field of the item, for example a custom board column:
+    "Board Column Title is Dev Completed or QA Deployed → done". You pick the field from the ones the
+    project's items have, then pick from the values they hold. A rule can also test two fields together.
+  - Field rules are checked top to bottom (▲ ▼ reorder them), and the first that matches decides.
+  - An item no rule matches goes by its state: press each state to set what it counts as (done, in progress,
+    not started, left out).
+  - **Save** writes the rules to `.claude/sdd.json` under `"progress": {"projects": {"<project>": ...}}`, through
+    `spec.py progress-rules`. In the file a rule reads
+    `{"field": "Custom.BoardColumnTitle", "values": ["Dev Completed"], "as": "done"}`. `"and"` adds
+    `{"<field>": [values]}` that must match too, and `as` is `done`, `active`, `todo` or `ignored`.
+  - The sync keeps every short field value of each item for this. Rules on a field other than the state or the
+    board column work after the next sync.
+- **Sync from ADO** refreshes every synced scope. **Auto sync** repeats it every 15, 30 or 60 minutes while
+  the page is open. The numbers are re-read every minute anyway, so a sync from a chat shows up by itself.
+- **An epic that came in only as a feature's parent** says its numbers are short. **Sync all of it** pulls the whole epic.
+- **Finished epics** are hidden until **Show finished**.
+
+The workspace rules are in `.claude/sdd.json` `"progress"`:
+- `measure`: the measure shown first.
+- `work`: the types that count.
+- `defects`: the types kept apart.
+- `done`: empty means `doneStates`.
+- `todo`: the not-started states.
+- `rules`: field rules for every project.
+- `ignore`: the states left out.
+- `doneBoards`: board columns that count as done.
+- `syncMinutes`: the default for Auto sync.
+
+A project's own rules go over these in `projects`.
 
 ## Bugs and issues (`/sdd-bugs`)
 
