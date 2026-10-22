@@ -144,8 +144,11 @@ def request(method, url, body=None):
                         rows.append({"source": {"id": cur}, "target": {"id": k}})
             return {"workItemRelations": rows}
         proj = re.search(r"\[System\.TeamProject\]\s*=\s*'([^']*)'", q)
+        under = [a.replace("''", "'").lower() for a in re.findall(r"\[System\.AreaPath\]\s+UNDER\s+'((?:[^']|'')*)'", q)]
+        area = lambda v: str((v.get("fields") or {}).get("System.AreaPath", "")).lower()
         ids = [int(k) for k, v in items.items()
-               if not proj or (v.get("fields") or {}).get("System.TeamProject") == proj.group(1)]
+               if (not proj or (v.get("fields") or {}).get("System.TeamProject") == proj.group(1))
+               and (not under or any(area(v) == a or area(v).startswith(a + "\\") for a in under))]
         return {"workItems": [{"id": i} for i in sorted(ids)]}
 
     m = re.search(r"/_apis/wit/workitems/(\d+)$", path, re.I)

@@ -2240,6 +2240,7 @@ export const register: Register = (on, options) => {
               <Button key={`rules-${p}`} label={projects.length > 1 ? `Rules: ${p}…` : 'Rules…'} onPress={() => $.state.set(progRulesS, rulesDraft(data, p))} />
             ))}
             {data.orphans.defects > 0 && <Text dimColor>{`${data.orphans.defects} bugs and issues sit under no synced epic or feature`}</Text>}
+            {(data.areas ?? []).length > 0 && <Text dimColor wrap="wrap">{`Only ${(data.areas ?? []).join('; ')}${data.outsideAreas ? ` (${data.outsideAreas} synced items outside left out)` : ''}`}</Text>}
           </Box>
         )}
       </Box>

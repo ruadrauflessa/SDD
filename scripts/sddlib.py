@@ -413,6 +413,30 @@ def wiql(cfg, query, project=None):
     return [w["id"] for w in r.get("workItems", [])]
 
 
+def area_paths(cfg):
+    """The workspace's area paths: sdd.json "bugs.query.areaPaths" (the ⚙ Config panel's "Only these area paths").
+    The bug manager's sync, the spec sync and the progress page all keep to them, UNDER each. [] = every area."""
+    raw = (((cfg.get("bugs") or {}).get("query") or {}).get("areaPaths")) or []
+    if isinstance(raw, str):
+        raw = raw.split(";")
+    return [str(a).strip().replace("/", "\\").strip("\\") for a in raw if str(a).strip().strip("/\\")]
+
+
+def in_areas(area, areas):
+    """An area path is UNDER one of `areas` (that area or below it, case aside). No areas: every one is."""
+    if not areas:
+        return True
+    a = (area or "").replace("/", "\\").strip("\\").lower()
+    return any(a == x.lower() or a.startswith(x.lower() + "\\") for x in areas)
+
+
+def areas_wiql(areas):
+    """The WIQL clause for `areas` (with its leading AND), or "" for none."""
+    if not areas:
+        return ""
+    return " AND (" + " OR ".join("[System.AreaPath] UNDER '" + a.replace("'", "''") + "'" for a in areas) + ")"
+
+
 # ---------------------------------------------------------------- work item folders
 
 def wt_root(root, cfg):

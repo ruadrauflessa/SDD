@@ -107,7 +107,9 @@ no ADO, no tokens). Sync an epic first with `/sdd sync <epic id>`.
   "31 of 50 items done · 4 in progress" and the change since about a week ago (▲ 4% since 2026-10-14).
   A feature with no epic above it gets one too.
 - **What counts:** features and stories. A feature with stories counts through its stories; one with none
-  counts as itself. Bugs and issues are their own line under each bar (open, high, in progress, closed),
+  counts as itself. With area paths in `.claude/sdd.json` (`"bugs.query.areaPaths"`, the bug manager's ⚙ Config),
+  only items under them count; an epic in a higher area stays as the frame of its features there. The sync keeps
+  to the same area paths. Bugs and issues are their own line under each bar (open, high, in progress, closed),
   never part of the completion.
 - **Three measures**, switched at the top:
   - **Work items:** each story is 1.

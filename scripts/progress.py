@@ -17,6 +17,9 @@ todo (not started) or ignored (left out of every count), by the project's rules,
     its state in "ignore" / "done" (or its board column in "doneBoards") / "todo"
     anything else                                    -> active
 
+The area paths (sdd.json "bugs.query.areaPaths", sddlib.area_paths): only items UNDER one of them count. An
+epic or feature in a higher area that holds counted items stays as their frame, and counts only them.
+
 Three measures, all computed so the page switches at once; `measure` says which a project shows first:
 
     count     each leaf is 1
@@ -36,6 +39,8 @@ Three measures, all computed so the page switches at once; `measure` says which 
 import json
 import re
 from datetime import datetime, timedelta, timezone
+
+from sddlib import in_areas
 
 MEASURES = ("count", "points", "criteria")
 STATUSES = ("done", "active", "todo")
@@ -233,9 +238,20 @@ def add(into, units, status, missing):
         into[m]["missing"] += missing[m]
 
 
-def build(rows, cfg, scopes=(), org="", previous=None):
-    """rows {id: index row as a dict}; scopes: the synced scope roots ('123' or 'all:<project>')."""
+def build(rows, cfg, scopes=(), org="", previous=None, areas=()):
+    """rows {id: index row as a dict}; scopes: the synced scope roots ('123' or 'all:<project>'); areas: the area
+    paths to keep to (none: every area)."""
     rules = {}
+    inside = {wid for wid, row in rows.items() if in_areas(row.get("area"), areas)}
+    keep = set(inside)
+    for wid in inside:
+        cur, seen = rows[wid].get("parent"), set()
+        while cur in rows and cur not in keep and cur not in seen:
+            seen.add(cur)
+            keep.add(cur)
+            cur = rows[cur].get("parent")
+    outside = len(rows) - len(keep)
+    rows = {k: v for k, v in rows.items() if k in keep}  # a frame (in keep, not inside) holds counted items, counts none itself
 
     def r_of(row):
         p = row.get("project") or ""
@@ -275,7 +291,7 @@ def build(rows, cfg, scopes=(), org="", previous=None):
         while todo:
             k = todo.pop()
             row = rows[k]
-            if is_defect(row):
+            if is_defect(row) and k in inside:
                 out.append(row)
             todo += kids.get(k, [])
         return out
@@ -310,7 +326,7 @@ def build(rows, cfg, scopes=(), org="", previous=None):
                 for m in MEASURES:
                     for key in ("total", "done", "active", "todo", "missing"):
                         n["measures"][m][key] += child["measures"][m][key]
-        elif st != "ignored" and is_work(row):  # a leaf: it counts as itself
+        elif st != "ignored" and is_work(row) and wid in inside:  # a leaf: it counts as itself
             pts = points_of(row)
             crit, withdrawn = count_criteria(row.get("body"))
             n["units"] = {"count": 1, "points": pts or 0.0, "criteria": crit or 1}
@@ -336,7 +352,7 @@ def build(rows, cfg, scopes=(), org="", previous=None):
         tops.append(round_tree(n))
     states = {}
     for row in rows.values():
-        if is_work(row) or is_defect(row):
+        if row["id"] in inside and (is_work(row) or is_defect(row)):
             p = row.get("project") or ""
             s = states.setdefault(p, {})
             s[row["state"]] = s.get(row["state"], 0) + 1
@@ -344,12 +360,12 @@ def build(rows, cfg, scopes=(), org="", previous=None):
     projects = {p: {"rules": dict(rules_for(cfg, p), rules=[saved_rule(x) for x in rules_for(cfg, p)["rules"]]),
                     "states": [{"state": st, "count": c, "rule": status_of({"state": st}, plain(p))}
                                for st, c in sorted(states.get(p, {}).items(), key=lambda kv: (-kv[1], kv[0]))],
-                    "fields": field_catalog([r for r in rows.values() if (r.get("project") or "") == p and (is_work(r) or is_defect(r))])}
+                    "fields": field_catalog([r for r in rows.values() if (r.get("project") or "") == p and r["id"] in inside and (is_work(r) or is_defect(r))])}
                 for p in sorted(set(states) | set(rules))}
     placed = {d["id"] for t in tops for d in walk_defects(t)}
-    orphans = sum(1 for row in rows.values() if is_defect(row) and row["id"] not in placed)
+    orphans = sum(1 for row in rows.values() if is_defect(row) and row["id"] in inside and row["id"] not in placed)
     return {"generated_at": now(), "measures": list(MEASURES), "projects": projects, "tops": tops,
-            "orphans": {"defects": orphans}}
+            "orphans": {"defects": orphans}, "areas": list(areas), "outsideAreas": outside}
 
 
 def field_catalog(rows, most=40):
