@@ -506,6 +506,7 @@ def main():
     graph_focus()
     short_path()
     config_upgrade()
+    az_token()
     hook_launcher()
     output_style()
     ado_writes()
@@ -954,6 +955,15 @@ def hook_launcher():
         # as Claude Code runs a hook: the command through the shell, the hook's input on stdin
         r = subprocess.run(f'"{run}" "{script}" pre "a b"', shell=True, input='{"x": 1}', capture_output=True, text=True)
         assert r.returncode == 2 and r.stdout.strip() == "['pre', 'a b'] {\"x\": 1}", r
+
+
+def az_token():
+    """An az refusal names az's reason and the command it suggests (MFA, another tenant), not a bare az login."""
+    assert sddlib.ADO_RESOURCE == "499b84ac-1321-427f-aa17-267ca6975798"           # Azure DevOps's application id
+    mfa = "ERROR: AADSTS50076: use MFA.\nRun the command below:\naz login --tenant \"t-1\" --scope \"x/.default\""
+    assert sddlib.az_token_failure(mfa) == ("AADSTS50076: use MFA.", 'az login --tenant "t-1" --scope "x/.default"')
+    assert sddlib.az_token_failure("ERROR: AADSTS50076: use MFA.")[1].startswith("az login --scope 499b84ac")
+    assert sddlib.az_token_failure("ERROR: Please run 'az login' to setup account.")[1] == "az login"
 
 
 def config_upgrade():

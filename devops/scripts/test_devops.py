@@ -673,6 +673,20 @@ def check_notes_release(t):
     assert not [x for x in json.loads(wp.read_text())["writes"]], "rendering writes nothing to ADO"
 
 
+def check_az_token():
+    """The token az is asked for is Azure DevOps's own (the wrong id made every sign-in fail), and a refusal names
+    az's reason and the command az suggests, not a bare "az login" that changes nothing."""
+    assert L.ADO_RESOURCE == "499b84ac-1321-427f-aa17-267ca6975798"
+    mfa = ("ERROR: AADSTS50076: you must use multi-factor authentication to access x.\n"
+           "Run the command below to authenticate interactively; additional arguments may be added as needed:\n"
+           'az login --tenant "t-1" --scope "499b84ac-1321-427f-aa17-267ca6975798/.default"')
+    assert L.az_token_failure(mfa) == ("AADSTS50076: you must use multi-factor authentication to access x.",
+                                       'az login --tenant "t-1" --scope "499b84ac-1321-427f-aa17-267ca6975798/.default"')
+    assert L.az_token_failure("ERROR: AADSTS50079: enrol")[1] == L.SCOPE_LOGIN
+    assert L.az_token_failure("ERROR: Please run 'az login' to setup account.") == ("Please run 'az login' to setup account.", "az login")
+    assert L.az_token_failure("") == ("az gave no reason", "az login")
+
+
 def check_doctor(t):
     ws, origins = make_ws(t)
     for name in ("Gateway", "UserStore", "Lost"):
@@ -703,6 +717,7 @@ def check_doctor(t):
 def main():
     check_lint()
     check_helpers()
+    check_az_token()
     check_notes()
     print("pure functions: ok")
     for name, fn in (("release", check_release), ("sync", check_sync), ("notes", check_notes_flow), ("reviews", check_reviews),

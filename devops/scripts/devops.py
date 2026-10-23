@@ -1475,7 +1475,9 @@ def doctor_checks(root, cfg):
             rows.append(C(f"ADO {org}", "ok", f"signed in as {me['name'] or me['id']}"))
         except (L.Refused, RuntimeError) as e:
             signed[org] = False
-            rows.append(C(f"ADO {org}", "fail", short(str(e), 200), "Run az login (or set AZURE_DEVOPS_EXT_PAT), then check again."))
+            fix = getattr(e, "fix", "")
+            rows.append(C(f"ADO {org}", "fail", short(str(e), 240),
+                          f"Run {fix} in a terminal, then check again." if fix else "Run az login (or set AZURE_DEVOPS_EXT_PAT), then check again."))
     for (org, proj), clones in (sorted(workspace_projects(root, cfg).items()) if with_ado else []):
         if not signed.get(org):
             continue

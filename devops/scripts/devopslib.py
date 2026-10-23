@@ -31,7 +31,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-ADO_RESOURCE = "499b84ac-1321-427f-aa17-267ca6c55d0b"
+ADO_RESOURCE = "499b84ac-1321-427f-aa17-267ca6975798"  # Azure DevOps's application id in Entra (Microsoft Learn: "Issue Entra tokens with Azure CLI")
 CONFIG = ".claude/devops.json"
 STATE = ".claude/devops"
 
@@ -67,7 +67,29 @@ DEFAULTS = {
 
 
 class Refused(Exception):
-    """A rule says no. The message says why and what to do instead."""
+    """A rule says no. The message says why and what to do instead; `fix`, when set, is the one step that mends it."""
+
+    def __init__(self, msg, fix=""):
+        super().__init__(msg)
+        self.fix = fix
+
+
+SCOPE_LOGIN = f"az login --scope {ADO_RESOURCE}/.default"
+
+
+def az_token_failure(stderr):
+    """Why `az account get-access-token` gave no Azure DevOps token, and the command that mends it. az names that
+    command itself when Entra wants more (MFA, a consent, another tenant): it is taken as written. -> (why, fix)"""
+    lines = [ln.strip() for ln in (stderr or "").splitlines() if ln.strip()]
+    said = next((ln for ln in lines if ln.startswith("az login")), "")  # the command az suggests, on a line of its own
+    why = next((ln for ln in lines if re.search(r"AADSTS\d+|interaction_required|expired|consent|No subscription|"
+                                                r"az login|ERROR", ln, re.I)), lines[0] if lines else "az gave no reason")
+    why = re.sub(r"^ERROR:\s*", "", why)
+    if said and said != "az login":
+        return why, said
+    if re.search(r"AADSTS(50076|50079|50158|53003|65001)|interaction_required|multi-factor|consent", " ".join(lines), re.I):
+        return why, SCOPE_LOGIN  # the sign-in has to ask for Azure DevOps itself: plain az login does not
+    return why, "az login" if not lines or any("az login" in ln for ln in lines) else SCOPE_LOGIN
 
 
 def die(msg, code=2):
@@ -297,9 +319,10 @@ class Ado:
             raise Refused("Azure CLI (az) not found and no PAT in AZURE_DEVOPS_EXT_PAT. Run `az login`, "
                           "or use the Azure DevOps MCP tools as the skill's fallback says.")
         r = subprocess.run([az, "account", "get-access-token", "--resource", ADO_RESOURCE, "--query",
-                            "accessToken", "-o", "tsv"], capture_output=True, text=True)
+                            "accessToken", "-o", "tsv"], capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode != 0 or not r.stdout.strip():
-            raise Refused("could not get an ADO token from az. Run: az login")
+            why, fix = az_token_failure(r.stderr)
+            raise Refused(f"could not get an Azure DevOps token from az: {why[:160]}. Run: {fix}", fix)
         self._auth = "Bearer " + r.stdout.strip()
         return self._auth
 

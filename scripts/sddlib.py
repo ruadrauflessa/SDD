@@ -354,6 +354,23 @@ def developer():
 _token = None
 
 
+def az_token_failure(stderr):
+    """Why `az account get-access-token` gave no Azure DevOps token, and the command that mends it. az names that
+    command itself when Entra wants more (MFA, a consent, another tenant): it is taken as written. -> (why, fix)
+    (devops/scripts/devopslib.py keeps the same function: the plugins stand alone.)"""
+    lines = [ln.strip() for ln in (stderr or "").splitlines() if ln.strip()]
+    said = next((ln for ln in lines if ln.startswith("az login")), "")  # the command az suggests, on a line of its own
+    why = next((ln for ln in lines if re.search(r"AADSTS\d+|interaction_required|expired|consent|No subscription|"
+                                                r"az login|ERROR", ln, re.I)), lines[0] if lines else "az gave no reason")
+    why = re.sub(r"^ERROR:\s*", "", why)
+    scope = f"az login --scope {ADO_RESOURCE}/.default"
+    if said and said != "az login":
+        return why, said
+    if re.search(r"AADSTS(50076|50079|50158|53003|65001)|interaction_required|multi-factor|consent", " ".join(lines), re.I):
+        return why, scope  # the sign-in has to ask for Azure DevOps itself: plain az login does not
+    return why, "az login" if not lines or any("az login" in ln for ln in lines) else scope
+
+
 def token():
     global _token
     if _token:
@@ -362,9 +379,10 @@ def token():
     if not az:
         die("Azure CLI (az) not found. Install it and run: az login")
     r = subprocess.run([az, "account", "get-access-token", "--resource", ADO_RESOURCE,
-                        "--query", "accessToken", "-o", "tsv"], capture_output=True, text=True)
+                        "--query", "accessToken", "-o", "tsv"], capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0 or not r.stdout.strip():
-        die("could not get an ADO token from az. Run: az login\n" + r.stderr.strip())
+        why, fix = az_token_failure(r.stderr)
+        die(f"could not get an Azure DevOps token from az: {why[:240]}\nRun this in a terminal, then try again: {fix}")
     _token = r.stdout.strip()
     return _token
 
